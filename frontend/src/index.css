@@ -1,0 +1,160 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* Dark (default) — carbón casi negro + dorado vibrante */
+@theme {
+  --color-asphalt: #0D0D0C;
+  --color-panel: #171512;
+  --color-panel-light: #221F1B;
+  --color-mustard: #F0BE52;
+  --color-alert: #C4453A;
+  --color-available: #6FBF7E;
+  --color-warning: #E8C547;
+  --color-info: #4D8FDB;
+  --color-cream: #F2EFEA;
+  --color-muted: #9B9385;
+
+  --font-sans: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --radius-pill: 999px;
+  --radius-card: 10px;
+}
+
+/* Light — el gris cálido de la web, no blanco puro, con texto casi negro */
+[data-theme='light'] {
+  --color-asphalt: #EDE9E1;
+  --color-panel: #FBF9F5;
+  --color-panel-light: #E4DFD3;
+  --color-mustard: #C99A2E;
+  --color-alert: #B23A30;
+  --color-available: #4F7D5C;
+  --color-warning: #A9812A;
+  --color-info: #2F63A8;
+  --color-cream: #1A1815;
+  --color-muted: #6B6459;
+}
+
+/* Medianoche — variante oscura con acento azul vívido */
+[data-theme='midnight'] {
+  --color-asphalt: #0B0F14;
+  --color-panel: #131A22;
+  --color-panel-light: #1C2530;
+  --color-mustard: #4FA8F0;
+  --color-alert: #E0605A;
+  --color-available: #6FBF8B;
+  --color-warning: #E8C547;
+  --color-info: #7CB4E8;
+  --color-cream: #EAF2F8;
+  --color-muted: #7C8896;
+}
+
+/* Arena — variante clara con acento terracota vívido */
+[data-theme='sand'] {
+  --color-asphalt: #F5EFE6;
+  --color-panel: #FFFFFF;
+  --color-panel-light: #EDE3D3;
+  --color-mustard: #D97A22;
+  --color-alert: #B23A30;
+  --color-available: #4F7D5C;
+  --color-warning: #A9812A;
+  --color-info: #2F63A8;
+  --color-cream: #2A211A;
+  --color-muted: #7A6F5F;
+}
+
+/* Dinosaurios — verde selva oscuro + ámbar vívido */
+[data-theme='dino'] {
+  --color-asphalt: #0F1710;
+  --color-panel: #182219;
+  --color-panel-light: #233022;
+  --color-mustard: #F2903F;
+  --color-alert: #D1554A;
+  --color-available: #7AAE5C;
+  --color-warning: #D9A93D;
+  --color-info: #4F9E8F;
+  --color-cream: #EFEDE0;
+  --color-muted: #8B9382;
+}
+
+/* Bordo — vino oscuro, acento rosado vívido */
+[data-theme='bordo'] {
+  --color-asphalt: #1A0D10;
+  --color-panel: #241318;
+  --color-panel-light: #341A20;
+  --color-mustard: #E88BA0;
+  --color-alert: #D65C56;
+  --color-available: #6FA37E;
+  --color-warning: #D3A15A;
+  --color-info: #7C93C9;
+  --color-cream: #F3E9EA;
+  --color-muted: #9C7E83;
+}
+
+/* Tamagotchi — pantalla LCD retro + rosa chicle vívido */
+[data-theme='tamagotchi'] {
+  --color-asphalt: #12181A;
+  --color-panel: #1A2226;
+  --color-panel-light: #243034;
+  --color-mustard: #FF6FB0;
+  --color-alert: #E85D5D;
+  --color-available: #6FD9B8;
+  --color-warning: #F2D24E;
+  --color-info: #6FC6E8;
+  --color-cream: #EAF6F2;
+  --color-muted: #7C9490;
+}
+
+/* Pastel — claro, suave, acento un poco más presente para contraste */
+[data-theme='pastel'] {
+  --color-asphalt: #F3EEF7;
+  --color-panel: #FDFCFE;
+  --color-panel-light: #EAE0F0;
+  --color-mustard: #A971C4;
+  --color-alert: #C2637A;
+  --color-available: #5FA087;
+  --color-warning: #B08A42;
+  --color-info: #5D84B0;
+  --color-cream: #2B2530;
+  --color-muted: #8B8394;
+}
+
+/* Morado — violeta oscuro con acento lavanda vívido */
+[data-theme='morado'] {
+  --color-asphalt: #140E1C;
+  --color-panel: #1E1528;
+  --color-panel-light: #2B1E3A;
+  --color-mustard: #A87EF0;
+  --color-alert: #E0685E;
+  --color-available: #6FBF9B;
+  --color-warning: #E0C24E;
+  --color-info: #8BA9E8;
+  --color-cream: #F1EDF7;
+  --color-muted: #9186A8;
+}
+
+/* Claude Design — paleta exacta del mockup de prueba: negro puro,
+   amarillo saturado, sin el tinte cálido de nuestro "dark" */
+[data-theme='claudedesign'] {
+  --color-asphalt: #0A0A0A;
+  --color-panel: #141414;
+  --color-panel-light: #1F1F1F;
+  --color-mustard: #F2C518;
+  --color-alert: #E5484D;
+  --color-available: #3DBD5D;
+  --color-warning: #F2C518;
+  --color-info: #4D8FDB;
+  --color-cream: #F5F5F5;
+  --color-muted: #8C8C8C;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-asphalt);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+}
+
+body,
+* {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}

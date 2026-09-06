@@ -31,6 +31,8 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
       return c.assignedOperatorId === null
     case 'snoozed':
       return isSnoozed(c)
+    case 'my_history':
+      return true // se resuelve con su propia consulta, no por esta función
   }
 }
 
@@ -73,6 +75,7 @@ export default function Inbox({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [allHistoryResults, setAllHistoryResults] = useState<Conversation[] | null>(null)
+  const [myHistoryResults, setMyHistoryResults] = useState<Conversation[] | null>(null)
   const [allHistoryLoading, setAllHistoryLoading] = useState(false)
   const [operators, setOperators] = useState<Operator[]>([])
   const [showSimulator, setShowSimulator] = useState(false)
@@ -208,6 +211,50 @@ export default function Inbox({
     return () => clearTimeout(timeout)
   }, [searchQuery])
 
+  // "Todos" trae de verdad todo, incluidas las cerradas — la consulta
+  // base de arranque las excluye a propósito (por rendimiento), así que
+  // esta pestaña necesita su propia consulta aparte.
+  useEffect(() => {
+    if (filter.kind !== 'all') {
+      setAllHistoryResults(null)
+      return
+    }
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(300)
+      .then(({ data }) => setAllHistoryResults((data ?? []).map(mapConversation)))
+  }, [filter.kind])
+
+  // "Mis respuestas": conversaciones donde YO mandé al menos un mensaje
+  // alguna vez, más allá de que hoy estén asignadas a otro operador,
+  // sin asignar, o cerradas — por eso tampoco alcanza con la lista base.
+  useEffect(() => {
+    if (filter.kind !== 'my_history' || !operatorId) {
+      setMyHistoryResults(null)
+      return
+    }
+    supabase
+      .from('messages')
+      .select('conversation_id')
+      .eq('sender_operator_id', operatorId)
+      .then(async ({ data: msgs }) => {
+        const ids = Array.from(new Set((msgs ?? []).map((m) => m.conversation_id).filter(Boolean)))
+        if (ids.length === 0) {
+          setMyHistoryResults([])
+          return
+        }
+        const { data } = await supabase
+          .from('conversations')
+          .select(CONVERSATION_SELECT)
+          .in('id', ids)
+          .order('last_message_at', { ascending: false, nullsFirst: false })
+          .limit(300)
+        setMyHistoryResults((data ?? []).map(mapConversation))
+      })
+  }, [filter.kind, operatorId])
+
   const unreadTotal = conversations.filter((c) => c.unread).length
 
   const visibleConversations = useMemo(() => {
@@ -217,10 +264,13 @@ export default function Inbox({
     if (filter.kind === 'all') {
       return allHistoryResults ?? []
     }
+    if (filter.kind === 'my_history') {
+      return myHistoryResults ?? []
+    }
     return conversations
       .filter((c) => (filter.kind === 'snoozed' ? true : !isSnoozed(c)))
       .filter((c) => matchesFilter(c, filter, operatorId))
-  }, [conversations, filter, searchQuery, searchResults, allHistoryResults, operatorId])
+  }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, operatorId])
 
   // Actualiza tanto la lista principal como los resultados de búsqueda a
   // la vez — así una acción sobre un resultado de búsqueda (que puede no

@@ -594,28 +594,24 @@ export default function ConversationsView({
 
       const { data: urlData } = supabase.storage.from('attachments').getPublicUrl(path)
 
-      const { data: inserted, error: insertError } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: selectedId,
-          sender_type: 'operator',
-          sender_operator_id: operatorId,
-          content: textToSend || null,
-          attachment_url: urlData.publicUrl,
-          attachment_name: attachmentToSend.name,
-          attachment_kind: attachmentToSend.kind,
-          sent_via_channel: sendChannel,
-        })
-        .select('id')
-        .single()
+      const { data, error } = await supabase.functions.invoke('send-message', {
+        body: {
+          conversationId: selectedId,
+          channel: sendChannel,
+          text: textToSend,
+          attachmentUrl: urlData.publicUrl,
+          attachmentName: attachmentToSend.name,
+          attachmentKind: attachmentToSend.kind,
+        },
+      })
 
-      if (insertError) {
+      if (error || data?.error) {
         markThreadStatus(tempId, { status: 'failed' })
-        setSendError('No se pudo enviar: ' + insertError.message)
+        setSendError(await getFunctionErrorMessage(error, data))
         return
       }
 
-      markThreadStatus(tempId, { id: inserted.id, status: 'sent' })
+      markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
         body: { conversationId: selectedId, channel: sendChannel, text: textToSend },

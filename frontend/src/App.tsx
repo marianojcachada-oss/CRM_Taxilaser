@@ -141,8 +141,20 @@ function AppContent() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: 'sender_type=eq.contact' },
-        (payload) => {
+        async (payload) => {
           if (muted) return
+
+          // Solo suena si el mensaje cayó en una conversación asignada A
+          // MÍ — no es un sonido universal para todo el equipo por cada
+          // mensaje que entra, sea de quien sea.
+          const { data: conv } = await supabase
+            .from('conversations')
+            .select('assigned_operator_id')
+            .eq('id', payload.new.conversation_id)
+            .maybeSingle()
+
+          if (conv?.assigned_operator_id !== operatorId) return
+
           playNotificationSound()
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('Mensaje nuevo', { body: String(payload.new.content ?? '').slice(0, 120) })
@@ -154,7 +166,7 @@ function AppContent() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [session, muted])
+  }, [session, muted, operatorId])
 
   useEffect(() => {
     if (theme === 'dark') {

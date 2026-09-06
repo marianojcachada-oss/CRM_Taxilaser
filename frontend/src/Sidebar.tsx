@@ -6,6 +6,9 @@ import {
   UserCheck,
   CircleDashed,
   Clock3,
+  ChevronsLeft,
+  ChevronsRight,
+  History,
 } from 'lucide-react'
 import type { Conversation, Channel } from './ConversationsView'
 
@@ -16,6 +19,7 @@ export type FilterValue =
   | { kind: 'mine'; channel?: Channel }
   | { kind: 'unassigned'; channel?: Channel }
   | { kind: 'snoozed'; channel?: Channel }
+  | { kind: 'my_history'; channel?: Channel }
 
 const teams = ['Dispatchers', 'Managers']
 
@@ -83,8 +87,39 @@ export default function Sidebar({
     )
   }
 
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+
+  function toggleCollapsed() {
+    setCollapsed((v) => {
+      const next = !v
+      localStorage.setItem('sidebarCollapsed', String(next))
+      return next
+    })
+  }
+
+  if (collapsed) {
+    return (
+      <aside className="flex w-12 shrink-0 flex-col items-center border-r border-panel-light bg-panel py-4">
+        <button
+          onClick={toggleCollapsed}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-panel-light hover:text-mustard"
+          title="Expandir el menú"
+        >
+          <ChevronsRight size={16} />
+        </button>
+      </aside>
+    )
+  }
+
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-panel-light bg-panel px-3 py-4">
+      <button
+        onClick={toggleCollapsed}
+        className="mb-1 flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs text-muted hover:bg-panel-light hover:text-mustard"
+        title="Contraer el menú"
+      >
+        <ChevronsLeft size={14} /> Contraer
+      </button>
       <div>
         <GroupHeader label="Bandejas" />
 
@@ -130,6 +165,14 @@ export default function Sidebar({
             <Clock3 size={15} /> Pendientes
           </span>
           <CountText n={pendingCount} active={view === 'inbox' && filter.kind === 'pending'} />
+        </button>
+        <button
+          onClick={() => onSelectFilter({ kind: 'my_history' })}
+          className={itemClass(view === 'inbox' && filter.kind === 'my_history')}
+        >
+          <span className="flex items-center gap-2">
+            <History size={15} /> Mis respuestas
+          </span>
         </button>
       </div>
 

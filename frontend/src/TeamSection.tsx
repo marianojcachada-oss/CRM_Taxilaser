@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { UserPlus, Pencil, UserX, UserCheck, Check, X, Upload } from 'lucide-react'
+import { useEffect, useState, Fragment } from 'react'
+import { UserPlus, Pencil, UserX, UserCheck, Trash2, Check, X, Upload } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { getFunctionErrorMessage } from './functionsError'
 
@@ -31,8 +31,11 @@ export default function TeamSection() {
   const [editCode, setEditCode] = useState('')
   const [editIsAdmin, setEditIsAdmin] = useState(false)
   const [editMaxCapacity, setEditMaxCapacity] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPassword, setEditPassword] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const [showBulk, setShowBulk] = useState(false)
   const [bulkText, setBulkText] = useState('')
@@ -84,6 +87,8 @@ export default function TeamSection() {
     setEditCode(op.operator_code ?? '')
     setEditIsAdmin(op.is_admin)
     setEditMaxCapacity(op.max_capacity?.toString() ?? '')
+    setEditEmail('')
+    setEditPassword('')
   }
 
   async function saveEdit(id: string) {
@@ -97,6 +102,24 @@ export default function TeamSection() {
         max_capacity: editMaxCapacity.trim() ? Number(editMaxCapacity) : null,
       })
       .eq('id', id)
+
+    // Email y contraseña viven en Auth, no en esta tabla — solo se
+    // tocan si el admin cargó alguno de los dos.
+    if (!error && (editEmail.trim() || editPassword.trim())) {
+      const { data: credData, error: credError } = await supabase.functions.invoke('update-operator-credentials', {
+        body: {
+          operator_id: id,
+          email: editEmail.trim() || undefined,
+          password: editPassword.trim() || undefined,
+        },
+      })
+      if (credError || credData?.error) {
+        setSavingEdit(false)
+        alert('Se guardó el resto, pero no el email/contraseña: ' + (await getFunctionErrorMessage(credError, credData)))
+        return
+      }
+    }
+
     setSavingEdit(false)
 
     if (error) {
@@ -148,6 +171,25 @@ export default function TeamSection() {
 
     if (error || data?.error) {
       alert('No se pudo reactivar: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
+    load()
+  }
+
+  async function handleDeletePermanently(op: Operator) {
+    const confirmed = confirm(
+      `¿Eliminar a ${op.full_name} POR COMPLETO? Esto borra también su historial de auditoría (queda como "actor desconocido") — no se puede deshacer. Si solo querés cortarle el acceso, usá "Desactivar" en vez de esto.`,
+    )
+    if (!confirmed) return
+
+    setDeletingId(op.id)
+    const { data, error } = await supabase.functions.invoke('delete-operator-permanently', {
+      body: { operator_id: op.id },
+    })
+    setDeletingId(null)
+
+    if (error || data?.error) {
+      alert('No se pudo eliminar: ' + (await getFunctionErrorMessage(error, data)))
       return
     }
     load()
@@ -313,7 +355,8 @@ export default function TeamSection() {
             )}
             {operators.map((op) =>
               editingId === op.id ? (
-                <tr key={op.id} className="border-b border-panel-light/60 bg-panel-light/40 last:border-0">
+                <Fragment key={op.id}>
+                <tr className="border-b border-panel-light/60 bg-panel-light/40">
                   <td className="px-4 py-2.5">
                     <input
                       value={editName}
@@ -369,6 +412,31 @@ export default function TeamSection() {
                     </div>
                   </td>
                 </tr>
+                <tr className="border-b border-panel-light/60 bg-panel-light/40 last:border-0">
+                  <td colSpan={6} className="px-4 py-2.5">
+                    <p className="mb-1.5 text-[11px] text-muted">
+                      Cambiar email o contraseña — dejá en blanco lo que no quieras tocar.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        placeholder="Nuevo email (opcional)"
+                        className="w-56 rounded-sm border border-panel-light bg-asphalt px-2 py-1 text-xs text-cream outline-none focus:border-mustard"
+                      />
+                      <input
+                        type="text"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        placeholder="Nueva contraseña (opcional)"
+                        minLength={6}
+                        className="w-56 rounded-sm border border-panel-light bg-asphalt px-2 py-1 text-xs text-cream outline-none focus:border-mustard"
+                      />
+                    </div>
+                  </td>
+                </tr>
+                </Fragment>
               ) : (
                 <tr key={op.id} className={`border-b border-panel-light/60 last:border-0 ${!op.is_active ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2.5">
@@ -438,6 +506,14 @@ export default function TeamSection() {
                           <UserCheck size={12} />
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeletePermanently(op)}
+                        disabled={deletingId === op.id}
+                        className="flex h-7 w-7 items-center justify-center rounded-sm border border-panel-light text-muted hover:border-alert hover:text-alert disabled:opacity-50"
+                        title="Eliminar por completo (borra también el historial de auditoría)"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   </td>
                 </tr>

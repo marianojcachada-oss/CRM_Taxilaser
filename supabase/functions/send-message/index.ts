@@ -39,10 +39,10 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { conversationId, channel, text } = await req.json();
+  const { conversationId, channel, text, attachmentUrl, attachmentName, attachmentKind } = await req.json();
 
-  if (!conversationId || !channel || !text) {
-    return new Response(JSON.stringify({ error: "Faltan conversationId, channel o text" }), {
+  if (!conversationId || !channel || (!text && !attachmentUrl)) {
+    return new Response(JSON.stringify({ error: "Faltan conversationId, channel, y text o attachmentUrl" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -93,7 +93,20 @@ Deno.serve(async (req) => {
   try {
     if (channel === "sms") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
-      await sendSms(phone, text);
+
+      if (attachmentUrl) {
+        // RingCentral necesita los bytes de verdad para un MMS — bajamos
+        // el archivo de nuestro propio Storage antes de mandarlo.
+        const fileRes = await fetch(attachmentUrl);
+        if (!fileRes.ok) throw new Error("No se pudo descargar el adjunto para mandarlo por SMS");
+        const bytes = new Uint8Array(await fileRes.arrayBuffer());
+        const mimeType = fileRes.headers.get("content-type") ?? "application/octet-stream";
+        const filename = attachmentName || "adjunto";
+
+        await sendSms(phone, text ?? "", { bytes, filename, mimeType });
+      } else {
+        await sendSms(phone, text);
+      }
     } else if (channel === "whatsapp") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
 
@@ -110,18 +123,38 @@ Deno.serve(async (req) => {
       // WhatsApp espera el teléfono sin "+" y sin espacios
       const toNumber = phone.replace(/[^\d]/g, "");
 
+      let body: Record<string, unknown>;
+
+      if (attachmentUrl) {
+        // Meta acepta mandar el adjunto directo por URL pública (link),
+        // sin tener que subirlo antes a sus servidores — nuestro Storage
+        // ya lo sirve público, así que alcanza con esto.
+        const mediaType = attachmentKind === "image" ? "image" : attachmentKind === "audio" ? "audio" : "document";
+        body = {
+          messaging_product: "whatsapp",
+          to: toNumber,
+          type: mediaType,
+          [mediaType]:
+            mediaType === "document"
+              ? { link: attachmentUrl, filename: attachmentName || "archivo", caption: text || undefined }
+              : { link: attachmentUrl, caption: mediaType === "image" ? text || undefined : undefined },
+        };
+      } else {
+        body = {
+          messaging_product: "whatsapp",
+          to: toNumber,
+          type: "text",
+          text: { body: text },
+        };
+      }
+
       const res = await fetch(`https://graph.facebook.com/v26.0/${phoneNumberId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${metaToken}`,
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: toNumber,
-          type: "text",
-          text: { body: text },
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -146,8 +179,11 @@ Deno.serve(async (req) => {
         conversation_id: conversationId,
         sender_type: "operator",
         sender_operator_id: operator.id,
-        content: text,
+        content: text || null,
         sent_via_channel: channel,
+        attachment_url: attachmentUrl || null,
+        attachment_name: attachmentName || null,
+        attachment_kind: attachmentKind || null,
       })
       .select("id")
       .single();

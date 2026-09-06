@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
 import type { Conversation } from './ConversationsView'
 import CommandCenterSection from './CommandCenterSection'
@@ -57,51 +57,63 @@ type Props = {
 
 export default function AdminPanel({ theme, onChangeTheme, operatorName, onBack, conversations }: Props) {
   const [active, setActive] = useState<Section>('command-center')
+  const [showMobileNav, setShowMobileNav] = useState(false)
 
   return (
     <div className="flex h-screen bg-asphalt text-cream">
       {/* Sidebar */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
-        <div className="border-b border-panel-light px-4 py-3">
-          <button
-            onClick={onBack}
-            className="mb-2 flex items-center gap-1 text-xs text-muted transition-colors hover:text-mustard"
-          >
-            <ArrowLeft size={13} /> Volver a mensajería
-          </button>
-          <span className="text-sm font-semibold tracking-tight text-mustard">Panel Admin</span>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto py-2">
-          {navItems.map((item) => (
+      <div className={`${showMobileNav ? 'fixed inset-0 z-40 flex' : 'hidden'} md:static md:z-auto md:flex`}>
+        <aside className="flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
+          <div className="border-b border-panel-light px-4 py-3">
             <button
-              key={item.id}
-              onClick={() => setActive(item.id)}
-              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                active === item.id
-                  ? 'bg-panel-light text-mustard'
-                  : 'text-muted hover:bg-panel-light/60 hover:text-cream'
-              }`}
+              onClick={onBack}
+              className="mb-2 flex items-center gap-1 text-xs text-muted transition-colors hover:text-mustard"
             >
-              <span>{item.emoji}</span>
-              {item.label}
+              <ArrowLeft size={13} /> Volver a mensajería
             </button>
-          ))}
-        </nav>
+            <span className="text-sm font-semibold tracking-tight text-mustard">Panel Admin</span>
+          </div>
 
-        <div className="border-t border-panel-light px-4 py-3 text-xs text-muted">{operatorName}</div>
-      </aside>
+          <nav className="flex-1 overflow-y-auto py-2">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActive(item.id)
+                  setShowMobileNav(false)
+                }}
+                className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
+                  active === item.id
+                    ? 'bg-panel-light text-mustard'
+                    : 'text-muted hover:bg-panel-light/60 hover:text-cream'
+                }`}
+              >
+                <span>{item.emoji}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="border-t border-panel-light px-4 py-3 text-xs text-muted">{operatorName}</div>
+        </aside>
+        <div onClick={() => setShowMobileNav(false)} className="flex-1 bg-black/50 md:hidden" />
+      </div>
 
       {/* Contenido */}
       <main className="flex-1 overflow-y-auto">
-        <header className="flex items-center justify-between border-b border-panel-light bg-panel px-6 py-3">
-          <h1 className="text-sm font-medium text-cream">
-            {navItems.find((n) => n.id === active)?.emoji} {navItems.find((n) => n.id === active)?.label}
-          </h1>
+        <header className="flex items-center justify-between border-b border-panel-light bg-panel px-4 py-3 md:px-6">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowMobileNav(true)} className="text-cream md:hidden">
+              <Menu size={20} />
+            </button>
+            <h1 className="text-sm font-medium text-cream">
+              {navItems.find((n) => n.id === active)?.emoji} {navItems.find((n) => n.id === active)?.label}
+            </h1>
+          </div>
           <ThemePicker theme={theme} onChangeTheme={onChangeTheme} />
         </header>
 
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}

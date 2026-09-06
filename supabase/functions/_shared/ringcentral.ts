@@ -75,10 +75,16 @@ export async function getRingCentralAccessToken(): Promise<string> {
   return data.access_token as string;
 }
 
-// Envío de SMS real, reutilizable desde cualquier función (send-message,
-// el webhook de TaxiCaller, etc.) — no duplica la lógica de armar el
-// pedido a la API de RingCentral en cada lugar que necesita mandar un SMS.
-export async function sendSms(phone: string, text: string): Promise<void> {
+// Envío de SMS (o MMS, si viene con adjunto) real, reutilizable desde
+// cualquier función. Un MMS necesita un formato de pedido distinto al
+// SMS de solo texto — multipart/mixed, con la parte JSON primero y el
+// archivo después — no el multipart/form-data común que arma FormData
+// solo, así que hay que armarlo a mano.
+export async function sendSms(
+  phone: string,
+  text: string,
+  attachment?: { bytes: Uint8Array; filename: string; mimeType: string },
+): Promise<void> {
   const settings = await getSettings(["RINGCENTRAL_SERVER_URL", "RINGCENTRAL_EXTENSION_ID", "RINGCENTRAL_FROM_NUMBER"]);
   const rcServer = settings.RINGCENTRAL_SERVER_URL ?? "https://platform.ringcentral.com";
   const extensionId = settings.RINGCENTRAL_EXTENSION_ID || "~";
@@ -89,19 +95,58 @@ export async function sendSms(phone: string, text: string): Promise<void> {
   }
 
   const accessToken = await getRingCentralAccessToken();
+  const url = `${rcServer}/restapi/v1.0/account/~/extension/${extensionId}/sms`;
 
-  const res = await fetch(`${rcServer}/restapi/v1.0/account/~/extension/${extensionId}/sms`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
+  let res: Response;
+
+  if (attachment) {
+    const boundary = `----rc${crypto.randomUUID().replace(/-/g, "")}`;
+    const payload = JSON.stringify({
       from: { phoneNumber: fromNumber },
       to: [{ phoneNumber: phone }],
       text,
-    }),
-  });
+    });
+
+    const encoder = new TextEncoder();
+    const parts: Uint8Array[] = [
+      encoder.encode(`--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n`),
+      encoder.encode(
+        `--${boundary}\r\nContent-Type: ${attachment.mimeType}\r\nContent-Disposition: attachment; filename="${attachment.filename}"\r\n\r\n`,
+      ),
+      attachment.bytes,
+      encoder.encode(`\r\n--${boundary}--`),
+    ];
+
+    const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+    const body = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of parts) {
+      body.set(part, offset);
+      offset += part.length;
+    }
+
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/mixed; boundary=${boundary}`,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body,
+    });
+  } else {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        from: { phoneNumber: fromNumber },
+        to: [{ phoneNumber: phone }],
+        text,
+      }),
+    });
+  }
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));

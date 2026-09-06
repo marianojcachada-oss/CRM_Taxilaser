@@ -565,3 +565,36 @@ entrypoint = "./functions/delete-operator/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/delete-operator/*.html" ]
+
+[functions.deactivate-operator]
+enabled = true
+verify_jwt = false
+import_map = "./functions/deactivate-operator/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/deactivate-operator/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/deactivate-operator/*.html" ]
+
+[functions.reactivate-operator]
+enabled = true
+verify_jwt = false
+import_map = "./functions/reactivate-operator/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/reactivate-operator/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/reactivate-operator/*.html" ]
+
+[functions.bulk-create-operators]
+enabled = true
+verify_jwt = false
+import_map = "./functions/bulk-create-operators/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/bulk-create-operators/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/bulk-create-operators/*.html" ]

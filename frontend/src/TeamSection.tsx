@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { UserPlus, Pencil, Trash2, Check, X } from 'lucide-react'
+import { UserPlus, Pencil, UserX, UserCheck, Check, X, Upload } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { getFunctionErrorMessage } from './functionsError'
 
@@ -11,6 +11,7 @@ type Operator = {
   max_capacity: number | null
   current_load: number
   is_admin: boolean
+  is_active: boolean
 }
 
 export default function TeamSection() {
@@ -31,7 +32,12 @@ export default function TeamSection() {
   const [editIsAdmin, setEditIsAdmin] = useState(false)
   const [editMaxCapacity, setEditMaxCapacity] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  const [showBulk, setShowBulk] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkResults, setBulkResults] = useState<{ email: string; success: boolean; error?: string }[] | null>(null)
 
   useEffect(() => {
     load()
@@ -41,7 +47,7 @@ export default function TeamSection() {
     setLoading(true)
     supabase
       .from('operators')
-      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin')
+      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_active')
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setOperators(data ?? [])
@@ -114,22 +120,70 @@ export default function TeamSection() {
     load()
   }
 
-  async function handleDelete(op: Operator) {
+  async function handleDeactivate(op: Operator) {
     const confirmed = confirm(
-      `¿Eliminar a ${op.full_name}? Se libera todo lo que tenga asignado y se borra su acceso — esta acción no se puede deshacer.`,
+      `¿Desactivar a ${op.full_name}? Se libera todo lo que tenga asignado y se le bloquea el acceso — pero su historial se conserva, y podés reactivarlo cuando quieras.`,
     )
     if (!confirmed) return
 
-    setDeletingId(op.id)
-    const { data, error } = await supabase.functions.invoke('delete-operator', {
+    setTogglingId(op.id)
+    const { data, error } = await supabase.functions.invoke('deactivate-operator', {
       body: { operator_id: op.id },
     })
-    setDeletingId(null)
+    setTogglingId(null)
 
     if (error || data?.error) {
-      alert('No se pudo eliminar: ' + (await getFunctionErrorMessage(error, data)))
+      alert('No se pudo desactivar: ' + (await getFunctionErrorMessage(error, data)))
       return
     }
+    load()
+  }
+
+  async function handleReactivate(op: Operator) {
+    setTogglingId(op.id)
+    const { data, error } = await supabase.functions.invoke('reactivate-operator', {
+      body: { operator_id: op.id },
+    })
+    setTogglingId(null)
+
+    if (error || data?.error) {
+      alert('No se pudo reactivar: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
+    load()
+  }
+
+  function parseBulkRows() {
+    return bulkText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [full_name, email] = line.split(',').map((part) => part.trim())
+        return { full_name, email }
+      })
+      .filter((r) => r.full_name && r.email)
+  }
+
+  async function handleBulkSubmit() {
+    const rows = parseBulkRows()
+    if (rows.length === 0) {
+      alert('No encontré filas válidas — cada línea tiene que ser "Nombre, email@ejemplo.com"')
+      return
+    }
+
+    setBulkSaving(true)
+    setBulkResults(null)
+    const { data, error } = await supabase.functions.invoke('bulk-create-operators', {
+      body: { rows },
+    })
+    setBulkSaving(false)
+
+    if (error || data?.error) {
+      alert('No se pudo completar: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
+    setBulkResults(data.results)
     load()
   }
 
@@ -139,13 +193,54 @@ export default function TeamSection() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="flex items-center gap-1 rounded-sm bg-mustard px-3 py-1.5 text-xs font-medium text-asphalt hover:opacity-90"
-        >
-          <UserPlus size={13} /> {showForm ? 'Cancelar' : 'Agregar operador'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="flex items-center gap-1 rounded-sm bg-mustard px-3 py-1.5 text-xs font-medium text-asphalt hover:opacity-90"
+          >
+            <UserPlus size={13} /> {showForm ? 'Cancelar' : 'Agregar operador'}
+          </button>
+          <button
+            onClick={() => setShowBulk((v) => !v)}
+            className="flex items-center gap-1 rounded-sm border border-panel-light px-3 py-1.5 text-xs text-muted hover:border-mustard hover:text-mustard"
+          >
+            <Upload size={13} /> {showBulk ? 'Cancelar' : 'Carga masiva'}
+          </button>
+        </div>
       </div>
+
+      {showBulk && (
+        <div className="rounded-sm border border-panel-light bg-panel p-4">
+          <p className="mb-2 text-xs text-muted">
+            Una línea por operador, separando nombre y email con una coma. A cada uno le llega un correo
+            para que elija su propia contraseña — nadie tiene que compartir ninguna.
+          </p>
+          <textarea
+            rows={6}
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            placeholder={'Juan Pérez, juan@taxilaserllc.com\nMaría Gómez, maria@taxilaserllc.com'}
+            className="w-full rounded-sm border border-panel-light bg-asphalt px-2.5 py-2 font-mono text-xs text-cream placeholder-muted outline-none focus:border-mustard"
+          />
+          <button
+            onClick={handleBulkSubmit}
+            disabled={bulkSaving}
+            className="mt-2 rounded-sm bg-mustard px-3 py-1.5 text-xs font-medium text-asphalt hover:opacity-90 disabled:opacity-50"
+          >
+            {bulkSaving ? 'Creando...' : `Crear ${parseBulkRows().length || ''} operadores`}
+          </button>
+
+          {bulkResults && (
+            <div className="mt-3 flex flex-col gap-1">
+              {bulkResults.map((r) => (
+                <p key={r.email} className={`text-xs ${r.success ? 'text-available' : 'text-alert'}`}>
+                  {r.success ? '✓' : '✗'} {r.email} {r.error ? `— ${r.error}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showForm && (
         <form onSubmit={handleCreate} className="rounded-sm border border-panel-light bg-panel p-4">
@@ -275,8 +370,15 @@ export default function TeamSection() {
                   </td>
                 </tr>
               ) : (
-                <tr key={op.id} className="border-b border-panel-light/60 last:border-0">
-                  <td className="px-4 py-2.5">{op.full_name}</td>
+                <tr key={op.id} className={`border-b border-panel-light/60 last:border-0 ${!op.is_active ? 'opacity-50' : ''}`}>
+                  <td className="px-4 py-2.5">
+                    {op.full_name}
+                    {!op.is_active && (
+                      <span className="ml-2 rounded-full border border-alert/40 px-2 py-0.5 text-[10px] text-alert">
+                        Desactivado
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted">{op.operator_code || '—'}</td>
                   <td className="px-4 py-2.5">
                     <button
@@ -317,14 +419,25 @@ export default function TeamSection() {
                       >
                         <Pencil size={12} />
                       </button>
-                      <button
-                        onClick={() => handleDelete(op)}
-                        disabled={deletingId === op.id}
-                        className="flex h-7 w-7 items-center justify-center rounded-sm border border-alert/40 text-alert hover:bg-alert/10 disabled:opacity-50"
-                        title="Eliminar"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {op.is_active ? (
+                        <button
+                          onClick={() => handleDeactivate(op)}
+                          disabled={togglingId === op.id}
+                          className="flex h-7 w-7 items-center justify-center rounded-sm border border-alert/40 text-alert hover:bg-alert/10 disabled:opacity-50"
+                          title="Desactivar"
+                        >
+                          <UserX size={12} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleReactivate(op)}
+                          disabled={togglingId === op.id}
+                          className="flex h-7 w-7 items-center justify-center rounded-sm border border-available/40 text-available hover:bg-available/10 disabled:opacity-50"
+                          title="Reactivar"
+                        >
+                          <UserCheck size={12} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

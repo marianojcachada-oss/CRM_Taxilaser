@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText,
@@ -17,6 +17,7 @@ export type ConversationStatus =
   | 'esperando_informacion'
   | 'esperando_cliente'
   | 'reclamo'
+  | 'cancelacion'
   | 'cerrada'
 
 export const statusConfig: Record<ConversationStatus, { emoji: string; label: string; color: string }> = {
@@ -24,6 +25,7 @@ export const statusConfig: Record<ConversationStatus, { emoji: string; label: st
   esperando_informacion: { emoji: '🟡', label: 'Cliente esperando información', color: 'text-warning' },
   esperando_cliente: { emoji: '🔵', label: 'Esperando respuesta del cliente', color: 'text-info' },
   reclamo: { emoji: '🔴', label: 'Cliente enojado', color: 'text-alert' },
+  cancelacion: { emoji: '🟠', label: 'Posible cancelación', color: 'text-alert' },
   cerrada: { emoji: '⚫', label: 'Cerrada', color: 'text-muted' },
 }
 
@@ -43,20 +45,46 @@ export const channelAvatarColor: Record<Channel, string> = {
   sms: '#6B6459',
 }
 
-export function ChannelIcon({ channel, size = 14 }: { channel: Channel; size?: number }) {
+export function ChannelIcon({ channel, size = 14, color }: { channel: Channel; size?: number; color?: string }) {
   switch (channel) {
     case 'whatsapp':
-      return <SiWhatsapp size={size} color="#25D366" />
+      return <SiWhatsapp size={size} color={color ?? '#25D366'} />
     case 'facebook':
-      return <SiFacebook size={size} color="#1877F2" />
+      return <SiFacebook size={size} color={color ?? '#1877F2'} />
     case 'instagram':
-      return <SiInstagram size={size} color="#E1306C" />
+      return <SiInstagram size={size} color={color ?? '#E1306C'} />
     case 'sms':
-      return <MessageCircle size={size} color="#FF7A00" />
+      return <MessageCircle size={size} color={color ?? '#FF7A00'} />
   }
 }
 
-export type Operator = { id: string; full_name: string }
+export type Operator = { id: string; full_name: string; operator_code?: string | null }
+
+const urlPattern = /(https?:\/\/[^\s]+)/g
+
+function Linkify({ text }: { text: string }) {
+  const parts = text.split(urlPattern)
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-1 underline-offset-2 hover:opacity-80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  )
+}
 
 export type Conversation = {
   id: string
@@ -86,6 +114,9 @@ export type Conversation = {
   activeRideUnit?: string | null
   activeRideEtaMinutes?: number | null
   activeRideEtaReceivedAt?: string | null
+  activeRideStatus?: string | null
+  activeRideFare?: string | null
+  activeRideCompletedAt?: string | null
 }
 
 type AttachmentKind = 'image' | 'audio' | 'file'
@@ -141,14 +172,15 @@ type Props = {
   isAdmin: boolean
   theme: string
   filter: { kind: string; channel?: Channel }
-  onSelectFilter: (f: { kind: 'channel'; channel: Channel }) => void
+  onSelectFilter: (f: { kind: string; channel?: Channel }) => void
 }
 
 const filterTitle: Record<string, string> = {
-  new: 'Nuevas',
+  all: 'Todos',
+  new: 'Sin leer',
   pending: 'Pendientes',
   mine: 'Mías',
-  channel: 'Filtradas',
+  unassigned: 'Sin asignar',
   snoozed: 'Pospuestas',
 }
 
@@ -165,9 +197,19 @@ export default function ConversationsView({
 }: Props) {
   const toast = useToast()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // El canal (WA/FB/IG/SMS) es un recorte independiente de la bandeja
+  // (Mías/Pendientes/etc) — nunca reemplaza la cuenta de los demás
+  // canales, solo decide qué se muestra en la lista.
+  const displayedConversations = useMemo(
+    () => (filter.channel ? conversations.filter((c) => c.channel === filter.channel) : conversations),
+    [conversations, filter.channel],
+  )
   const [thread, setThread] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [templates, setTemplates] = useState<{ id: string; title: string; body: string }[]>([])
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null)
   const [recording, setRecording] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -185,6 +227,21 @@ export default function ConversationsView({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  useEffect(() => {
+    supabase
+      .from('message_templates')
+      .select('id, title, body')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setTemplates(data ?? []))
+  }, [])
+
+  function insertTemplate(body: string) {
+    const myCode = operators.find((o) => o.id === operatorId)?.operator_code
+    const withCode = body.replaceAll('{{codigo}}', myCode || '(sin código cargado)')
+    setDraft((prev) => (prev ? `${prev} ${withCode}` : withCode))
+    setShowTemplates(false)
+  }
 
   useEffect(() => {
     if (!conversations.some((c) => c.id === selectedId)) {
@@ -331,8 +388,10 @@ export default function ConversationsView({
   }
 
   async function reassign(newOperatorId: string) {
-    if (!selectedId) return
+    if (!selectedId || !selected) return
     const op = operators.find((o) => o.id === newOperatorId)
+    const previousOperatorId = selected.assignedOperatorId
+
     setConversations((prev) =>
       prev.map((c) =>
         c.id === selectedId
@@ -341,6 +400,16 @@ export default function ConversationsView({
       ),
     )
     await supabase.from('conversations').update({ assigned_operator_id: newOperatorId }).eq('id', selectedId)
+
+    // La reasignación manual también mueve carga real entre operadores —
+    // si no ajustamos esto acá, el contador de "carga actual" que usa el
+    // round robin para repartir de forma pareja queda desincronizado.
+    if (previousOperatorId && previousOperatorId !== newOperatorId) {
+      await supabase.rpc('decrement_operator_load', { operator_id: previousOperatorId })
+    }
+    if (newOperatorId !== previousOperatorId) {
+      await supabase.rpc('increment_operator_load', { operator_id: newOperatorId })
+    }
   }
 
   async function toggleKeepWithOperator() {
@@ -569,20 +638,25 @@ export default function ConversationsView({
         <div className="border-b border-panel-light px-4 py-3">
           <h2 className="text-base font-bold text-cream">{filterTitle[filter.kind] ?? 'Mensajes'}</h2>
           <p className="mt-0.5 text-xs text-muted">
-            {conversations.length} {conversations.length === 1 ? 'conversación' : 'conversaciones'}
+            {displayedConversations.length} {displayedConversations.length === 1 ? 'conversación' : 'conversaciones'}
             {filter.kind === 'mine' && ' · round robin activo'}
           </p>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <span className="rounded-full bg-mustard px-3 py-1 text-xs font-medium text-asphalt">
+            <button
+              onClick={() => onSelectFilter({ kind: filter.kind })}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                !filter.channel ? 'bg-mustard text-asphalt' : 'border border-panel-light text-muted hover:border-mustard hover:text-mustard'
+              }`}
+            >
               Todos {conversations.length}
-            </span>
+            </button>
             {allChannels.map((ch) => {
               const count = conversations.filter((c) => c.channel === ch).length
-              const active = filter.kind === 'channel' && filter.channel === ch
+              const active = filter.channel === ch
               return (
                 <button
                   key={ch}
-                  onClick={() => onSelectFilter({ kind: 'channel', channel: ch })}
+                  onClick={() => onSelectFilter(active ? { kind: filter.kind } : { kind: filter.kind, channel: ch })}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
                     active
                       ? 'border-mustard bg-mustard/10 text-mustard'
@@ -597,10 +671,10 @@ export default function ConversationsView({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversations.length === 0 && (
+          {displayedConversations.length === 0 && (
             <p className="p-4 text-sm text-muted">No hay conversaciones acá.</p>
           )}
-          {conversations.map((c) => (
+          {displayedConversations.map((c) => (
             <button
               key={c.id}
               onClick={() => {
@@ -608,15 +682,15 @@ export default function ConversationsView({
                 setShowEmoji(false)
                 setSendError(null)
               }}
-              className={`flex w-full items-start gap-3 border-b border-panel-light px-4 py-3 text-left transition-colors ${
-                c.id === selectedId ? 'bg-panel-light' : 'hover:bg-panel-light/60'
-              }`}
+              className={`flex w-full items-start gap-3 border-b border-l-2 border-panel-light px-4 py-3 text-left transition-colors ${
+                c.status === 'cancelacion' ? 'border-l-alert bg-alert/10 hover:bg-alert/15' : 'border-l-transparent'
+              } ${c.id === selectedId ? 'bg-panel-light' : 'hover:bg-panel-light/60'}`}
             >
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
                 style={{ backgroundColor: channelAvatarColor[c.channel] }}
               >
-                {c.name.slice(0, 2).toUpperCase()}
+                <ChannelIcon channel={c.channel} size={16} color="white" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
@@ -664,7 +738,7 @@ export default function ConversationsView({
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
                   style={{ backgroundColor: channelAvatarColor[selected.channel] }}
                 >
-                  {selected.name.slice(0, 2).toUpperCase()}
+                  <ChannelIcon channel={selected.channel} size={16} color="white" />
                 </span>
                 <div>
                   <p className="text-sm font-semibold text-cream">{selected.name}</p>
@@ -839,7 +913,7 @@ export default function ConversationsView({
                         🤖 Mensaje enviado automáticamente
                       </p>
                     )}
-                    {m.text && <p>{m.text}</p>}
+                    {m.text && <p>{<Linkify text={m.text} />}</p>}
 
                     {m.attachment && (
                       <div className="mt-2">
@@ -985,6 +1059,35 @@ export default function ConversationsView({
               >
                 <Smile size={18} />
               </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowTemplates((v) => !v)}
+                  className="shrink-0 text-muted transition-colors hover:text-mustard"
+                  title="Plantillas"
+                >
+                  <FileText size={18} />
+                </button>
+                {showTemplates && (
+                  <div className="absolute bottom-full left-0 z-10 mb-2 w-64 rounded-sm border border-panel-light bg-panel p-1.5 shadow-lg">
+                    {templates.length === 0 && (
+                      <p className="px-2 py-2 text-xs text-muted">No hay plantillas cargadas todavía.</p>
+                    )}
+                    {templates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => insertTemplate(t.body)}
+                        className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-cream hover:bg-panel-light"
+                      >
+                        <span className="font-medium">{t.title}</span>
+                        <span className="mt-0.5 block truncate text-muted">{t.body}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <button
                 type="button"

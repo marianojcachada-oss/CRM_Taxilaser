@@ -233,7 +233,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
               style={{ backgroundColor: hasName ? channelAvatarColor[conversation.channel] : '#4A4A4A' }}
             >
-              {hasName ? conversation.name.slice(0, 2).toUpperCase() : '?'}
+              {hasName ? <ChannelIcon channel={conversation.channel} size={18} color="white" /> : '?'}
             </span>
             <div className="min-w-0 flex-1">
               <h2 className="flex items-center gap-1.5 truncate font-medium">
@@ -338,7 +338,8 @@ export default function ContactPanel({ conversation, onClose }: Props) {
       )}
 
       {/* Estado del servicio — visible siempre, es información de seguridad
-          operativa (evitar duplicar carreras) */}
+          operativa (evitar duplicar carreras). Si el último servicio ya
+          terminó, se sigue mostrando su resumen en vez de desaparecer. */}
       <div
         className={`mb-4 rounded-sm border px-3 py-2.5 ${
           conversation.hasActiveRide ? 'border-warning/40 bg-warning/10' : 'border-panel-light bg-asphalt'
@@ -363,6 +364,43 @@ export default function ContactPanel({ conversation, onClose }: Props) {
                 (dijo ~{conversation.activeRideEtaMinutes} min en ese momento)
               </p>
             )}
+          </>
+        ) : conversation.activeRideStatus === 'completed' || conversation.activeRideStatus === 'cancelled' ? (
+          <>
+            <p
+              className={`flex items-center gap-1.5 text-sm font-medium ${
+                conversation.activeRideStatus === 'completed' ? 'text-available' : 'text-alert'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              {conversation.activeRideStatus === 'completed' ? 'Completado' : 'Cancelado'}
+              {conversation.activeRideCompletedAt &&
+                ` · ${new Date(conversation.activeRideCompletedAt).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}`}
+            </p>
+            <div className="mt-2.5 grid grid-cols-2 gap-2.5 text-xs">
+              <div>
+                <p className="text-muted">Unidad</p>
+                <p className="font-mono font-medium text-cream">
+                  {conversation.activeRideUnit?.split(' ')[0] || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">Vehículo</p>
+                <p className="text-cream">
+                  {conversation.activeRideUnit?.split(' ').slice(1).join(' ') || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">Tarifa</p>
+                <p className="font-mono font-medium text-cream">
+                  {conversation.activeRideFare ? `$${conversation.activeRideFare}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted">Conductor</p>
+                <p className="italic text-muted">No disponible</p>
+              </div>
+            </div>
           </>
         ) : (
           <p className="text-sm text-muted">No tiene servicio</p>

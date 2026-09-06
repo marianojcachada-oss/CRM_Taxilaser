@@ -14,11 +14,13 @@ import AutomationsSection from './AutomationsSection'
 import IntegrationsSection from './IntegrationsSection'
 import VehiclesSection from './VehiclesSection'
 import MessageMetricsSection from './MessageMetricsSection'
+import RoundRobinSection from './RoundRobinSection'
 
 type Section =
   | 'command-center'
   | 'vehicles'
   | 'metrics'
+  | 'roundrobin'
   | 'campaigns'
   | 'automations'
   | 'ai'
@@ -41,6 +43,7 @@ const navItems: { id: Section; emoji: string; label: string }[] = [
   { id: 'integrations', emoji: '🔗', label: 'Integrations' },
   { id: 'vehicles', emoji: '🚕', label: 'Vehículos' },
   { id: 'metrics', emoji: '📈', label: 'Métricas de mensajes' },
+  { id: 'roundrobin', emoji: '🔁', label: 'Round robin' },
   { id: 'admin', emoji: '🛡️', label: 'Admin' },
 ]
 
@@ -110,6 +113,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, onBack,
           {active === 'integrations' && <IntegrationsSection />}
           {active === 'vehicles' && <VehiclesSection />}
           {active === 'metrics' && <MessageMetricsSection />}
+          {active === 'roundrobin' && <RoundRobinSection />}
           {active === 'admin' && <AdminSection />}
         </div>
       </main>

@@ -97,15 +97,19 @@ Deno.serve(async (req) => {
       .from("contacts")
       .update({
         has_active_ride: true,
+        active_ride_status: "active",
         active_ride_unit: body.vehicle_make || null,
         active_ride_eta_minutes: etaMinutes,
         active_ride_eta_received_at: new Date().toISOString(),
+        active_ride_fare: null,
+        active_ride_completed_at: null,
       })
       .eq("id", existingContact.id);
   } else {
     await supabase.from("contacts").insert({
       phone,
       has_active_ride: true,
+      active_ride_status: "active",
       active_ride_unit: body.vehicle_make || null,
       active_ride_eta_minutes: etaMinutes,
       active_ride_eta_received_at: new Date().toISOString(),

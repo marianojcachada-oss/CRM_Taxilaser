@@ -90,17 +90,31 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { error: insertError } = await serviceClient.from("operators").insert({
-    auth_user_id: newUser.user.id,
-    full_name,
-    presence: "offline",
-  });
+  const { data: newOperator, error: insertError } = await serviceClient
+    .from("operators")
+    .insert({
+      auth_user_id: newUser.user.id,
+      full_name,
+      presence: "offline",
+    })
+    .select("id")
+    .single();
 
   if (insertError) {
     return new Response(JSON.stringify({ error: insertError.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  }
+
+  // Sin esto, el operador nuevo queda invisible para el round robin —
+  // nunca le va a caer nada, por más que esté "Disponible", porque no
+  // hay forma de repartir a alguien que no está anotado en ninguna cola.
+  const { data: allQueues } = await serviceClient.from("queues").select("id");
+  if (allQueues && allQueues.length > 0) {
+    await serviceClient
+      .from("queue_members")
+      .insert(allQueues.map((q) => ({ queue_id: q.id, operator_id: newOperator.id })));
   }
 
   return new Response(JSON.stringify({ success: true }), {

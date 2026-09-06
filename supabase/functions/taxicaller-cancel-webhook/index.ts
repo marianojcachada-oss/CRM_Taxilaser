@@ -91,12 +91,20 @@ Deno.serve(async (req) => {
       .update({
         servicios_cancelados: (existingContact.servicios_cancelados ?? 0) + 1,
         has_active_ride: false,
-        active_ride_unit: null,
+        active_ride_status: "cancelled",
+        active_ride_completed_at: new Date().toISOString(),
         active_ride_eta_minutes: null,
         active_ride_eta_received_at: null,
       })
       .eq("id", contactId);
   }
+
+  // Historial real, de acá en adelante — una fila por viaje
+  await supabase.from("ride_history").insert({
+    contact_id: contactId,
+    job_id: body.job_id ?? null,
+    event_type: "cancelled",
+  });
 
   // Conversación de SMS más reciente (se reabre si estaba cerrada), o nueva
   const { data: existingConversation } = await supabase
@@ -118,14 +126,13 @@ Deno.serve(async (req) => {
   }
 
   if (!conversationId) {
-    const { data: queue } = await supabase.from("queues").select("id").eq("name", "sms_general").maybeSingle();
-
     const { data: newConversation, error } = await supabase
       .from("conversations")
       .insert({
         contact_id: contactId,
         channel: "sms",
-        queue_id: queue?.id ?? null,
+        queue_id: null,
+        unread: false,
         external_thread_id: phone,
       })
       .select("id")

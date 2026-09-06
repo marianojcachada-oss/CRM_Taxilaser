@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Bell, MessageSquarePlus, Menu, X } from 'lucide-react'
+import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import ConversationsView, { type Conversation, type Operator } from './ConversationsView'
 import ContactsView from './ContactsView'
@@ -19,14 +19,16 @@ function isSnoozed(c: Conversation): boolean {
 
 function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string | null): boolean {
   switch (filter.kind) {
+    case 'all':
+      return true
     case 'new':
       return c.unread
     case 'pending':
       return !c.unread && pendingStatuses.includes(c.status)
     case 'mine':
       return c.assignedOperatorId === operatorId
-    case 'channel':
-      return c.channel === filter.channel
+    case 'unassigned':
+      return c.assignedOperatorId === null
     case 'snoozed':
       return isSnoozed(c)
   }
@@ -65,10 +67,13 @@ export default function Inbox({
 }: Props) {
   const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
   const [missedCallsCount, setMissedCallsCount] = useState(0)
+  const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [internalChannel, setInternalChannel] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
+  const [allHistoryResults, setAllHistoryResults] = useState<Conversation[] | null>(null)
+  const [allHistoryLoading, setAllHistoryLoading] = useState(false)
   const [operators, setOperators] = useState<Operator[]>([])
   const [showSimulator, setShowSimulator] = useState(false)
   const [showStartConversation, setShowStartConversation] = useState(false)
@@ -80,7 +85,7 @@ export default function Inbox({
   useEffect(() => {
     supabase
       .from('operators')
-      .select('id, full_name')
+      .select('id, full_name, operator_code')
       .then(({ data }) => setOperators(data ?? []))
   }, [])
 
@@ -103,6 +108,34 @@ export default function Inbox({
       supabase.removeChannel(channel)
     }
   }, [])
+
+  // "Todos" es el histórico completo de verdad — a diferencia de la
+  // lista principal (que a propósito solo trae lo activo, para que la
+  // bandeja cargue rápido), esto consulta sin importar el estado.
+  useEffect(() => {
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .then(({ count }) => setTotalConversationsCount(count ?? 0))
+  }, [conversations])
+
+  useEffect(() => {
+    if (filter.kind !== 'all') {
+      setAllHistoryResults(null)
+      return
+    }
+
+    setAllHistoryLoading(true)
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(300)
+      .then(({ data }) => {
+        setAllHistoryResults((data ?? []).map(mapConversation))
+        setAllHistoryLoading(false)
+      })
+  }, [filter.kind])
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -178,17 +211,16 @@ export default function Inbox({
   const unreadTotal = conversations.filter((c) => c.unread).length
 
   const visibleConversations = useMemo(() => {
-    // Con búsqueda activa, se muestran los resultados de la base
-    // directamente (sin importar la pestaña Nuevas/Mías/Canal elegida —
-    // buscar tiene que encontrar de todos lados, no solo dentro del filtro
-    // actual). Sin búsqueda, se respeta el filtro como siempre.
     if (searchQuery.trim().length >= 2) {
       return searchResults ?? []
+    }
+    if (filter.kind === 'all') {
+      return allHistoryResults ?? []
     }
     return conversations
       .filter((c) => (filter.kind === 'snoozed' ? true : !isSnoozed(c)))
       .filter((c) => matchesFilter(c, filter, operatorId))
-  }, [conversations, filter, searchQuery, searchResults, operatorId])
+  }, [conversations, filter, searchQuery, searchResults, allHistoryResults, operatorId])
 
   // Actualiza tanto la lista principal como los resultados de búsqueda a
   // la vez — así una acción sobre un resultado de búsqueda (que puede no
@@ -267,6 +299,15 @@ export default function Inbox({
             {operatorPresence === 'available' ? 'Disponible' : 'No disponible'}
           </button>
 
+          {isAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              className="hidden items-center gap-1.5 rounded-full border border-mustard/40 px-3 py-2 text-xs font-medium text-mustard transition-colors hover:bg-mustard/10 sm:flex"
+            >
+              <ShieldCheck size={14} /> Panel admin
+            </button>
+          )}
+
           <div className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-panel-light">
             <Bell size={16} />
             {unreadTotal > 0 && (
@@ -327,6 +368,7 @@ export default function Inbox({
             view={view}
             internalChannel={internalChannel}
             missedCallsCount={missedCallsCount}
+            totalConversationsCount={totalConversationsCount}
             onSelectContacts={() => {
               setView('contacts')
               setShowMobileSidebar(false)

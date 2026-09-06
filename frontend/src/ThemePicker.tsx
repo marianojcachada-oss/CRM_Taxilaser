@@ -11,7 +11,7 @@ export const themes = [
   { id: 'tamagotchi', label: 'Tamagotchi', asphalt: '#12181A', mustard: '#FF6FB0' },
   { id: 'pastel', label: 'Pastel', asphalt: '#F3EEF7', mustard: '#A971C4' },
   { id: 'morado', label: 'Morado', asphalt: '#140E1C', mustard: '#A87EF0' },
-  { id: 'claudedesign', label: 'Claude Design (prueba)', asphalt: '#0A0A0A', mustard: '#F2C518' },
+  { id: 'taxicaller', label: 'TaxiCaller', asphalt: '#0A0A0A', mustard: '#F2C518' },
 ]
 
 type Props = {

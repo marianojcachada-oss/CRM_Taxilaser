@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { UserPlus } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { getFunctionErrorMessage } from './functionsError'
 
 type Operator = {
   id: string
   full_name: string
+  operator_code: string | null
   presence: string
   max_capacity: number | null
   current_load: number
@@ -24,6 +25,14 @@ export default function TeamSection() {
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editCode, setEditCode] = useState('')
+  const [editIsAdmin, setEditIsAdmin] = useState(false)
+  const [editMaxCapacity, setEditMaxCapacity] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   useEffect(() => {
     load()
   }, [])
@@ -32,7 +41,7 @@ export default function TeamSection() {
     setLoading(true)
     supabase
       .from('operators')
-      .select('id, full_name, presence, max_capacity, current_load, is_admin')
+      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin')
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setOperators(data ?? [])
@@ -60,6 +69,67 @@ export default function TeamSection() {
     setEmail('')
     setPassword('')
     setShowForm(false)
+    load()
+  }
+
+  function startEditing(op: Operator) {
+    setEditingId(op.id)
+    setEditName(op.full_name)
+    setEditCode(op.operator_code ?? '')
+    setEditIsAdmin(op.is_admin)
+    setEditMaxCapacity(op.max_capacity?.toString() ?? '')
+  }
+
+  async function saveEdit(id: string) {
+    setSavingEdit(true)
+    const { error } = await supabase
+      .from('operators')
+      .update({
+        full_name: editName,
+        operator_code: editCode.trim() || null,
+        is_admin: editIsAdmin,
+        max_capacity: editMaxCapacity.trim() ? Number(editMaxCapacity) : null,
+      })
+      .eq('id', id)
+    setSavingEdit(false)
+
+    if (error) {
+      alert('No se pudo guardar: ' + error.message)
+      return
+    }
+    setEditingId(null)
+    load()
+  }
+
+  // Por si a alguien se le olvida marcarse "No disponible" — un admin
+  // lo puede hacer por él. Dispara solo la liberación de lo que tenía
+  // asignado (mismo trigger que cuando el operador lo hace por su cuenta).
+  async function togglePresence(op: Operator) {
+    const next = op.presence === 'available' ? 'offline' : 'available'
+    const { error } = await supabase.from('operators').update({ presence: next }).eq('id', op.id)
+    if (error) {
+      alert('No se pudo cambiar la presencia: ' + error.message)
+      return
+    }
+    load()
+  }
+
+  async function handleDelete(op: Operator) {
+    const confirmed = confirm(
+      `¿Eliminar a ${op.full_name}? Se libera todo lo que tenga asignado y se borra su acceso — esta acción no se puede deshacer.`,
+    )
+    if (!confirmed) return
+
+    setDeletingId(op.id)
+    const { data, error } = await supabase.functions.invoke('delete-operator', {
+      body: { operator_id: op.id },
+    })
+    setDeletingId(null)
+
+    if (error || data?.error) {
+      alert('No se pudo eliminar: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
     load()
   }
 
@@ -131,50 +201,135 @@ export default function TeamSection() {
           <thead>
             <tr className="border-b border-panel-light text-xs text-muted">
               <th className="px-4 py-2 font-normal">Operador</th>
+              <th className="px-4 py-2 font-normal">Código</th>
               <th className="px-4 py-2 font-normal">Presencia</th>
               <th className="px-4 py-2 font-normal">Carga</th>
               <th className="px-4 py-2 font-normal">Rol</th>
+              <th className="px-4 py-2 font-normal"></th>
             </tr>
           </thead>
           <tbody>
             {operators.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted">
                   Todavía no hay operadores cargados.
                 </td>
               </tr>
             )}
-            {operators.map((op) => (
-              <tr key={op.id} className="border-b border-panel-light/60 last:border-0">
-                <td className="px-4 py-2.5">{op.full_name}</td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`inline-flex items-center gap-1.5 text-xs ${
-                      op.presence === 'available' ? 'text-available' : 'text-muted'
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        op.presence === 'available' ? 'bg-available' : 'bg-muted'
-                      }`}
+            {operators.map((op) =>
+              editingId === op.id ? (
+                <tr key={op.id} className="border-b border-panel-light/60 bg-panel-light/40 last:border-0">
+                  <td className="px-4 py-2.5">
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1 text-sm text-cream outline-none focus:border-mustard"
                     />
-                    {op.presence}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 font-mono text-muted">
-                  {op.current_load} / {op.max_capacity ?? '∞'}
-                </td>
-                <td className="px-4 py-2.5">
-                  {op.is_admin ? (
-                    <span className="rounded-sm border border-mustard/40 px-1.5 py-0.5 text-xs text-mustard">
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <input
+                      value={editCode}
+                      onChange={(e) => setEditCode(e.target.value)}
+                      placeholder="D005"
+                      className="w-20 rounded-sm border border-panel-light bg-asphalt px-2 py-1 font-mono text-xs text-cream outline-none focus:border-mustard"
+                    />
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted">{op.presence}</td>
+                  <td className="px-4 py-2.5">
+                    <input
+                      value={editMaxCapacity}
+                      onChange={(e) => setEditMaxCapacity(e.target.value)}
+                      placeholder="Sin límite"
+                      className="w-20 rounded-sm border border-panel-light bg-asphalt px-2 py-1 font-mono text-xs text-cream outline-none focus:border-mustard"
+                    />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <label className="flex items-center gap-1.5 text-xs text-cream">
+                      <input
+                        type="checkbox"
+                        checked={editIsAdmin}
+                        onChange={(e) => setEditIsAdmin(e.target.checked)}
+                        className="h-3.5 w-3.5 accent-mustard"
+                      />
                       Admin
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted">Operador</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                    </label>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => saveEdit(op.id)}
+                        disabled={savingEdit}
+                        className="flex h-7 w-7 items-center justify-center rounded-sm bg-mustard text-asphalt hover:opacity-90 disabled:opacity-50"
+                        title="Guardar"
+                      >
+                        <Check size={13} />
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="flex h-7 w-7 items-center justify-center rounded-sm border border-panel-light text-muted hover:text-cream"
+                        title="Cancelar"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={op.id} className="border-b border-panel-light/60 last:border-0">
+                  <td className="px-4 py-2.5">{op.full_name}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted">{op.operator_code || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <button
+                      onClick={() => togglePresence(op)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                        op.presence === 'available'
+                          ? 'border-available/40 text-available hover:bg-available/10'
+                          : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                      }`}
+                      title="Cambiar presencia (por si se le olvidó apagarla)"
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          op.presence === 'available' ? 'bg-available' : 'bg-muted'
+                        }`}
+                      />
+                      {op.presence}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-muted">
+                    {op.current_load} / {op.max_capacity ?? '∞'}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {op.is_admin ? (
+                      <span className="rounded-sm border border-mustard/40 px-1.5 py-0.5 text-xs text-mustard">
+                        Admin
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted">Operador</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => startEditing(op)}
+                        className="flex h-7 w-7 items-center justify-center rounded-sm border border-panel-light text-muted hover:border-mustard hover:text-mustard"
+                        title="Editar"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(op)}
+                        disabled={deletingId === op.id}
+                        className="flex h-7 w-7 items-center justify-center rounded-sm border border-alert/40 text-alert hover:bg-alert/10 disabled:opacity-50"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>

@@ -134,7 +134,7 @@
 
 /* Claude Design — paleta exacta del mockup de prueba: negro puro,
    amarillo saturado, sin el tinte cálido de nuestro "dark" */
-[data-theme='claudedesign'] {
+[data-theme='taxicaller'] {
   --color-asphalt: #0A0A0A;
   --color-panel: #141414;
   --color-panel-light: #1F1F1F;

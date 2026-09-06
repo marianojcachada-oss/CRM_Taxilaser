@@ -8,7 +8,7 @@ import type { Conversation } from './ConversationsView'
 
 export const CONVERSATION_SELECT = `id, channel, status, unread, last_message_preview, last_message_at, created_at, snoozed_until, last_contact_message_at, keep_with_operator,
    assigned_operator_id, team, contact_id,
-   contacts ( full_name, phone, vip, tags, blocked, total_invertido, servicios_completados, servicios_cancelados, notes, has_active_ride, active_ride_unit, active_ride_eta_minutes, active_ride_eta_received_at ),
+   contacts ( full_name, phone, vip, tags, blocked, total_invertido, servicios_completados, servicios_cancelados, notes, has_active_ride, active_ride_unit, active_ride_eta_minutes, active_ride_eta_received_at, active_ride_status, active_ride_fare, active_ride_completed_at ),
    operators ( full_name )`
 
 export function mapConversation(row: any): Conversation {
@@ -31,6 +31,9 @@ export function mapConversation(row: any): Conversation {
     activeRideUnit: row.contacts?.active_ride_unit ?? null,
     activeRideEtaMinutes: row.contacts?.active_ride_eta_minutes ?? null,
     activeRideEtaReceivedAt: row.contacts?.active_ride_eta_received_at ?? null,
+    activeRideStatus: row.contacts?.active_ride_status ?? null,
+    activeRideFare: row.contacts?.active_ride_fare ?? null,
+    activeRideCompletedAt: row.contacts?.active_ride_completed_at ?? null,
     unread: row.unread,
     status: row.status,
     assignedOperatorId: row.assigned_operator_id,

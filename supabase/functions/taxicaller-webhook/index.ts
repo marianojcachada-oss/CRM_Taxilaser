@@ -166,14 +166,16 @@ Deno.serve(async (req) => {
   }
 
   if (!conversationId) {
-    const { data: queue } = await supabase.from("queues").select("id").eq("name", "sms_general").maybeSingle();
-
+    // Ojo: sin queue_id a propósito — esto es un aviso automático, no
+    // algo que tenga que entrar al reparto de round robin ni figurar
+    // como "nueva" para un operador.
     const { data: newConversation, error } = await supabase
       .from("conversations")
       .insert({
         contact_id: contactId,
         channel: "sms",
-        queue_id: queue?.id ?? null,
+        queue_id: null,
+        unread: false,
         external_thread_id: phone,
       })
       .select("id")

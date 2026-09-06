@@ -106,13 +106,9 @@ async function handleIncomingSms(opts: {
 
   let conversationId = existingConversation?.id;
 
-  if (conversationId && existingConversation!.status === "cerrada") {
-    // Estaba cerrada: la reabrimos en vez de crear una aparte
-    await supabase
-      .from("conversations")
-      .update({ status: "esperando_operador", unread: true })
-      .eq("id", conversationId);
-  }
+  // Ya no reabrimos acá a mano — el trigger centralizado en `messages`
+  // (trg_reopen_and_reassign_on_client_message) lo hace solo apenas se
+  // inserte el mensaje, para cualquier canal, sin duplicar esta lógica.
 
   if (!conversationId) {
     const { data: queue } = await supabase.from("queues").select("id").eq("name", "sms_general").maybeSingle();

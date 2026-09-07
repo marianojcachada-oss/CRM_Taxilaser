@@ -151,7 +151,7 @@ export default function MessageMetricsSection() {
         <span className="pb-1.5 text-xs text-muted">{rows.length} mensajes en este rango</span>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
           { label: 'SMS enviados (manual)', value: totals.smsSent },
           { label: 'SMS recibidos', value: totals.smsReceived },
@@ -166,7 +166,7 @@ export default function MessageMetricsSection() {
       </div>
 
       <Panel title="Mensajes automáticos, por tipo">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             { label: '🚕 "Su taxi está afuera"', value: totals.autoWait },
             { label: '❌ "Servicio cancelado"', value: totals.autoCancelled },

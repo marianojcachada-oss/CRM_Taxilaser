@@ -114,7 +114,7 @@ export default function AnalyticsSection({ conversations }: Props) {
         <span className="pb-1.5 text-xs text-muted">{total} conversaciones en este rango</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Panel title="Por canal">
           {byChannel.map((ch) => (
             <Bar

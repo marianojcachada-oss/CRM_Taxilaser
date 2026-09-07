@@ -177,7 +177,7 @@ export default function CommandCenterSection() {
   const maxAgentCount = Math.max(1, ...agentCounts.map((a) => a.count))
 
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Panel title="Operations">
         <StatRow label="Conversaciones activas" value={String(activeCount)} />
         <StatRow label="Sin responder" value={String(unansweredCount)} alert={unansweredCount > 0} />

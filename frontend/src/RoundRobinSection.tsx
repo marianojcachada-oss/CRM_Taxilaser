@@ -83,7 +83,7 @@ export default function RoundRobinSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-sm border border-panel-light bg-panel p-4 text-center">
           <p className="font-mono text-2xl text-mustard">{availableCount}</p>
           <p className="mt-1 text-xs text-muted">Operadores disponibles</p>

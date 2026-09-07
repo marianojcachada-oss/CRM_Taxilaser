@@ -9,6 +9,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   History,
+  Inbox as InboxIcon,
+  List,
 } from 'lucide-react'
 import type { Conversation, Channel } from './ConversationsView'
 
@@ -68,10 +70,14 @@ export default function Sidebar({
     (c) => c.snoozedUntil && new Date(c.snoozedUntil).getTime() > Date.now(),
   ).length
 
-  function itemClass(active: boolean) {
-    return `flex w-full items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
-      active ? 'bg-asphalt font-semibold text-cream' : 'text-cream hover:bg-panel-light'
-    }`
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+
+  function toggleCollapsed() {
+    setCollapsed((v) => {
+      const next = !v
+      localStorage.setItem('sidebarCollapsed', String(next))
+      return next
+    })
   }
 
   function CountText({ n, active, alwaysColor }: { n: number; active: boolean; alwaysColor?: boolean }) {
@@ -87,26 +93,149 @@ export default function Sidebar({
     )
   }
 
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+  // Un solo botón que sabe renderizarse de dos formas — completo (ícono +
+  // texto + cuenta) o solo ícono cuando el sidebar está contraído. Así,
+  // contraído sigue siendo 100% funcional para cambiar de pestaña, no
+  // solo un adorno — con el nombre completo como tooltip al pasar el
+  // mouse.
+  function NavButton({
+    icon,
+    label,
+    count,
+    active,
+    alwaysColor,
+    onClick,
+    mustardLabel,
+  }: {
+    icon: React.ReactNode
+    label: string
+    count?: number
+    active: boolean
+    alwaysColor?: boolean
+    onClick: () => void
+    mustardLabel?: boolean
+  }) {
+    if (collapsed) {
+      return (
+        <button
+          onClick={onClick}
+          title={label}
+          className={`relative mx-auto flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+            active ? 'bg-asphalt text-mustard' : 'text-cream hover:bg-panel-light'
+          }`}
+        >
+          {icon}
+          {!!count && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-mustard px-1 font-mono text-[9px] font-bold text-asphalt">
+              {count > 99 ? '99+' : count}
+            </span>
+          )}
+        </button>
+      )
+    }
 
-  function toggleCollapsed() {
-    setCollapsed((v) => {
-      const next = !v
-      localStorage.setItem('sidebarCollapsed', String(next))
-      return next
-    })
+    return (
+      <button
+        onClick={onClick}
+        className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
+          active ? 'bg-asphalt font-semibold text-cream' : 'text-cream hover:bg-panel-light'
+        }`}
+      >
+        <span className={`flex items-center gap-2 ${mustardLabel && !active ? 'text-mustard' : ''}`}>
+          {icon} {label}
+        </span>
+        {count !== undefined && <CountText n={count} active={active} alwaysColor={alwaysColor} />}
+      </button>
+    )
   }
 
   if (collapsed) {
     return (
-      <aside className="flex w-12 shrink-0 flex-col items-center border-r border-panel-light bg-panel py-4">
+      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-panel-light bg-panel py-4">
         <button
           onClick={toggleCollapsed}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-panel-light hover:text-mustard"
+          className="mb-2 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-panel-light hover:text-mustard"
           title="Expandir el menú"
         >
           <ChevronsRight size={16} />
         </button>
+
+        <NavButton
+          icon={<InboxIcon size={17} />}
+          label="Sin leer"
+          count={newCount}
+          active={view === 'inbox' && filter.kind === 'new'}
+          onClick={() => onSelectFilter({ kind: 'new' })}
+        />
+        <NavButton
+          icon={<List size={17} />}
+          label="Todos los mensajes"
+          count={totalConversationsCount}
+          active={view === 'inbox' && filter.kind === 'all'}
+          onClick={() => onSelectFilter({ kind: 'all' })}
+        />
+        <NavButton
+          icon={<UserCheck size={17} />}
+          label="Mías · round robin"
+          count={mineCount}
+          active={view === 'inbox' && filter.kind === 'mine'}
+          onClick={() => onSelectFilter({ kind: 'mine' })}
+        />
+        <NavButton
+          icon={<CircleDashed size={17} />}
+          label="Sin asignar"
+          count={unassignedCount}
+          active={view === 'inbox' && filter.kind === 'unassigned'}
+          onClick={() => onSelectFilter({ kind: 'unassigned' })}
+        />
+        <NavButton
+          icon={<Clock3 size={17} />}
+          label="Pendientes"
+          count={pendingCount}
+          active={view === 'inbox' && filter.kind === 'pending'}
+          onClick={() => onSelectFilter({ kind: 'pending' })}
+        />
+        <NavButton
+          icon={<History size={17} />}
+          label="Mis respuestas"
+          active={view === 'inbox' && filter.kind === 'my_history'}
+          onClick={() => onSelectFilter({ kind: 'my_history' })}
+        />
+
+        <div className="my-2 h-px w-8 bg-panel-light" />
+
+        {teams
+          .filter((team) => team !== 'Managers' || isAdmin)
+          .map((team) => (
+            <NavButton
+              key={team}
+              icon={<Users size={17} />}
+              label={team}
+              active={view === 'internal' && internalChannel === team}
+              onClick={() => onSelectTeamChat(team)}
+            />
+          ))}
+
+        <div className="mt-auto flex flex-col items-center gap-1">
+          {isAdmin && (
+            <NavButton
+              icon={<AlarmClock size={17} />}
+              label="Pospuestas"
+              count={snoozedCount}
+              active={view === 'inbox' && filter.kind === 'snoozed'}
+              onClick={() => onSelectFilter({ kind: 'snoozed' })}
+            />
+          )}
+          <NavButton
+            icon={<Phone size={17} />}
+            label="Llamadas perdidas"
+            count={missedCallsCount}
+            active={view === 'missed-calls'}
+            alwaysColor
+            onClick={onSelectMissedCalls}
+          />
+          <NavButton icon={<Users size={17} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
+        </div>
       </aside>
     )
   }
@@ -145,74 +274,74 @@ export default function Sidebar({
           </button>
         </div>
 
-        <button onClick={() => onSelectFilter({ kind: 'mine' })} className={itemClass(view === 'inbox' && filter.kind === 'mine')}>
-          <span className="flex items-center gap-2">
-            <UserCheck size={15} /> Mías · round robin
-          </span>
-          <CountText n={mineCount} active={view === 'inbox' && filter.kind === 'mine'} alwaysColor />
-        </button>
-        <button
+        <NavButton
+          icon={<UserCheck size={15} />}
+          label="Mías · round robin"
+          count={mineCount}
+          active={view === 'inbox' && filter.kind === 'mine'}
+          alwaysColor
+          onClick={() => onSelectFilter({ kind: 'mine' })}
+        />
+        <NavButton
+          icon={<CircleDashed size={15} />}
+          label="Sin asignar"
+          count={unassignedCount}
+          active={view === 'inbox' && filter.kind === 'unassigned'}
+          alwaysColor
           onClick={() => onSelectFilter({ kind: 'unassigned' })}
-          className={itemClass(view === 'inbox' && filter.kind === 'unassigned')}
-        >
-          <span className="flex items-center gap-2">
-            <CircleDashed size={15} /> Sin asignar
-          </span>
-          <CountText n={unassignedCount} active={view === 'inbox' && filter.kind === 'unassigned'} alwaysColor />
-        </button>
-        <button onClick={() => onSelectFilter({ kind: 'pending' })} className={itemClass(view === 'inbox' && filter.kind === 'pending')}>
-          <span className="flex items-center gap-2">
-            <Clock3 size={15} /> Pendientes
-          </span>
-          <CountText n={pendingCount} active={view === 'inbox' && filter.kind === 'pending'} />
-        </button>
-        <button
+        />
+        <NavButton
+          icon={<Clock3 size={15} />}
+          label="Pendientes"
+          count={pendingCount}
+          active={view === 'inbox' && filter.kind === 'pending'}
+          onClick={() => onSelectFilter({ kind: 'pending' })}
+        />
+        <NavButton
+          icon={<History size={15} />}
+          label="Mis respuestas"
+          active={view === 'inbox' && filter.kind === 'my_history'}
           onClick={() => onSelectFilter({ kind: 'my_history' })}
-          className={itemClass(view === 'inbox' && filter.kind === 'my_history')}
-        >
-          <span className="flex items-center gap-2">
-            <History size={15} /> Mis respuestas
-          </span>
-        </button>
+        />
       </div>
 
       <div>
         <GroupHeader label="Mis equipos" />
         {teams
           .filter((team) => team !== 'Managers' || isAdmin)
-          .map((team) => {
-            const active = view === 'internal' && internalChannel === team
-            return (
-              <button key={team} onClick={() => onSelectTeamChat(team)} className={itemClass(active)}>
-                <span className="flex items-center gap-2">
-                  <Users size={15} /> {team}
-                </span>
-              </button>
-            )
-          })}
+          .map((team) => (
+            <NavButton
+              key={team}
+              icon={<Users size={15} />}
+              label={team}
+              active={view === 'internal' && internalChannel === team}
+              onClick={() => onSelectTeamChat(team)}
+            />
+          ))}
       </div>
 
       {/* Utilidades: Pospuestas, Llamadas perdidas, Contactos */}
       <div className="mt-auto border-t border-panel-light pt-3">
         {isAdmin && (
-          <button onClick={() => onSelectFilter({ kind: 'snoozed' })} className={itemClass(view === 'inbox' && filter.kind === 'snoozed')}>
-            <span className={`flex items-center gap-2 ${view === 'inbox' && filter.kind === 'snoozed' ? '' : 'text-mustard'}`}>
-              <AlarmClock size={15} /> Pospuestas
-            </span>
-            <CountText n={snoozedCount} active={view === 'inbox' && filter.kind === 'snoozed'} />
-          </button>
+          <NavButton
+            icon={<AlarmClock size={15} />}
+            label="Pospuestas"
+            count={snoozedCount}
+            active={view === 'inbox' && filter.kind === 'snoozed'}
+            mustardLabel
+            onClick={() => onSelectFilter({ kind: 'snoozed' })}
+          />
         )}
-        <button onClick={onSelectMissedCalls} className={itemClass(view === 'missed-calls')}>
-          <span className={`flex items-center gap-2 ${view !== 'missed-calls' ? 'text-mustard' : ''}`}>
-            <Phone size={15} /> Llamadas perdidas
-          </span>
-          <CountText n={missedCallsCount} active={view === 'missed-calls'} alwaysColor />
-        </button>
-        <button onClick={onSelectContacts} className={itemClass(view === 'contacts')}>
-          <span className="flex items-center gap-2">
-            <Users size={15} /> Contactos
-          </span>
-        </button>
+        <NavButton
+          icon={<Phone size={15} />}
+          label="Llamadas perdidas"
+          count={missedCallsCount}
+          active={view === 'missed-calls'}
+          alwaysColor
+          mustardLabel
+          onClick={onSelectMissedCalls}
+        />
+        <NavButton icon={<Users size={15} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
       </div>
     </aside>
   )

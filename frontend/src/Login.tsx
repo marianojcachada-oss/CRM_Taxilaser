@@ -59,7 +59,7 @@ export default function Login() {
         />
         <div className="relative flex flex-col items-center px-10 text-center">
           <Logo size={96} />
-          <h1 className="mt-6 text-2xl font-semibold text-cream">Que tal?</h1>
+          <h1 className="mt-6 text-2xl font-semibold text-cream">Qué tal?</h1>
           <p className="mt-2 text-sm text-muted">Panel de operadores — mensajería y despacho</p>
         </div>
       </div>

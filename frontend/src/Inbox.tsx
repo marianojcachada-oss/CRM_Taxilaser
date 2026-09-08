@@ -303,7 +303,7 @@ export default function Inbox({
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-mustard text-sm font-bold text-asphalt">
               Q
             </span>
-            <span className="text-base font-bold uppercase tracking-wide text-cream">Que tal?</span>
+            <span className="text-base font-bold uppercase tracking-wide text-cream">Qué tal?</span>
           </div>
 
           <div className="hidden items-center gap-2 rounded-full border border-panel-light bg-asphalt px-3.5 py-2 md:flex">

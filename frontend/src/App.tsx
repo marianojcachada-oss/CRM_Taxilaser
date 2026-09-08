@@ -169,6 +169,17 @@ function AppContent() {
   }, [session, muted, operatorId])
 
   useEffect(() => {
+    // Sin sesión (login, o recién cerraste sesión) siempre va en oscuro,
+    // sin importar qué tema tenía elegido el último operador que usó
+    // esta compu — si no, el logo puede quedar sobre un fondo claro que
+    // no lo hace lucir bien.
+    if (!session) {
+      setTheme('dark')
+      return
+    }
+  }, [session])
+
+  useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.removeAttribute('data-theme')
     } else {

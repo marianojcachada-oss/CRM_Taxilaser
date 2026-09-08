@@ -1,10 +1,9 @@
 // supabase/functions/send-message/index.ts
 //
 // Manda un mensaje saliente de verdad al canal elegido (no solo lo guarda
-// en la base). SMS vía RingCentral está implementado y funcional. Meta
-// (WhatsApp/Facebook/Instagram) queda con la estructura lista, pero
-// todavía no hay credenciales cargadas — por eso devuelve un error claro
-// en vez de fingir que se mandó.
+// en la base). SMS (RingCentral), WhatsApp, Facebook e Instagram (Meta)
+// están implementados — todos dependen de que las credenciales
+// correspondientes estén cargadas en Integrations.
 //
 // Optimizado para que las consultas que no dependen entre sí salgan en
 // paralelo (Promise.all) en vez de una atrás de la otra — cada consulta
@@ -90,6 +89,19 @@ Deno.serve(async (req) => {
 
   const phone = (conversation as any).contacts?.phone;
 
+  // Solo hace falta buscar el ID externo (PSID/IGSID) cuando el canal es
+  // Messenger o Instagram — WhatsApp y SMS ya resuelven todo por teléfono.
+  let recipientExternalId: string | null = null;
+  if (channel === "facebook" || channel === "instagram") {
+    const { data: contactChannel } = await serviceClient
+      .from("contact_channels")
+      .select("external_id")
+      .eq("contact_id", conversation.contact_id)
+      .eq("channel", channel)
+      .maybeSingle();
+    recipientExternalId = contactChannel?.external_id ?? null;
+  }
+
   try {
     if (channel === "sms") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
@@ -165,10 +177,53 @@ Deno.serve(async (req) => {
         throw new Error(`Meta (WhatsApp) rechazó el envío: ${JSON.stringify(errData)}`);
       }
     } else if (channel === "facebook" || channel === "instagram") {
-      // TODO: Messenger Send API / Instagram Messaging API — necesitan su
-      // propio token de Página (distinto al de WhatsApp) y no están
-      // implementados todavía.
-      throw new Error(`El envío real por ${channel} todavía no está implementado (solo WhatsApp por ahora).`);
+      // Messenger e Instagram comparten el mismo "Send API" de Meta — el
+      // token del System User (META_ACCESS_TOKEN) alcanza para los dos
+      // siempre que tenga los permisos pages_messaging +
+      // instagram_manage_messages, y que la Página/cuenta de Instagram
+      // estén agregadas como activos de ese mismo token en Meta Business
+      // Suite. No hace falta un token de página aparte.
+      if (!recipientExternalId) {
+        throw new Error(
+          `Falta el ID externo del contacto en ${channel} — no se puede mandar el mensaje sin saber a quién.`,
+        );
+      }
+
+      const metaSettings = await getSettings(["META_ACCESS_TOKEN"]);
+      const metaToken = metaSettings.META_ACCESS_TOKEN;
+      if (!metaToken) {
+        throw new Error("Falta cargar META_ACCESS_TOKEN en Integrations para poder enviar.");
+      }
+
+      const body: Record<string, unknown> = {
+        recipient: { id: recipientExternalId },
+        message: attachmentUrl
+          ? {
+              attachment: {
+                type: attachmentKind === "image" ? "image" : attachmentKind === "audio" ? "audio" : "file",
+                payload: { url: attachmentUrl, is_reusable: true },
+              },
+            }
+          : { text: text ?? "" },
+        messaging_type: "RESPONSE",
+      };
+
+      const res = await fetch(`https://graph.facebook.com/v26.0/me/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${metaToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        // Fuera de la ventana de 24hs desde el último mensaje del cliente,
+        // Meta exige un "message tag" especial en vez de texto libre —
+        // este es el error más probable si el envío falla acá.
+        throw new Error(`Meta (${channel}) rechazó el envío: ${JSON.stringify(errData)}`);
+      }
     } else {
       throw new Error(`Canal desconocido: ${channel}`);
     }

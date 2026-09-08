@@ -6,6 +6,7 @@
 // una segunda consulta a la API para traer el contenido.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { lookupPassengerName } from "../_shared/taxicaller.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -63,6 +64,12 @@ async function handleIncomingSms(opts: {
 }) {
   const { phone, contactName, externalMessageId, text } = opts;
 
+  // SMS ya viaja con el teléfono real — si ese número es pasajero
+  // conocido en TaxiCaller, se prioriza ese nombre por sobre el que
+  // manda RingCentral (que muchas veces no manda ninguno).
+  const taxicallerName = await lookupPassengerName(phone);
+  const resolvedName = taxicallerName ?? contactName;
+
   const { data: existingContact } = await supabase
     .from("contacts")
     .select("id, full_name")
@@ -74,7 +81,7 @@ async function handleIncomingSms(opts: {
   if (!contactId) {
     const { data: newContact, error } = await supabase
       .from("contacts")
-      .insert({ phone, full_name: contactName })
+      .insert({ phone, full_name: resolvedName })
       .select("id")
       .single();
     if (error) throw error;
@@ -85,9 +92,13 @@ async function handleIncomingSms(opts: {
       channel: "sms",
       external_id: phone,
     });
+  } else if (taxicallerName && existingContact.full_name !== taxicallerName) {
+    // TaxiCaller es la fuente de verdad — se pisa aunque ya hubiera un
+    // nombre cargado.
+    await supabase.from("contacts").update({ full_name: taxicallerName }).eq("id", contactId);
   } else if (!existingContact.full_name && contactName) {
-    // Ya lo conocíamos pero sin nombre — si ahora RingCentral nos lo
-    // manda, lo completamos.
+    // Ya lo conocíamos pero sin nombre, y TaxiCaller tampoco lo tiene —
+    // si ahora RingCentral nos lo manda, lo completamos.
     await supabase.from("contacts").update({ full_name: contactName }).eq("id", contactId);
   }
 

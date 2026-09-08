@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
+import { lookupPassengerName } from "../_shared/taxicaller.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -14,6 +15,29 @@ const supabase = createClient(
 );
 
 const GRAPH_VERSION = "v26.0";
+
+async function hmacSha256Hex(secret: string, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Comparación en tiempo constante — comparar firmas con === deja una
+// mínima ventana para un timing attack, esto lo evita.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 // WhatsApp no manda el archivo en sí en el aviso — manda un ID. Hay que
 // pedirle a Meta la URL real (paso 1), y bajar el archivo desde ahí con
@@ -86,9 +110,32 @@ Deno.serve(async (req) => {
   }
 
   // -----------------------------------------------------
-  // Evento entrante
+  // Evento entrante — se verifica que la firma coincida antes de
+  // procesar nada, para confirmar que el POST viene de verdad de Meta y
+  // no de cualquiera que haya encontrado esta URL.
   // -----------------------------------------------------
-  const payload = await req.json();
+  const rawBody = await req.text();
+  const appSecret = await getSetting("META_APP_SECRET");
+
+  if (appSecret) {
+    const signatureHeader = req.headers.get("X-Hub-Signature-256") ?? "";
+    const expectedSignature = "sha256=" + await hmacSha256Hex(appSecret, rawBody);
+    if (!timingSafeEqual(signatureHeader, expectedSignature)) {
+      console.error("Firma de Meta inválida — se descarta el evento.");
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else {
+    console.warn(
+      "META_APP_SECRET no está cargado en Integrations — el webhook acepta cualquier POST sin verificar de dónde viene. Cargalo para cerrar este agujero.",
+    );
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return new Response("OK (body no era JSON)", { status: 200 });
+  }
 
   for (const entry of payload.entry ?? []) {
     // --- WhatsApp Business Platform ---
@@ -216,12 +263,22 @@ async function handleIncomingMessage(opts: {
 
   let contactId = existingChannel?.contact_id;
 
+  // Si es un canal con teléfono real (WhatsApp), miramos si ese número ya
+  // es pasajero conocido en TaxiCaller — si TaxiCaller tiene nombre
+  // cargado, se prioriza por sobre el nombre de perfil que manda el canal
+  // (que puede ser un apodo, o directo no venir).
+  let resolvedName = contactName;
+  if (channel === "whatsapp") {
+    const taxicallerName = await lookupPassengerName(externalContactId);
+    if (taxicallerName) resolvedName = taxicallerName;
+  }
+
   // 2. Si no existe, crear contacto + su contact_channel
   if (!contactId) {
     const { data: newContact, error: contactErr } = await supabase
       .from("contacts")
       .insert({
-        full_name: contactName,
+        full_name: resolvedName,
         phone: channel === "whatsapp" || channel === "sms" ? externalContactId : null,
       })
       .select("id")
@@ -235,6 +292,10 @@ async function handleIncomingMessage(opts: {
       channel,
       external_id: externalContactId,
     });
+  } else if (resolvedName && resolvedName !== contactName) {
+    // Contacto ya existente: si TaxiCaller nos devolvió un nombre, lo
+    // pisamos aunque ya hubiera uno cargado — es la fuente de verdad.
+    await supabase.from("contacts").update({ full_name: resolvedName }).eq("id", contactId);
   }
 
   // 3. Buscar la conversación más reciente para este contacto+canal (sin

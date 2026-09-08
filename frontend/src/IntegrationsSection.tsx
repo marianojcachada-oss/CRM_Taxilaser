@@ -12,9 +12,10 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     title: 'Meta (WhatsApp / Facebook / Instagram)',
     keys: [
       { key: 'META_VERIFY_TOKEN', label: 'Verify Token del webhook' },
+      { key: 'META_APP_SECRET', label: 'App Secret (verifica que el webhook venga de Meta)', secret: true },
       { key: 'META_WABA_ID', label: 'WhatsApp Business Account ID' },
       { key: 'META_PHONE_NUMBER_ID', label: 'Phone Number ID (para enviar)' },
-      { key: 'META_ACCESS_TOKEN', label: 'Access Token (System User)', secret: true },
+      { key: 'META_ACCESS_TOKEN', label: 'Access Token (System User — cubre WhatsApp, Facebook e Instagram)', secret: true },
     ],
   },
   {
@@ -33,6 +34,10 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     keys: [
       { key: 'TAXICALLER_BASE_URL', label: 'Base URL de la API' },
       { key: 'TAXICALLER_API_KEY', label: 'API Key', secret: true },
+      {
+        key: 'TAXICALLER_PASSENGER_LOOKUP_PATH',
+        label: 'Path para buscar pasajero por teléfono (usá {phone} donde va el número — ej: /api/v1/passengers/search?phone={phone})',
+      },
       { key: 'TAXICALLER_WEBHOOK_SECRET', label: 'Secreto del webhook (elegís vos un valor, va también como header en TaxiCaller)', secret: true },
     ],
   },

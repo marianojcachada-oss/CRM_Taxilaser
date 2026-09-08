@@ -1,10 +1,9 @@
 // supabase/functions/bulk-create-operators/index.ts
 //
-// Crea varios operadores de una — a cada uno le manda una invitación por
-// email de Supabase para que elija su propia contraseña, en vez de que
-// alguien tenga que inventar y compartir contraseñas a mano. Solo un
-// admin puede llamarla. Devuelve el resultado de cada fila (ok o error),
-// no corta todo si una falla.
+// Crea varios operadores de una — el admin carga nombre, email y
+// contraseña para cada uno (en vez de una invitación por correo), así
+// puede entregarles el acceso ya armado. Solo un admin puede llamarla.
+// Devuelve el resultado de cada fila (ok o error), no corta todo si una falla.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -69,26 +68,51 @@ Deno.serve(async (req) => {
   for (const row of rows) {
     const full_name = String(row.full_name ?? "").trim();
     const email = String(row.email ?? "").trim().toLowerCase();
+    const password = String(row.password ?? "").trim();
 
-    if (!full_name || !email) {
-      results.push({ email: email || "(vacío)", success: false, error: "Falta nombre o email" });
+    if (!full_name || !email || !password) {
+      results.push({ email: email || "(vacío)", success: false, error: "Falta nombre, email o contraseña" });
+      continue;
+    }
+    if (password.length < 6) {
+      results.push({ email, success: false, error: "La contraseña debe tener al menos 6 caracteres" });
       continue;
     }
 
     try {
-      // inviteUserByEmail crea el usuario SIN contraseña y le manda un
-      // correo con un link para que elija la suya — nadie tiene que
-      // inventar ni comunicar contraseñas a mano.
-      const { data: invited, error: inviteError } = await serviceClient.auth.admin.inviteUserByEmail(email);
-      if (inviteError) throw inviteError;
+      // Se crea con contraseña ya definida y el mail confirmado — el
+      // operador puede entrar directo, sin pasar por el link de invitación.
+      const { data: created, error: createError } = await serviceClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      });
+      if (createError) throw createError;
 
       const { error: insertError } = await serviceClient.from("operators").insert({
-        auth_user_id: invited.user.id,
+        auth_user_id: created.user.id,
         full_name,
         is_admin: false,
         is_active: true,
+        presence: "offline",
       });
       if (insertError) throw insertError;
+
+      // Sin esto el operador nuevo queda invisible para el round robin —
+      // no hay forma de repartirle nada si no está anotado en ninguna cola.
+      const { data: allQueues } = await serviceClient.from("queues").select("id");
+      if (allQueues && allQueues.length > 0) {
+        const { data: newOp } = await serviceClient
+          .from("operators")
+          .select("id")
+          .eq("auth_user_id", created.user.id)
+          .single();
+        if (newOp) {
+          await serviceClient
+            .from("queue_members")
+            .insert(allQueues.map((q) => ({ queue_id: q.id, operator_id: newOp.id })));
+        }
+      }
 
       results.push({ email, success: true });
     } catch (err: any) {

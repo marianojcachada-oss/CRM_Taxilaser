@@ -173,6 +173,7 @@ type Props = {
   theme: string
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
+  onRefreshConversations?: () => void
 }
 
 const filterTitle: Record<string, string> = {
@@ -194,6 +195,7 @@ export default function ConversationsView({
   theme,
   filter,
   onSelectFilter,
+  onRefreshConversations,
 }: Props) {
   const toast = useToast()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -383,8 +385,21 @@ export default function ConversationsView({
 
   async function markAsRead() {
     if (!selectedId) return
+    const { error, data } = await supabase
+      .from('conversations')
+      .update({ unread: false })
+      .eq('id', selectedId)
+      .select('id')
+    if (error || !data || data.length === 0) {
+      // Si esto falla (0 filas), probablemente la conversación quedó sin
+      // asignar (rotación de turno) antes de que llegara el click — se
+      // resuelve sola en el próximo refresh porque ahora el operador puede
+      // reclamarla, pero avisamos en vez de fallar en silencio.
+      toast.error('No se pudo marcar como visto, reintentando...')
+      onRefreshConversations?.()
+      return
+    }
     setConversations((prev) => prev.map((c) => (c.id === selectedId ? { ...c, unread: false } : c)))
-    await supabase.from('conversations').update({ unread: false }).eq('id', selectedId)
   }
 
   async function reassign(newOperatorId: string) {
@@ -801,7 +816,11 @@ export default function ConversationsView({
                       ? 'border-mustard bg-mustard/10 text-mustard'
                       : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
                   }`}
-                  title={selected.keepWithOperator ? 'No rota al cambiar de turno (tocá para sacar)' : 'Mantener conmigo al cambiar de turno'}
+                  title={
+                    selected.keepWithOperator
+                      ? 'Pineada conmigo (se pinea sola al responder o marcar visto; tocá para soltarla)'
+                      : 'Mantener conmigo al cambiar de turno'
+                  }
                 >
                   <Pin size={13} />
                 </button>

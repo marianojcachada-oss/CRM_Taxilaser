@@ -301,9 +301,9 @@ export default function Inbox({
 
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-mustard text-sm font-bold text-asphalt">
-              L
+              Q
             </span>
-            <span className="text-base font-bold uppercase tracking-wide text-cream">Taxi Laser</span>
+            <span className="text-base font-bold uppercase tracking-wide text-cream">Que tal?</span>
           </div>
 
           <div className="hidden items-center gap-2 rounded-full border border-panel-light bg-asphalt px-3.5 py-2 md:flex">
@@ -447,6 +447,7 @@ export default function Inbox({
             theme={theme}
             filter={filter}
             onSelectFilter={(f) => setFilter(f)}
+            onRefreshConversations={onRefreshConversations}
           />
         )}
         {view === 'contacts' && <ContactsView isAdmin={isAdmin} />}

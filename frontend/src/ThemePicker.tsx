@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Palette } from 'lucide-react'
 
 export const themes = [
-  { id: 'dark', label: 'Taxi Laser (oscuro)', asphalt: '#0D0D0C', mustard: '#F0BE52' },
-  { id: 'light', label: 'Taxi Laser (claro)', asphalt: '#EDE9E1', mustard: '#C99A2E' },
+  { id: 'dark', label: 'Que tal? (oscuro)', asphalt: '#0D0D0C', mustard: '#F0BE52' },
+  { id: 'light', label: 'Que tal? (claro)', asphalt: '#EDE9E1', mustard: '#C99A2E' },
   { id: 'midnight', label: 'Medianoche', asphalt: '#0B0F14', mustard: '#4FA8F0' },
   { id: 'sand', label: 'Arena', asphalt: '#F5EFE6', mustard: '#D97A22' },
   { id: 'dino', label: 'Dinosaurios', asphalt: '#0F1710', mustard: '#F2903F' },

@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment } from 'react'
-import { UserPlus, Pencil, UserX, UserCheck, Trash2, Check, X, Upload } from 'lucide-react'
+import { UserPlus, Pencil, UserX, UserCheck, Trash2, Check, X, Upload, RotateCcw } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { getFunctionErrorMessage } from './functionsError'
 
@@ -41,6 +41,7 @@ export default function TeamSection() {
   const [bulkText, setBulkText] = useState('')
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkResults, setBulkResults] = useState<{ email: string; success: boolean; error?: string }[] | null>(null)
+  const [releasingCapacity, setReleasingCapacity] = useState(false)
 
   useEffect(() => {
     load()
@@ -201,10 +202,10 @@ export default function TeamSection() {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const [full_name, email] = line.split(',').map((part) => part.trim())
-        return { full_name, email }
+        const [full_name, email, password] = line.split(',').map((part) => part.trim())
+        return { full_name, email, password }
       })
-      .filter((r) => r.full_name && r.email)
+      .filter((r) => r.full_name && r.email && r.password)
   }
 
   async function handleBulkSubmit() {
@@ -229,6 +230,26 @@ export default function TeamSection() {
     load()
   }
 
+  async function handleReleaseCapacity() {
+    const confirmed = confirm(
+      'Esto pone la carga de TODOS los operadores en 0 y marca como visto todas las conversaciones abiertas y asignadas, para reiniciar el reparto del round robin desde cero. ¿Continuar?',
+    )
+    if (!confirmed) return
+
+    setReleasingCapacity(true)
+    const { data, error } = await supabase.functions.invoke('release-operator-capacity', {
+      body: {},
+    })
+    setReleasingCapacity(false)
+
+    if (error || data?.error) {
+      alert('No se pudo liberar la carga: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
+    alert(`Listo: ${data.operatorsReset} operadores en 0, ${data.conversationsMarkedRead} conversaciones marcadas como vistas.`)
+    load()
+  }
+
   if (loading) return <p className="text-sm text-muted">Cargando equipo...</p>
   if (error) return <p className="text-sm text-alert">Error al cargar operadores: {error}</p>
 
@@ -248,22 +269,31 @@ export default function TeamSection() {
           >
             <Upload size={13} /> {showBulk ? 'Cancelar' : 'Carga masiva'}
           </button>
+          <button
+            onClick={handleReleaseCapacity}
+            disabled={releasingCapacity}
+            className="flex items-center gap-1 rounded-sm border border-panel-light px-3 py-1.5 text-xs text-muted hover:border-alert hover:text-alert disabled:opacity-50"
+            title="Pone la carga de todos en 0 y marca como visto lo abierto y asignado — reinicia el round robin"
+          >
+            <RotateCcw size={13} /> {releasingCapacity ? 'Liberando...' : 'Liberar carga'}
+          </button>
         </div>
       </div>
 
       {showBulk && (
         <div className="rounded-sm border border-panel-light bg-panel p-4">
           <p className="mb-2 text-xs text-muted">
-            Una línea por operador, separando nombre y email con una coma. A cada uno le llega un correo
-            para que elija su propia contraseña — nadie tiene que compartir ninguna.
+            Una línea por operador: nombre, email y contraseña separados por coma. Quedan con acceso
+            listo de una — no se manda ningún correo de invitación.
           </p>
           <textarea
             rows={6}
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
-            placeholder={'Juan Pérez, juan@taxilaserllc.com\nMaría Gómez, maria@taxilaserllc.com'}
+            placeholder={'Juan Pérez, juan@taxilaserllc.com, claveSegura1\nMaría Gómez, maria@taxilaserllc.com, claveSegura2'}
             className="w-full rounded-sm border border-panel-light bg-asphalt px-2.5 py-2 font-mono text-xs text-cream placeholder-muted outline-none focus:border-mustard"
           />
+          <p className="mt-1 text-[11px] text-muted">Cada contraseña necesita al menos 6 caracteres.</p>
           <button
             onClick={handleBulkSubmit}
             disabled={bulkSaving}

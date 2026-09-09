@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, Pin, ArrowLeft, Info,
-  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText,
+  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import { SiWhatsapp, SiFacebook, SiInstagram } from '@icons-pack/react-simple-icons'
@@ -220,6 +220,7 @@ export default function ConversationsView({
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const [translatingDraft, setTranslatingDraft] = useState(false)
   const [availableChannels, setAvailableChannels] = useState<Channel[]>([])
+  const [linkedChannels, setLinkedChannels] = useState<Set<Channel>>(new Set())
   const [sendChannel, setSendChannel] = useState<Channel | null>(null)
   const [typingOperators, setTypingOperators] = useState<string[]>([])
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
@@ -351,7 +352,14 @@ export default function ConversationsView({
       .then(({ data }) => {
         const known = new Set((data ?? []).map((r: any) => r.channel as Channel))
         known.add(selected.channel)
+        // SMS y WhatsApp siempre están disponibles para escribir (se le
+        // puede mandar un mensaje a cualquier teléfono, haya escrito por
+        // ese canal antes o no). Facebook/Instagram solo si hay un
+        // contact_channels vinculado — eso lo refleja `known`.
+        known.add('sms')
+        known.add('whatsapp')
         setAvailableChannels(allChannels.filter((c) => known.has(c)))
+        setLinkedChannels(known)
       })
   }, [selected?.id, selected?.contactId, selected?.channel])
 
@@ -1009,8 +1017,10 @@ export default function ConversationsView({
                         <p className="flex items-center gap-1 font-mono text-[10px] opacity-60">
                           {m.time}
                           {m.status === 'sent' && <Check size={10} />}
-                          {m.from === 'operator' && m.sentViaChannel && m.sentViaChannel !== selected.channel && (
-                            <> · vía {channelLabel[m.sentViaChannel]}</>
+                          {m.sentViaChannel && (
+                            <span className="flex items-center gap-0.5" title={channelLabel[m.sentViaChannel]}>
+                              · <ChannelIcon channel={m.sentViaChannel} size={9} />
+                            </span>
                           )}
                         </p>
                       )}
@@ -1081,18 +1091,38 @@ export default function ConversationsView({
               )}
 
               {availableChannels.length > 1 && (
-                <select
-                  value={sendChannel ?? selected.channel}
-                  onChange={(e) => setSendChannel(e.target.value as Channel)}
-                  title="Por qué canal enviar esta respuesta"
-                  className="shrink-0 rounded-sm border border-panel-light bg-asphalt px-1.5 py-2 text-xs text-cream outline-none focus:border-mustard"
-                >
-                  {availableChannels.map((ch) => (
-                    <option key={ch} value={ch}>
-                      {channelLabel[ch]}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex shrink-0 items-center gap-1" title="Por qué canal enviar esta respuesta">
+                  {allChannels.map((ch) => {
+                    const isLinked = linkedChannels.has(ch)
+                    const isActive = (sendChannel ?? selected.channel) === ch
+                    return (
+                      <button
+                        key={ch}
+                        type="button"
+                        disabled={!isLinked}
+                        onClick={() => (isLinked ? setSendChannel(ch) : toast.error(`Para mandar por ${channelLabel[ch]} primero vinculá el perfil desde el panel de contacto (Vincular redes sociales).`))}
+                        title={
+                          isLinked
+                            ? `Enviar por ${channelLabel[ch]}`
+                            : `${channelLabel[ch]} bloqueado — vinculá el perfil desde el panel de contacto`
+                        }
+                        className={`flex h-7 w-7 items-center justify-center rounded-sm border transition-colors ${
+                          isActive && isLinked
+                            ? 'border-mustard bg-mustard/10'
+                            : isLinked
+                              ? 'border-panel-light hover:border-mustard/50'
+                              : 'cursor-pointer border-panel-light opacity-40 hover:opacity-70'
+                        }`}
+                      >
+                        {isLinked ? (
+                          <ChannelIcon channel={ch} size={13} color={isActive ? 'var(--color-mustard)' : undefined} />
+                        ) : (
+                          <Lock size={12} className="text-muted" />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               )}
 
               <button

@@ -6,6 +6,7 @@ import { phoneForCopy } from './phone'
 import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import ContactTimeline from './ContactTimeline'
+import { getFunctionErrorMessage } from './functionsError'
 
 // TODO: reemplazar por una llamada real a la API de Claude (vía una Edge
 // Function de Supabase, para no exponer la API key en el frontend). Con el
@@ -90,6 +91,14 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   const [previous, setPrevious] = useState<PreviousConversation[]>([])
   const [tags, setTags] = useState<string[]>(conversation.tags)
   const [preferredChannels, setPreferredChannels] = useState<string[]>(conversation.preferredChannels)
+  const [linkChannelOpen, setLinkChannelOpen] = useState<'facebook' | 'instagram' | null>(null)
+  const [linkSearch, setLinkSearch] = useState('')
+  const [linkResults, setLinkResults] = useState<{ id: string; full_name: string | null }[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
+  const [linkedSocials, setLinkedSocials] = useState<{ facebook: boolean; instagram: boolean }>({
+    facebook: false,
+    instagram: false,
+  })
   const [newTag, setNewTag] = useState('')
   const [addingTag, setAddingTag] = useState(false)
   const [savedNotes, setSavedNotes] = useState(conversation.notes ?? '')
@@ -103,6 +112,55 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   useEffect(() => {
     setPreferredChannels(conversation.preferredChannels)
   }, [conversation.preferredChannels])
+
+  useEffect(() => {
+    supabase
+      .from('contact_channels')
+      .select('channel')
+      .eq('contact_id', conversation.contactId)
+      .in('channel', ['facebook', 'instagram'])
+      .then(({ data }) => {
+        const set = new Set((data ?? []).map((r: any) => r.channel))
+        setLinkedSocials({ facebook: set.has('facebook'), instagram: set.has('instagram') })
+      })
+  }, [conversation.contactId])
+
+  async function searchContactsToLink() {
+    if (!linkSearch.trim()) {
+      setLinkResults([])
+      return
+    }
+    setLinkSearching(true)
+    // Solo tiene sentido vincular contactos que ya tengan ese canal
+    // cargado — si no tiene contact_channels de esa red, no hay nada
+    // para vincular.
+    const { data } = await supabase
+      .from('contacts')
+      .select('id, full_name, contact_channels!inner(channel)')
+      .ilike('full_name', `%${linkSearch.trim()}%`)
+      .eq('contact_channels.channel', linkChannelOpen)
+      .neq('id', conversation.contactId)
+      .limit(8)
+    setLinkResults((data ?? []).map((c: any) => ({ id: c.id, full_name: c.full_name })))
+    setLinkSearching(false)
+  }
+
+  async function linkChannel(sourceContactId: string) {
+    if (!linkChannelOpen) return
+    const { data, error } = await supabase.functions.invoke('link-contact-channel', {
+      body: { targetContactId: conversation.contactId, sourceContactId, channel: linkChannelOpen },
+    })
+    if (error || data?.error) {
+      toast.error('No se pudo vincular: ' + (await getFunctionErrorMessage(error, data)))
+      return
+    }
+    toast.success(`${channelLabel[linkChannelOpen]} vinculado — ya se puede mandar mensajes por ahí.`)
+    setLinkedSocials((prev) => ({ ...prev, [linkChannelOpen]: true }))
+    setLinkChannelOpen(null)
+    setLinkSearch('')
+    setLinkResults([])
+  }
+
 
   useEffect(() => {
     setSavedNotes(conversation.notes ?? '')
@@ -478,6 +536,86 @@ export default function ContactPanel({ conversation, onClose }: Props) {
               )
             })}
           </div>
+        </div>
+
+        <div className="mb-3">
+          <p className="mb-1 text-xs text-muted">Vincular redes sociales</p>
+          <p className="mb-1.5 text-[10px] text-muted">
+            Si esta persona ya te escribió por Facebook o Instagram bajo otro contacto (sin teléfono
+            asociado), buscala acá por nombre y vinculala — habilita mandarle mensajes por esa red desde
+            este mismo chat.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {(['facebook', 'instagram'] as const).map((channel) => {
+              const linked = linkedSocials[channel]
+              return (
+                <button
+                  key={channel}
+                  type="button"
+                  disabled={linked}
+                  onClick={() => {
+                    setLinkChannelOpen(linkChannelOpen === channel ? null : channel)
+                    setLinkSearch('')
+                    setLinkResults([])
+                  }}
+                  className={`flex items-center gap-1.5 rounded-sm border px-2 py-1 text-xs transition-colors ${
+                    linked
+                      ? 'cursor-default border-available/40 bg-available/10 text-available'
+                      : linkChannelOpen === channel
+                        ? 'border-mustard bg-mustard/10 text-mustard'
+                        : 'border-panel-light text-muted hover:border-mustard/50'
+                  }`}
+                >
+                  <ChannelIcon channel={channel} size={13} />
+                  {channelLabel[channel].split(' ')[0]}
+                  {linked && <Check size={11} />}
+                </button>
+              )
+            })}
+          </div>
+
+          {linkChannelOpen && (
+            <div className="mt-2 rounded-sm border border-panel-light bg-asphalt p-2">
+              <div className="flex gap-1.5">
+                <input
+                  autoFocus
+                  value={linkSearch}
+                  onChange={(e) => setLinkSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && searchContactsToLink()}
+                  placeholder={`Buscar por nombre en ${channelLabel[linkChannelOpen]}...`}
+                  className="flex-1 rounded-sm border border-panel-light bg-panel px-2 py-1 text-xs text-cream outline-none focus:border-mustard"
+                />
+                <button
+                  onClick={searchContactsToLink}
+                  disabled={linkSearching}
+                  className="rounded-sm border border-panel-light px-2 py-1 text-xs text-muted hover:border-mustard hover:text-mustard disabled:opacity-50"
+                >
+                  {linkSearching ? '...' : 'Buscar'}
+                </button>
+              </div>
+
+              {linkResults.length > 0 && (
+                <div className="mt-1.5 flex flex-col gap-1">
+                  {linkResults.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => linkChannel(c.id)}
+                      className="flex items-center justify-between rounded-sm px-2 py-1 text-left text-xs text-cream hover:bg-panel-light"
+                    >
+                      {c.full_name || '(sin nombre)'}
+                      <span className="text-mustard">Vincular →</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkSearch && !linkSearching && linkResults.length === 0 && (
+                <p className="mt-1.5 text-[11px] text-muted">
+                  Sin resultados — solo aparecen contactos que ya tengan {channelLabel[linkChannelOpen]}{' '}
+                  cargado (o sea, que ya hayan escrito por ahí alguna vez).
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div>

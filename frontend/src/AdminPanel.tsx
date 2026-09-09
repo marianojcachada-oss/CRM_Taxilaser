@@ -54,12 +54,30 @@ type Props = {
   theme: string
   onChangeTheme: (id: string) => void
   operatorName: string
+  isSuperAdmin: boolean
   onBack: () => void
   conversations: Conversation[]
 }
 
-export default function AdminPanel({ theme, onChangeTheme, operatorName, onBack, conversations }: Props) {
-  const [active, setActive] = useState<Section>('command-center')
+// Un admin común (no superadmin) solo ve estas secciones — el resto
+// queda reservado para superadmin. Integrations se ve pero en modo
+// solo lectura (se resuelve dentro de IntegrationsSection).
+const ADMIN_ALLOWED_SECTIONS: Section[] = [
+  'analytics',
+  'team',
+  'templates',
+  'roundrobin',
+  'errors',
+  'metrics',
+  'integrations',
+]
+
+export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuperAdmin, onBack, conversations }: Props) {
+  const visibleNavItems = isSuperAdmin
+    ? navItems
+    : navItems.filter((item) => ADMIN_ALLOWED_SECTIONS.includes(item.id))
+
+  const [active, setActive] = useState<Section>(isSuperAdmin ? 'command-center' : 'analytics')
   const [showMobileNav, setShowMobileNav] = useState(false)
 
   return (
@@ -78,7 +96,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, onBack,
           </div>
 
           <nav className="flex-1 overflow-y-auto py-2">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => {
@@ -122,10 +140,10 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, onBack,
           {active === 'automations' && <AutomationsSection />}
           {active === 'ai' && <AISection />}
           {active === 'analytics' && <AnalyticsSection conversations={conversations} />}
-          {active === 'team' && <TeamSection />}
+          {active === 'team' && <TeamSection isSuperAdmin={isSuperAdmin} />}
           {active === 'templates' && <TemplatesSection />}
           {active === 'channels' && <ChannelsSection />}
-          {active === 'integrations' && <IntegrationsSection />}
+          {active === 'integrations' && <IntegrationsSection readOnly={!isSuperAdmin} />}
           {active === 'vehicles' && <VehiclesSection />}
           {active === 'metrics' && <MessageMetricsSection />}
           {active === 'roundrobin' && <RoundRobinSection />}

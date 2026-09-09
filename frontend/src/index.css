@@ -147,6 +147,53 @@
   --color-muted: #8C8C8C;
 }
 
+/* Alto contraste — negro puro + blanco puro + amarillo vívido. Pensado
+   para máxima legibilidad: turnos largos, pantallas con reflejos, o
+   cualquiera que necesite el contraste más alto posible. */
+[data-theme='alto-contraste'] {
+  --color-asphalt: #000000;
+  --color-panel: #0A0A0A;
+  --color-panel-light: #2E2E2E;
+  --color-mustard: #FFD400;
+  --color-alert: #FF453A;
+  --color-available: #32D74B;
+  --color-warning: #FFD60A;
+  --color-info: #64D2FF;
+  --color-cream: #FFFFFF;
+  --color-muted: #B8B8B8;
+}
+
+/* Océano — azul petróleo profundo con acento turquesa. Menos fatiga
+   visual en turnos largos que un negro puro, sin perder impacto. */
+[data-theme='oceano'] {
+  --color-asphalt: #071B26;
+  --color-panel: #0D2735;
+  --color-panel-light: #163A4D;
+  --color-mustard: #2DD4C8;
+  --color-alert: #FF6B5B;
+  --color-available: #4ADE80;
+  --color-warning: #FBBF24;
+  --color-info: #60A5FA;
+  --color-cream: #EAF6F8;
+  --color-muted: #86ABB8;
+}
+
+/* Esmeralda — verde profundo con acento lima/esmeralda vívido. Alto
+   impacto visual, buena separación entre estados (visto/no visto,
+   pineado, alertas) gracias al contraste de saturación. */
+[data-theme='esmeralda'] {
+  --color-asphalt: #0B1410;
+  --color-panel: #12211A;
+  --color-panel-light: #1C3327;
+  --color-mustard: #34E89E;
+  --color-alert: #F2545B;
+  --color-available: #6EE7B7;
+  --color-warning: #FACC15;
+  --color-info: #38BDF8;
+  --color-cream: #EFFAF4;
+  --color-muted: #86AC9B;
+}
+
 body {
   margin: 0;
   background-color: var(--color-asphalt);

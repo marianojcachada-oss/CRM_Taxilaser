@@ -54,7 +54,7 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
   },
 ]
 
-export default function IntegrationsSection() {
+export default function IntegrationsSection({ readOnly = false }: { readOnly?: boolean }) {
   const toast = useToast()
   const [values, setValues] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -79,6 +79,7 @@ export default function IntegrationsSection() {
   }, [])
 
   async function saveValue(key: string) {
+    if (readOnly) return
     setSavingKey(key)
     const { error } = await supabase
       .from('integration_settings')
@@ -94,6 +95,7 @@ export default function IntegrationsSection() {
   }
 
   async function toggleTaxiCallerMessages() {
+    if (readOnly) return
     const current = values['TAXICALLER_AUTO_MESSAGE_ENABLED']
     const next = current === 'false' ? 'true' : 'false'
     setValues((prev) => ({ ...prev, TAXICALLER_AUTO_MESSAGE_ENABLED: next }))
@@ -103,6 +105,7 @@ export default function IntegrationsSection() {
   }
 
   async function toggleTaxiCallerCancelMessages() {
+    if (readOnly) return
     const current = values['TAXICALLER_CANCEL_MESSAGE_ENABLED']
     const next = current === 'false' ? 'true' : 'false'
     setValues((prev) => ({ ...prev, TAXICALLER_CANCEL_MESSAGE_ENABLED: next }))
@@ -112,6 +115,7 @@ export default function IntegrationsSection() {
   }
 
   async function toggleTaxiCallerFinishedMessages() {
+    if (readOnly) return
     const current = values['TAXICALLER_FINISHED_MESSAGE_ENABLED']
     const next = current === 'false' ? 'true' : 'false'
     setValues((prev) => ({ ...prev, TAXICALLER_FINISHED_MESSAGE_ENABLED: next }))
@@ -121,6 +125,7 @@ export default function IntegrationsSection() {
   }
 
   async function toggleTaxiCallerAssignedTracking() {
+    if (readOnly) return
     const current = values['TAXICALLER_ASSIGNED_TRACKING_ENABLED']
     const next = current === 'false' ? 'true' : 'false'
     setValues((prev) => ({ ...prev, TAXICALLER_ASSIGNED_TRACKING_ENABLED: next }))
@@ -130,6 +135,7 @@ export default function IntegrationsSection() {
   }
 
   async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
+    if (readOnly) return
     const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
     const current = values[key]
     const next = current === 'true' ? 'false' : 'true'
@@ -142,11 +148,17 @@ export default function IntegrationsSection() {
 
   return (
     <div className="flex flex-col gap-4">
+      {readOnly && (
+        <p className="rounded-sm border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">
+          Solo lectura — pedile a un Superadmin que edite Integraciones.
+        </p>
+      )}
       <p className="rounded-sm border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
         Lo que guardes acá lo leen las Edge Functions directamente (con respaldo en los secrets de la CLI
         si dejás algo vacío) — no hace falta redesplegar nada para que tome un valor nuevo.
       </p>
 
+      <fieldset disabled={readOnly} className={readOnly ? 'opacity-60' : ''}>
       {groups.map((group) => (
         <div key={group.title} className="rounded-sm border border-panel-light bg-panel p-4">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{group.title}</h2>
@@ -286,6 +298,7 @@ export default function IntegrationsSection() {
           </div>
         </div>
       ))}
+      </fieldset>
     </div>
   )
 }

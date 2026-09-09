@@ -12,6 +12,9 @@ export const themes = [
   { id: 'pastel', label: 'Pastel', asphalt: '#F3EEF7', mustard: '#A971C4' },
   { id: 'morado', label: 'Morado', asphalt: '#140E1C', mustard: '#A87EF0' },
   { id: 'taxicaller', label: 'TaxiCaller', asphalt: '#0A0A0A', mustard: '#F2C518' },
+  { id: 'alto-contraste', label: 'Alto contraste', asphalt: '#000000', mustard: '#FFD400' },
+  { id: 'oceano', label: 'Océano', asphalt: '#071B26', mustard: '#2DD4C8' },
+  { id: 'esmeralda', label: 'Esmeralda', asphalt: '#0B1410', mustard: '#34E89E' },
 ]
 
 type Props = {

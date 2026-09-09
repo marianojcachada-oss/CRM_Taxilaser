@@ -42,6 +42,7 @@ function AppContent() {
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [operatorPresence, setOperatorPresence] = useState<'available' | 'offline' | 'busy'>('offline')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
@@ -66,7 +67,7 @@ function AppContent() {
 
     supabase
       .from('operators')
-      .select('id, full_name, is_admin, presence, theme_preference')
+      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference')
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
@@ -78,6 +79,7 @@ function AppContent() {
           setOperatorId(data.id)
           setOperatorName(data.full_name ?? 'Operador')
           setIsAdmin(data.is_admin ?? false)
+          setIsSuperAdmin(data.is_superadmin ?? false)
           setOperatorPresence(data.presence ?? 'offline')
           setTheme(data.theme_preference ?? 'dark')
         }
@@ -222,6 +224,7 @@ function AppContent() {
         theme={theme}
         onChangeTheme={changeTheme}
         operatorName={operatorName}
+        isSuperAdmin={isSuperAdmin}
         onBack={() => setView('inbox')}
         conversations={conversations}
       />

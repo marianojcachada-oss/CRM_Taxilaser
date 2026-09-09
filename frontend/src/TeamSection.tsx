@@ -11,10 +11,11 @@ type Operator = {
   max_capacity: number | null
   current_load: number
   is_admin: boolean
+  is_superadmin: boolean
   is_active: boolean
 }
 
-export default function TeamSection() {
+export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [operators, setOperators] = useState<Operator[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +31,7 @@ export default function TeamSection() {
   const [editName, setEditName] = useState('')
   const [editCode, setEditCode] = useState('')
   const [editIsAdmin, setEditIsAdmin] = useState(false)
+  const [editIsSuperAdmin, setEditIsSuperAdmin] = useState(false)
   const [editMaxCapacity, setEditMaxCapacity] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editPassword, setEditPassword] = useState('')
@@ -51,7 +53,7 @@ export default function TeamSection() {
     setLoading(true)
     supabase
       .from('operators')
-      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_active')
+      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_superadmin, is_active')
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setOperators(data ?? [])
@@ -87,6 +89,7 @@ export default function TeamSection() {
     setEditName(op.full_name)
     setEditCode(op.operator_code ?? '')
     setEditIsAdmin(op.is_admin)
+    setEditIsSuperAdmin(op.is_superadmin)
     setEditMaxCapacity(op.max_capacity?.toString() ?? '')
     setEditEmail('')
     setEditPassword('')
@@ -100,6 +103,10 @@ export default function TeamSection() {
         full_name: editName,
         operator_code: editCode.trim() || null,
         is_admin: editIsAdmin,
+        // Si quien edita no es superadmin, la base ignora este campo
+        // igual (hay un trigger que lo protege) — no lo mandamos ni
+        // para no confundir.
+        ...(isSuperAdmin ? { is_superadmin: editIsSuperAdmin } : {}),
         max_capacity: editMaxCapacity.trim() ? Number(editMaxCapacity) : null,
       })
       .eq('id', id)
@@ -421,6 +428,17 @@ export default function TeamSection() {
                       />
                       Admin
                     </label>
+                    {isSuperAdmin && (
+                      <label className="mt-1 flex items-center gap-1.5 text-xs text-cream">
+                        <input
+                          type="checkbox"
+                          checked={editIsSuperAdmin}
+                          onChange={(e) => setEditIsSuperAdmin(e.target.checked)}
+                          className="h-3.5 w-3.5 accent-alert"
+                        />
+                        Superadmin
+                      </label>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
@@ -500,7 +518,11 @@ export default function TeamSection() {
                     {op.current_load} / {op.max_capacity ?? '∞'}
                   </td>
                   <td className="px-4 py-2.5">
-                    {op.is_admin ? (
+                    {op.is_superadmin ? (
+                      <span className="rounded-sm border border-alert/40 px-1.5 py-0.5 text-xs text-alert">
+                        Superadmin
+                      </span>
+                    ) : op.is_admin ? (
                       <span className="rounded-sm border border-mustard/40 px-1.5 py-0.5 text-xs text-mustard">
                         Admin
                       </span>

@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
   }
 
   const body = payload.body;
+  console.log(`ringcentral-webhook: evento recibido, event=${payload.event ?? "?"}, type=${body?.type ?? "?"}`);
 
   if (body?.direction === "Inbound" && body?.type === "SMS") {
     const phone = body.from?.phoneNumber;
@@ -65,13 +66,20 @@ Deno.serve(async (req) => {
   // Llamada perdida: el evento de telephony/sessions trae un array
   // "parties" con el estado de cada parte de la llamada. Buscamos una
   // parte entrante marcada como llamada perdida.
+  //
+  // Si esto no está andando, lo primero es mirar los Logs de esta
+  // función después de una llamada de prueba: con este console.log de
+  // acá abajo vas a ver el JSON completo que mandó RingCentral, y así
+  // confirmamos si el evento ni siquiera está llegando (problema de
+  // permisos/suscripción) o si está llegando con una forma distinta a
+  // la que esperamos (ahí ajustamos el parseo).
   const parties = body?.parties;
   if (Array.isArray(parties)) {
-    const missedParty = parties.find(
-      (p: any) => p?.direction === "Inbound" && (p?.missedCall === true || p?.status?.code === "Disconnected"),
-    );
+    console.log("Evento de telephony/sessions recibido:", JSON.stringify(body));
+
+    const missedParty = parties.find((p: any) => p?.missedCall === true);
     const phone = missedParty?.from?.phoneNumber;
-    if (missedParty?.missedCall && phone) {
+    if (missedParty && phone) {
       const { data: contact } = await supabase.from("contacts").select("id").eq("phone", phone).maybeSingle();
       await supabase.from("missed_calls").insert({
         phone,
@@ -131,15 +139,14 @@ async function handleIncomingSms(opts: {
     await supabase.from("contacts").update({ full_name: contactName }).eq("id", contactId);
   }
 
-  // Buscamos la conversación más reciente con este contacto por este
-  // canal, sin importar si está cerrada — si el cliente vuelve a
-  // escribir, el historial tiene que seguir en el mismo hilo, no
-  // arrancar uno nuevo.
+  // Buscamos la conversación más reciente con este contacto por SMS o
+  // WhatsApp (comparten conversación — misma asignación de operador
+  // para los dos), sin importar si está cerrada.
   const { data: existingConversation } = await supabase
     .from("conversations")
     .select("id, status")
     .eq("contact_id", contactId)
-    .eq("channel", "sms")
+    .in("channel", ["sms", "whatsapp"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -158,6 +165,7 @@ async function handleIncomingSms(opts: {
       .insert({
         contact_id: contactId,
         channel: "sms",
+        channels_available: ["sms", "whatsapp"],
         queue_id: queue?.id ?? null,
         external_thread_id: phone,
       })
@@ -172,5 +180,6 @@ async function handleIncomingSms(opts: {
     sender_type: "contact",
     content: text,
     external_message_id: externalMessageId,
+    sent_via_channel: "sms",
   });
 }

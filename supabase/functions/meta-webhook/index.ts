@@ -299,14 +299,19 @@ async function handleIncomingMessage(opts: {
     await supabase.from("contacts").update({ full_name: resolvedName }).eq("id", contactId);
   }
 
-  // 3. Buscar la conversación más reciente para este contacto+canal (sin
-  // importar si está cerrada — se reabre en vez de fragmentar el
-  // historial), o crear una nueva si nunca hubo
+  // 3. Buscar la conversación más reciente para este contacto — para
+  // WhatsApp, se busca también entre las de SMS, porque SMS y WhatsApp
+  // comparten una sola conversación por contacto (misma asignación de
+  // operador para los dos). Facebook e Instagram siguen exactos por
+  // canal, no se mezclan. Se reabre aunque esté cerrada, en vez de
+  // fragmentar el historial, o se crea una nueva si nunca hubo.
+  const mergedChannels = channel === "whatsapp" ? ["whatsapp", "sms"] : [channel];
+
   const { data: existingConversation } = await supabase
     .from("conversations")
     .select("id, status")
     .eq("contact_id", contactId)
-    .eq("channel", channel)
+    .in("channel", mergedChannels)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -330,6 +335,7 @@ async function handleIncomingMessage(opts: {
       .insert({
         contact_id: contactId,
         channel,
+        channels_available: channel === "whatsapp" ? ["whatsapp", "sms"] : [channel],
         queue_id: queue?.id ?? null, // el trigger de round robin corre acá
         external_thread_id: externalContactId,
       })
@@ -340,7 +346,9 @@ async function handleIncomingMessage(opts: {
     conversationId = newConversation.id;
   }
 
-  // 4. Insertar el mensaje
+  // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de
+  // este mensaje puntual, que puede no coincidir con conversations.channel
+  // una vez que sms/whatsapp comparten conversación.
   await supabase.from("messages").insert({
     conversation_id: conversationId,
     sender_type: "contact",
@@ -349,6 +357,7 @@ async function handleIncomingMessage(opts: {
     attachment_url: attachment?.url ?? null,
     attachment_name: attachment?.name ?? null,
     attachment_kind: attachment?.kind ?? null,
+    sent_via_channel: channel,
   });
 
   // 5. Actualizar last_message_at de la conversación

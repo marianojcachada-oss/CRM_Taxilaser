@@ -96,12 +96,13 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
     });
   }
 
-  // Conversación de ese canal más reciente (se reabre si estaba cerrada), o una nueva.
+  // Conversación de SMS/WhatsApp más reciente (comparten una sola, sin
+  // importar por cuál de los dos haya escrito antes), o una nueva.
   const { data: existingConversation } = await supabase
     .from("conversations")
     .select("id, status")
     .eq("contact_id", contactId)
-    .eq("channel", conversationChannel)
+    .in("channel", ["sms", "whatsapp"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -124,6 +125,7 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
       .insert({
         contact_id: contactId,
         channel: conversationChannel,
+        channels_available: ["sms", "whatsapp"],
         queue_id: null,
         unread: false,
         external_thread_id: phone,

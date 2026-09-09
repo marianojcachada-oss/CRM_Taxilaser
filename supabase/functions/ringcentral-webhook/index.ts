@@ -14,6 +14,7 @@
 // del campo correcto, y ajustar si hace falta.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getSetting } from "../_shared/settings.ts";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 
@@ -34,6 +35,14 @@ Deno.serve(async (req) => {
   const rawBody = await req.text();
   if (!rawBody) {
     return new Response("OK", { status: 200 });
+  }
+
+  // Freno propio: si está desactivado desde Integrations, no se procesa
+  // nada — ni SMS ni llamadas perdidas — sin importar si RingCentral
+  // todavía nos está mandando eventos por su lado.
+  const intakeEnabled = await getSetting("RINGCENTRAL_INTAKE_ENABLED");
+  if (intakeEnabled === "false") {
+    return new Response("OK (integración desactivada)", { status: 200 });
   }
 
   let payload: any;

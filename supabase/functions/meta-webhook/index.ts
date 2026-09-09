@@ -111,6 +111,15 @@ Deno.serve(async (req) => {
   }
 
   // -----------------------------------------------------
+  // Freno propio: si está desactivado desde Integrations, no se procesa
+  // nada — sin importar el estado real de la suscripción en Meta.
+  // -----------------------------------------------------
+  const intakeEnabled = await getSetting("META_INTAKE_ENABLED");
+  if (intakeEnabled === "false") {
+    return new Response("OK (integración desactivada)", { status: 200 });
+  }
+
+  // -----------------------------------------------------
   // Evento entrante — se verifica que la firma coincida antes de
   // procesar nada, para confirmar que el POST viene de verdad de Meta y
   // no de cualquiera que haya encontrado esta URL.

@@ -89,12 +89,23 @@ Deno.serve(async (req) => {
       const res = await fetch(`${url}?access_token=${accessToken}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
+
+      // Freno propio, igual que en RingCentral — independiente de si la
+      // baja de suscripción del lado de Meta salió perfecta o no.
+      await serviceClient
+        .from("integration_settings")
+        .upsert({ key: "META_INTAKE_ENABLED", value: "false", updated_at: new Date().toISOString() });
+
       return new Response(JSON.stringify({ success: true, deactivated: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     // action === "activate"
+    await serviceClient
+      .from("integration_settings")
+      .upsert({ key: "META_INTAKE_ENABLED", value: "true", updated_at: new Date().toISOString() });
+
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },

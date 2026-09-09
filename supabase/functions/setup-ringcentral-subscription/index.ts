@@ -98,30 +98,34 @@ Deno.serve(async (req) => {
     if (action === "deactivate") {
       const subscriptionId = await getSetting("RINGCENTRAL_SUBSCRIPTION_ID");
 
-      if (!subscriptionId) {
-        return new Response(JSON.stringify({ error: "No hay ninguna suscripción activa registrada" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+      if (subscriptionId) {
+        const res = await fetch(`${rcServer}/restapi/v1.0/subscription/${subscriptionId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
+
+        // RingCentral devuelve 204 sin cuerpo si sale bien
+        if (!res.ok && res.status !== 404) {
+          const data = await res.json().catch(() => ({}));
+          return new Response(JSON.stringify({ error: data }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        await serviceClient
+          .from("integration_settings")
+          .upsert({ key: "RINGCENTRAL_SUBSCRIPTION_ID", value: null, updated_at: new Date().toISOString() });
       }
 
-      const res = await fetch(`${rcServer}/restapi/v1.0/subscription/${subscriptionId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      // RingCentral devuelve 204 sin cuerpo si sale bien
-      if (!res.ok && res.status !== 404) {
-        const data = await res.json().catch(() => ({}));
-        return new Response(JSON.stringify({ error: data }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
+      // Freno propio, independiente de lo que haya pasado con la
+      // suscripción de RingCentral (si quedó a medio borrar, si tarda
+      // en propagar, etc.) — ringcentral-webhook chequea esto ANTES de
+      // procesar cualquier cosa, así que apenas esto queda en "false"
+      // no entra nada más, sin importar qué esté pasando del otro lado.
       await serviceClient
         .from("integration_settings")
-        .upsert({ key: "RINGCENTRAL_SUBSCRIPTION_ID", value: null, updated_at: new Date().toISOString() });
+        .upsert({ key: "RINGCENTRAL_INTAKE_ENABLED", value: "false", updated_at: new Date().toISOString() });
 
       return new Response(JSON.stringify({ success: true, deactivated: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -129,6 +133,10 @@ Deno.serve(async (req) => {
     }
 
     // action === "activate"
+    await serviceClient
+      .from("integration_settings")
+      .upsert({ key: "RINGCENTRAL_INTAKE_ENABLED", value: "true", updated_at: new Date().toISOString() });
+
     const projectRef = SUPABASE_URL.match(/https:\/\/(.*)\.supabase\.co/)?.[1];
     const address = `https://${projectRef}.supabase.co/functions/v1/ringcentral-webhook`;
     const extensionId = (await getSetting("RINGCENTRAL_EXTENSION_ID")) || "~";
@@ -142,12 +150,11 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         eventFilters: [
           `/restapi/v1.0/account/~/extension/${extensionId}/message-store/instant?type=SMS`,
-          // Sin el query param ?missedCall=true: ese filtro de RingCentral
-          // está poco documentado y en algunas cuentas descarta eventos
-          // antes de que lleguen — mejor traer todos los eventos de
-          // sesión de llamada (a nivel cuenta) y decidir en el código si
-          // fue una llamada perdida.
-          `/restapi/v1.0/account/~/telephony/sessions`,
+          // Con el permiso Call Control ya cargado en la app, este filtro
+          // hace que RingCentral filtre del lado de ellos y solo nos
+          // mande eventos de llamada perdida — no recibimos ni
+          // procesamos las llamadas contestadas.
+          `/restapi/v1.0/account/~/telephony/sessions?missedCall=true`,
         ],
         deliveryMode: { transportType: "WebHook", address },
         expiresIn: 604800, // 7 días, el máximo habitual para WebHook

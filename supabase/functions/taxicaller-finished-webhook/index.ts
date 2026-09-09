@@ -135,6 +135,7 @@ Deno.serve(async (req) => {
         contact_id: contactId,
         channel: "sms",
         queue_id: null,
+        needs_assignment: false, // aviso informativo, no necesita que un operador lo tome
         unread: false,
         external_thread_id: phone,
       })

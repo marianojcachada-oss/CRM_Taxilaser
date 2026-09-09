@@ -28,7 +28,7 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
     case 'mine':
       return c.assignedOperatorId === operatorId
     case 'unassigned':
-      return c.assignedOperatorId === null
+      return c.assignedOperatorId === null && c.needsAssignment
     case 'snoozed':
       return isSnoozed(c)
     case 'my_history':

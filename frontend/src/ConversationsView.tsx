@@ -104,6 +104,7 @@ export type Conversation = {
   vip: boolean
   tags: string[]
   preferredChannels: string[]
+  needsAssignment: boolean
   totalInvertido?: string | null
   serviciosCompletados?: number | null
   serviciosCancelados?: number | null

@@ -15,7 +15,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
-import { sendSms } from "../_shared/ringcentral.ts";
+import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 
 const supabase = createClient(
@@ -59,13 +59,8 @@ Deno.serve(async (req) => {
     `Su servicio${make ? ` con la unidad ${make}` : ""} fue finalizado` +
     (fareTotal ? ` por $${fareTotal}` : "");
 
-  try {
-    await sendSms(phone, text);
-  } catch (err) {
-    console.error("No se pudo enviar el SMS de servicio finalizado:", err);
-  }
-
-  // Buscar o crear el contacto
+  // Buscar o crear el contacto ANTES de mandar el mensaje — hace falta
+  // su ID para saber por qué canal(es) prefiere recibir avisos.
   const { data: existingContact } = await supabase
     .from("contacts")
     .select("id, servicios_completados")
@@ -102,6 +97,8 @@ Deno.serve(async (req) => {
       })
       .eq("id", contactId);
   }
+
+  const { sentVia } = await sendAutomatedMessage({ contactId, phone, text });
 
   // Historial real, de acá en adelante — una fila por viaje
   await supabase.from("ride_history").insert({
@@ -151,7 +148,7 @@ Deno.serve(async (req) => {
     conversation_id: conversationId,
     sender_type: "operator",
     content: text,
-    sent_via_channel: "sms",
+    sent_via_channel: sentVia.join(",") || "sms",
     automation_type: "finished",
   });
 

@@ -89,6 +89,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   })()
   const [previous, setPrevious] = useState<PreviousConversation[]>([])
   const [tags, setTags] = useState<string[]>(conversation.tags)
+  const [preferredChannels, setPreferredChannels] = useState<string[]>(conversation.preferredChannels)
   const [newTag, setNewTag] = useState('')
   const [addingTag, setAddingTag] = useState(false)
   const [savedNotes, setSavedNotes] = useState(conversation.notes ?? '')
@@ -98,6 +99,10 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   useEffect(() => {
     setTags(conversation.tags)
   }, [conversation.tags])
+
+  useEffect(() => {
+    setPreferredChannels(conversation.preferredChannels)
+  }, [conversation.preferredChannels])
 
   useEffect(() => {
     setSavedNotes(conversation.notes ?? '')
@@ -175,6 +180,24 @@ export default function ContactPanel({ conversation, onClose }: Props) {
 
   function cancelNotes() {
     setDraftNotes(savedNotes)
+  }
+
+  async function togglePreferredChannel(channel: string) {
+    const next = preferredChannels.includes(channel)
+      ? preferredChannels.filter((c) => c !== channel)
+      : [...preferredChannels, channel]
+
+    setPreferredChannels(next) // optimista
+
+    const { error } = await supabase
+      .from('contacts')
+      .update({ preferred_channels: next })
+      .eq('id', conversation.contactId)
+
+    if (error) {
+      toast.error('No se pudo guardar la preferencia de canal: ' + error.message)
+      setPreferredChannels(preferredChannels) // revertir
+    }
   }
 
   async function addTag() {
@@ -420,6 +443,41 @@ export default function ContactPanel({ conversation, onClose }: Props) {
               minute: '2-digit',
             })}
           </p>
+        </div>
+
+        <div className="mb-3">
+          <p className="mb-1 text-xs text-muted">Mensajes automáticos — canal preferido</p>
+          <p className="mb-1.5 text-[10px] text-muted">
+            Por dónde recibir avisos de cancelación/finalización. Sin ninguno tildado, se manda por SMS
+            como siempre.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {(['whatsapp', 'sms', 'facebook', 'instagram'] as const).map((channel) => {
+              const checked = preferredChannels.includes(channel)
+              return (
+                <button
+                  key={channel}
+                  type="button"
+                  onClick={() => togglePreferredChannel(channel)}
+                  className={`flex items-center gap-1.5 rounded-sm border px-2 py-1 text-xs transition-colors ${
+                    checked
+                      ? 'border-mustard bg-mustard/10 text-mustard'
+                      : 'border-panel-light text-muted hover:border-mustard/50'
+                  }`}
+                >
+                  <span
+                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border ${
+                      checked ? 'border-mustard bg-mustard' : 'border-panel-light'
+                    }`}
+                  >
+                    {checked && <Check size={10} className="text-asphalt" />}
+                  </span>
+                  <ChannelIcon channel={channel} size={13} />
+                  {channelLabel[channel].split(' ')[0]}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <div>

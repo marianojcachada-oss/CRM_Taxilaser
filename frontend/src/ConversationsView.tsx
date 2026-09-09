@@ -103,6 +103,7 @@ export type Conversation = {
   team: string | null
   vip: boolean
   tags: string[]
+  preferredChannels: string[]
   totalInvertido?: string | null
   serviciosCompletados?: number | null
   serviciosCancelados?: number | null

@@ -1014,12 +1014,15 @@ export default function ConversationsView({
                         </button>
                       )}
                       {m.status !== 'sending' && m.status !== 'failed' && (
-                        <p className="flex items-center gap-1 font-mono text-[10px] opacity-60">
+                        <p className="flex flex-1 items-center gap-1 font-mono text-[10px] opacity-60">
                           {m.time}
                           {m.status === 'sent' && <Check size={10} />}
-                          {m.sentViaChannel && (
-                            <span className="flex items-center gap-0.5" title={channelLabel[m.sentViaChannel]}>
-                              · <ChannelIcon channel={m.sentViaChannel} size={9} />
+                          {m.from !== 'contact' && m.sentViaChannel && (
+                            <span
+                              className="ml-auto flex items-center gap-1 rounded-sm bg-black/10 px-1 py-0.5"
+                              title={`Enviado por ${channelLabel[m.sentViaChannel]}`}
+                            >
+                              <ChannelIcon channel={m.sentViaChannel} size={10} />
                             </span>
                           )}
                         </p>

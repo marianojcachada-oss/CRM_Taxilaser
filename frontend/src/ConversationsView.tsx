@@ -73,7 +73,7 @@ function Linkify({ text }: { text: string }) {
             href={part}
             target="_blank"
             rel="noreferrer"
-            className="underline decoration-1 underline-offset-2 hover:opacity-80"
+            className="break-all underline decoration-1 underline-offset-2 hover:opacity-80"
             onClick={(e) => e.stopPropagation()}
           >
             {part}
@@ -946,9 +946,9 @@ export default function ConversationsView({
                         <div className="h-px flex-1 bg-panel-light" />
                       </div>
                     )}
-                    <div className={`mb-3 flex ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        className={`max-w-md px-3 py-2 text-sm ${
+                        className={`max-w-md break-words px-3 py-2 text-sm ${
                           m.from === 'operator'
                             ? 'rounded-2xl bg-mustard text-asphalt'
                             : 'rounded-2xl bg-panel-light text-cream'
@@ -964,7 +964,7 @@ export default function ConversationsView({
                         🤖 Mensaje enviado automáticamente
                       </p>
                     )}
-                    {m.text && <p>{<Linkify text={m.text} />}</p>}
+                    {m.text && <p className="break-words">{<Linkify text={m.text} />}</p>}
 
                     {m.attachment && (
                       <div className="mt-2">
@@ -1014,17 +1014,9 @@ export default function ConversationsView({
                         </button>
                       )}
                       {m.status !== 'sending' && m.status !== 'failed' && (
-                        <p className="flex flex-1 items-center gap-1 font-mono text-[10px] opacity-60">
+                        <p className="flex items-center gap-1 font-mono text-[10px] opacity-60">
                           {m.time}
                           {m.status === 'sent' && <Check size={10} />}
-                          {m.from !== 'contact' && m.sentViaChannel && (
-                            <span
-                              className="ml-auto flex items-center gap-1 rounded-sm bg-black/10 px-1 py-0.5"
-                              title={`Enviado por ${channelLabel[m.sentViaChannel]}`}
-                            >
-                              <ChannelIcon channel={m.sentViaChannel} size={10} />
-                            </span>
-                          )}
                         </p>
                       )}
                       {m.from === 'contact' && m.text && (
@@ -1042,6 +1034,14 @@ export default function ConversationsView({
                       )}
                     </div>
                   </div>
+                  {m.from !== 'contact' && m.sentViaChannel && (
+                    <span
+                      className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-panel-light bg-panel"
+                      title={`Enviado por ${channelLabel[m.sentViaChannel]}`}
+                    >
+                      <ChannelIcon channel={m.sentViaChannel} size={11} />
+                    </span>
+                  )}
                 </div>
                   </div>
               )})}

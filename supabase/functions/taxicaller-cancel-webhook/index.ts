@@ -115,10 +115,14 @@ Deno.serve(async (req) => {
 
   let conversationId = existingConversation?.id;
 
-  if (conversationId && existingConversation!.status === "cerrada") {
+  // Antes esto solo se ejecutaba si YA estaba cerrada (no hacia nada
+  // nuevo) -- ahora cierra de una cualquier conversacion existente que
+  // reciba uno de estos avisos automaticos, y la desasigna (para que no
+  // quede pegada a un operador ni cuente para nadie).
+  if (conversationId) {
     await supabase
       .from("conversations")
-      .update({ status: "cerrada", unread: false })
+      .update({ status: "cerrada", unread: false, assigned_operator_id: null, needs_assignment: false })
       .eq("id", conversationId);
   }
 

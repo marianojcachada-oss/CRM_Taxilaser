@@ -4,9 +4,18 @@
 // al principio, RingCentral manda el mensaje completo directo dentro de
 // "body" (from, subject con el texto, direction, etc.) — no hace falta
 // una segunda consulta a la API para traer el contenido.
+//
+// También recibe eventos de "telephony/sessions" para detectar llamadas
+// perdidas (suscripto aparte en setup-ringcentral-subscription, con el
+// filtro ?missedCall=true a nivel de cuenta). La forma exacta del body
+// para este evento no está 100% fija en la documentación pública de
+// RingCentral — revisar los Logs de esta función después de la primera
+// llamada perdida real para confirmar que el teléfono se está leyendo
+// del campo correcto, y ajustar si hace falta.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
+import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -50,6 +59,26 @@ Deno.serve(async (req) => {
         externalMessageId: String(body.id),
         text,
       });
+    }
+  }
+
+  // Llamada perdida: el evento de telephony/sessions trae un array
+  // "parties" con el estado de cada parte de la llamada. Buscamos una
+  // parte entrante marcada como llamada perdida.
+  const parties = body?.parties;
+  if (Array.isArray(parties)) {
+    const missedParty = parties.find(
+      (p: any) => p?.direction === "Inbound" && (p?.missedCall === true || p?.status?.code === "Disconnected"),
+    );
+    const phone = missedParty?.from?.phoneNumber;
+    if (missedParty?.missedCall && phone) {
+      const { data: contact } = await supabase.from("contacts").select("id").eq("phone", phone).maybeSingle();
+      await supabase.from("missed_calls").insert({
+        phone,
+        contact_id: contact?.id ?? null,
+        channel: "ringcentral",
+      });
+      await handleMissedCallAutoReply(phone, "ringcentral");
     }
   }
 

@@ -142,6 +142,11 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         eventFilters: [
           `/restapi/v1.0/account/~/extension/${extensionId}/message-store/instant?type=SMS`,
+          // Llamadas perdidas: RingCentral solo entrega este filtro de forma
+          // confiable a nivel de cuenta (no funciona bien filtrado por
+          // extensión, según reportan en su comunidad de desarrolladores) —
+          // por eso va sin extensionId.
+          `/restapi/v1.0/account/~/telephony/sessions?missedCall=true`,
         ],
         deliveryMode: { transportType: "WebHook", address },
         expiresIn: 604800, // 7 días, el máximo habitual para WebHook

@@ -42,6 +42,10 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     ],
   },
   {
+    title: 'Llamadas perdidas — respuesta automática',
+    keys: [],
+  },
+  {
     title: 'Traducción (LibreTranslate)',
     keys: [
       { key: 'LIBRETRANSLATE_URL', label: 'URL de la instancia' },
@@ -125,6 +129,14 @@ export default function IntegrationsSection() {
       .upsert({ key: 'TAXICALLER_ASSIGNED_TRACKING_ENABLED', value: next, updated_at: new Date().toISOString() })
   }
 
+  async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
+    const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
+    const current = values[key]
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, [key]: next }))
+    await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
+  }
+
   if (loading) return <p className="text-sm text-muted">Cargando...</p>
   if (error) return <p className="text-sm text-alert">Error: {error}</p>
 
@@ -149,6 +161,43 @@ export default function IntegrationsSection() {
             <div className="mb-4">
               <MetaStatusCard />
             </div>
+          )}
+
+          {group.title === 'Llamadas perdidas — respuesta automática' && (
+            <>
+              <p className="mb-3 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
+                Solo lo puede prender/apagar un admin (esta pantalla ya es admin-only). Al detectar una
+                llamada perdida, si está activado, se manda el mensaje preseteado y el chat se asigna
+                directo a un operador disponible. Cooldown de 30 min por número — no se repite si la
+                misma persona llama varias veces seguidas.
+              </p>
+              <button
+                onClick={() => toggleMissedCallAutoReply('WHATSAPP')}
+                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['MISSED_CALL_AUTO_REPLY_WHATSAPP_ENABLED'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                {values['MISSED_CALL_AUTO_REPLY_WHATSAPP_ENABLED'] === 'true'
+                  ? 'Auto-reply de llamada perdida (WhatsApp): Activado'
+                  : 'Auto-reply de llamada perdida (WhatsApp): Desactivado'}
+              </button>
+              <button
+                onClick={() => toggleMissedCallAutoReply('RINGCENTRAL')}
+                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['MISSED_CALL_AUTO_REPLY_RINGCENTRAL_ENABLED'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                {values['MISSED_CALL_AUTO_REPLY_RINGCENTRAL_ENABLED'] === 'true'
+                  ? 'Auto-reply de llamada perdida (RingCentral): Activado'
+                  : 'Auto-reply de llamada perdida (RingCentral): Desactivado'}
+              </button>
+            </>
           )}
 
           {group.title === 'TaxiCaller' && (

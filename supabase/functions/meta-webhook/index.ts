@@ -8,6 +8,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
+import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -365,5 +366,8 @@ async function handleMissedCall(phone: string | undefined) {
   await supabase.from("missed_calls").insert({
     phone,
     contact_id: contact?.id ?? null,
+    channel: "whatsapp",
   });
+
+  await handleMissedCallAutoReply(phone, "whatsapp");
 }

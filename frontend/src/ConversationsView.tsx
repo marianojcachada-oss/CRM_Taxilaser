@@ -260,6 +260,24 @@ export default function ConversationsView({
     (selected?.lastContactMessageAt == null ||
       Date.now() - new Date(selected.lastContactMessageAt).getTime() > 24 * 60 * 60 * 1000)
 
+  function dayLabel(isoDate: string): string {
+    const today = new Date()
+    const todayIso = today.toISOString().slice(0, 10)
+
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayIso = yesterday.toISOString().slice(0, 10)
+
+    if (isoDate === todayIso) return 'HOY'
+    if (isoDate === yesterdayIso) return 'AYER'
+
+    const [year, month, day] = isoDate.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
+    return date
+      .toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+      .toUpperCase()
+  }
+
   function mapRow(m: any): Message {
     return {
       id: m.id,
@@ -268,7 +286,7 @@ export default function ConversationsView({
       sentViaChannel: m.sent_via_channel ?? null,
       senderOperatorId: m.sender_operator_id ?? undefined,
       time: new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      date: new Date(m.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }),
+      date: m.created_at.slice(0, 10), // yyyy-mm-dd, para poder agrupar por día de forma confiable
       attachment: m.attachment_url
         ? { url: m.attachment_url, name: m.attachment_name ?? 'archivo', kind: (m.attachment_kind ?? 'file') as AttachmentKind }
         : undefined,
@@ -907,23 +925,32 @@ export default function ConversationsView({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {thread.map((m) => (
-                <div
-                  key={m.id}
-                  className={`mb-3 flex ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-md px-3 py-2 text-sm ${
-                      m.from === 'operator'
-                        ? 'rounded-2xl bg-mustard text-asphalt'
-                        : 'rounded-2xl bg-panel-light text-cream'
-                    } ${m.status === 'sending' ? 'opacity-70' : ''} ${m.status === 'failed' ? 'border border-alert' : ''}`}
-                  >
-                    {m.from === 'operator' && m.senderOperatorId && (
-                      <p className="mb-0.5 text-[10px] font-semibold opacity-70">
-                        {operators.find((o) => o.id === m.senderOperatorId)?.full_name ?? 'Operador'}
-                      </p>
+              {thread.map((m, i) => {
+                const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
+                return (
+                  <div key={m.id}>
+                    {showDaySeparator && (
+                      <div className="my-4 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-panel-light" />
+                        <span className="text-[10px] font-semibold tracking-wide text-muted">
+                          {dayLabel(m.date!)}
+                        </span>
+                        <div className="h-px flex-1 bg-panel-light" />
+                      </div>
                     )}
+                    <div className={`mb-3 flex ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className={`max-w-md px-3 py-2 text-sm ${
+                          m.from === 'operator'
+                            ? 'rounded-2xl bg-mustard text-asphalt'
+                            : 'rounded-2xl bg-panel-light text-cream'
+                        } ${m.status === 'sending' ? 'opacity-70' : ''} ${m.status === 'failed' ? 'border border-alert' : ''}`}
+                      >
+                        {m.from === 'operator' && m.senderOperatorId && (
+                          <p className="mb-0.5 text-[10px] font-semibold opacity-70">
+                            {operators.find((o) => o.id === m.senderOperatorId)?.full_name ?? 'Operador'}
+                          </p>
+                        )}
                     {m.from === 'operator' && !m.senderOperatorId && m.status !== 'sending' && (
                       <p className="mb-0.5 text-[10px] font-semibold italic opacity-70">
                         🤖 Mensaje enviado automáticamente
@@ -1003,7 +1030,8 @@ export default function ConversationsView({
                     </div>
                   </div>
                 </div>
-              ))}
+                  </div>
+              )})}
             </div>
 
             {typingOperators.length > 0 && (

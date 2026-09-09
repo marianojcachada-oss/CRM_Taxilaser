@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
   if (conversationId && existingConversation!.status === "cerrada") {
     await supabase
       .from("conversations")
-      .update({ status: "esperando_cliente", unread: false })
+      .update({ status: "cerrada", unread: false })
       .eq("id", conversationId);
   }
 
@@ -176,6 +176,12 @@ Deno.serve(async (req) => {
         channel: "sms",
         queue_id: null,
         needs_assignment: false, // aviso informativo, no necesita que un operador lo tome
+        // Cerrada de una: si el cliente no vuelve a escribir, no queda
+        // dando vueltas en ninguna bandeja activa (ni Mias, ni Sin
+        // asignar, ni Pendientes) — solo se ve en Todos. Si el cliente
+        // SI escribe algo despues, el trigger de reapertura la reabre y
+        // reparte normal, como cualquier conversacion cerrada.
+        status: 'cerrada',
         unread: false,
         external_thread_id: phone,
       })

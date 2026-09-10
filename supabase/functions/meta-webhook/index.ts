@@ -9,6 +9,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
+import { handleOptOutKeyword } from "../_shared/optOut.ts";
+import { maybeSendOutOfHoursNotice } from "../_shared/businessHours.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -321,6 +323,14 @@ async function handleIncomingMessage(opts: {
     );
     if (convError) throw convError;
     conversationId = convId;
+
+    // Chequeo de STOP/BAJA/START, y de horario de atención — solo
+    // aplica a SMS/WhatsApp (los canales que reciben avisos automáticos
+    // de TaxiCaller); Facebook/Instagram quedan afuera de este chequeo.
+    if (text) {
+      await handleOptOutKeyword(contactId, externalContactId, text, "whatsapp");
+    }
+    await maybeSendOutOfHoursNotice(contactId, externalContactId, "whatsapp");
   } else {
     const { data: convId, error: convError } = await supabase.rpc(
       "find_or_create_channel_conversation",

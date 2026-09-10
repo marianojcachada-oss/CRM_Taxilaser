@@ -16,6 +16,7 @@ import VehiclesSection from './VehiclesSection'
 import MessageMetricsSection from './MessageMetricsSection'
 import RoundRobinSection from './RoundRobinSection'
 import ErrorLogsSection from './ErrorLogsSection'
+import IntegrationHealthSection from './IntegrationHealthSection'
 
 type Section =
   | 'command-center'
@@ -23,6 +24,7 @@ type Section =
   | 'metrics'
   | 'roundrobin'
   | 'errors'
+  | 'integrationhealth'
   | 'campaigns'
   | 'automations'
   | 'ai'
@@ -47,6 +49,7 @@ const navItems: { id: Section; emoji: string; label: string }[] = [
   { id: 'metrics', emoji: '📈', label: 'Métricas de mensajes' },
   { id: 'roundrobin', emoji: '🔁', label: 'Round robin' },
   { id: 'errors', emoji: '🐞', label: 'Errores' },
+  { id: 'integrationhealth', emoji: '💓', label: 'Salud de integraciones' },
   { id: 'admin', emoji: '🛡️', label: 'Admin' },
 ]
 
@@ -70,6 +73,7 @@ const ADMIN_ALLOWED_SECTIONS: Section[] = [
   'errors',
   'metrics',
   'integrations',
+  'integrationhealth',
 ]
 
 export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuperAdmin, onBack, conversations }: Props) {
@@ -148,6 +152,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
           {active === 'metrics' && <MessageMetricsSection />}
           {active === 'roundrobin' && <RoundRobinSection />}
           {active === 'errors' && <ErrorLogsSection />}
+          {active === 'integrationhealth' && <IntegrationHealthSection />}
           {active === 'admin' && <AdminSection />}
         </div>
       </main>

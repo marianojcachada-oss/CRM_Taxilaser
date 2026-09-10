@@ -17,6 +17,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
+import { handleOptOutKeyword } from "../_shared/optOut.ts";
+import { maybeSendOutOfHoursNotice } from "../_shared/businessHours.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -156,6 +158,16 @@ async function handleIncomingSms(opts: {
     { p_contact_id: contactId, p_default_channel: "sms" },
   );
   if (convError) throw convError;
+
+  // Chequeo de STOP/BAJA/START — si el mensaje era uno de estos comandos,
+  // ya se actualizó el contacto y se mandó la confirmación obligatoria.
+  // Igual seguimos y guardamos el mensaje normal, para que quede en el
+  // historial.
+  await handleOptOutKeyword(contactId, phone, text, "sms");
+
+  // Si es fuera de horario de atención, avisa una sola vez (con
+  // cooldown) — no interfiere con el flujo normal de todos modos.
+  await maybeSendOutOfHoursNotice(contactId, phone, "sms");
 
   // Ya no reabrimos acá a mano — el trigger centralizado en `messages`
   // (trg_reopen_and_reassign_on_client_message) lo hace solo apenas se

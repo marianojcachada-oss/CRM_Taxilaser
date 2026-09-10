@@ -42,14 +42,31 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     ],
   },
   {
+    title: 'Horario de atención',
+    keys: [
+      { key: 'BUSINESS_HOURS_START', label: 'Hora de apertura (formato 24hs, ej: 08:00)' },
+      { key: 'BUSINESS_HOURS_END', label: 'Hora de cierre (formato 24hs, ej: 22:00)' },
+      { key: 'BUSINESS_HOURS_TIMEZONE', label: 'Zona horaria (ej: America/New_York)' },
+      { key: 'BUSINESS_HOURS_MESSAGE', label: 'Mensaje automático fuera de horario' },
+    ],
+  },
+  {
     title: 'Llamadas perdidas — respuesta automática',
     keys: [],
   },
   {
-    title: 'Traducción (LibreTranslate)',
+    title: 'Traducción',
     keys: [
-      { key: 'LIBRETRANSLATE_URL', label: 'URL de la instancia' },
-      { key: 'LIBRETRANSLATE_API_KEY', label: 'API Key (si la instancia la pide)', secret: true },
+      {
+        key: 'DEEPL_API_KEY',
+        label: 'DeepL API Key (mejor calidad, pero el gratis es 1M de caracteres ÚNICA VEZ, no por mes)',
+        secret: true,
+      },
+      { key: 'AZURE_TRANSLATOR_KEY', label: 'Azure Translator — Key (2M caracteres/mes gratis, se renueva)', secret: true },
+      { key: 'AZURE_TRANSLATOR_REGION', label: 'Azure Translator — Región (ej: eastus)' },
+      { key: 'LIBRETRANSLATE_URL', label: 'LibreTranslate — URL de la instancia (opcional)' },
+      { key: 'LIBRETRANSLATE_API_KEY', label: 'LibreTranslate — API Key (si la instancia la pide)', secret: true },
+      { key: 'MYMEMORY_EMAIL', label: 'MyMemory — tu email (gratis, sube el límite de 5k a 50k palabras/día)' },
     ],
   },
 ]
@@ -134,6 +151,18 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
       .upsert({ key: 'TAXICALLER_ASSIGNED_TRACKING_ENABLED', value: next, updated_at: new Date().toISOString() })
   }
 
+  async function toggleBusinessHours() {
+    if (readOnly) return
+    const current = values['BUSINESS_HOURS_ENABLED']
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, BUSINESS_HOURS_ENABLED: next }))
+    await supabase.from('integration_settings').upsert({
+      key: 'BUSINESS_HOURS_ENABLED',
+      value: next,
+      updated_at: new Date().toISOString(),
+    })
+  }
+
   async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
     if (readOnly) return
     const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
@@ -173,6 +202,28 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
             <div className="mb-4">
               <MetaStatusCard />
             </div>
+          )}
+
+          {group.title === 'Horario de atención' && (
+            <>
+              <button
+                onClick={toggleBusinessHours}
+                className={`mb-3 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['BUSINESS_HOURS_ENABLED'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                {values['BUSINESS_HOURS_ENABLED'] === 'true'
+                  ? 'Aviso fuera de horario: Activado'
+                  : 'Aviso fuera de horario: Desactivado'}
+              </button>
+              <p className="mb-3 text-[11px] text-muted">
+                Cuando está activado, un cliente que escribe fuera del rango de abajo recibe el mensaje
+                automático una sola vez cada 6 horas (no se repite si sigue escribiendo).
+              </p>
+            </>
           )}
 
           {group.title === 'Llamadas perdidas — respuesta automática' && (

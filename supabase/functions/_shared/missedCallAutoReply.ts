@@ -72,8 +72,18 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
   const conversationChannel = source === "whatsapp" ? "whatsapp" : "sms";
 
   // Buscar o crear el contacto.
-  const { data: existingContact } = await supabase.from("contacts").select("id").eq("phone", phone).maybeSingle();
+  const { data: existingContact } = await supabase
+    .from("contacts")
+    .select("id, do_not_contact")
+    .eq("phone", phone)
+    .maybeSingle();
   let contactId = existingContact?.id;
+
+  // Cumplimiento STOP: si pidió baja, no se le manda el auto-reply.
+  if (existingContact?.do_not_contact) {
+    console.log(`Llamada perdida de ${phone}: contacto dado de baja (STOP) — no se manda el auto-reply.`);
+    return;
+  }
 
   if (!contactId) {
     const { data: newContact, error } = await supabase.from("contacts").insert({ phone }).select("id").single();

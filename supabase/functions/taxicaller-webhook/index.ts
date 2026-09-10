@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
   // de seguridad de acá abajo.
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, full_name, has_active_ride")
+    .select("id, full_name, has_active_ride, do_not_contact")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -155,6 +155,10 @@ Deno.serve(async (req) => {
   // -----------------------------------------------------------------
   const hasVehicleData = Boolean(make || color || plate);
   const hasActiveRide = existingContact?.has_active_ride === true;
+
+  if (existingContact?.do_not_contact) {
+    return new Response("OK (contacto dado de baja, STOP)", { status: 200 });
+  }
 
   if (!hasVehicleData || !hasActiveRide) {
     const reasons = [

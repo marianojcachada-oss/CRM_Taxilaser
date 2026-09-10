@@ -127,6 +127,30 @@ export default function MessageMetricsSection() {
 
   const maxBucket = Math.max(1, ...buckets.map(([, c]) => c))
 
+  function exportCsv() {
+    const header = ['fecha', 'remitente', 'operador_id', 'canal', 'tipo_automatizacion']
+    const lines = rows.map((r) =>
+      [
+        new Date(r.created_at).toISOString(),
+        r.sender_type,
+        r.sender_operator_id ?? '',
+        r.sent_via_channel ?? '',
+        r.automation_type ?? '',
+      ]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    const csv = [header.join(','), ...lines].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `mensajes_${dateFrom}_a_${dateTo}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-3 rounded-sm border border-panel-light bg-panel p-3">
@@ -149,6 +173,13 @@ export default function MessageMetricsSection() {
           />
         </div>
         <span className="pb-1.5 text-xs text-muted">{rows.length} mensajes en este rango</span>
+        <button
+          onClick={exportCsv}
+          disabled={rows.length === 0}
+          className="ml-auto rounded-sm border border-panel-light px-3 py-1.5 text-xs text-muted hover:border-mustard hover:text-mustard disabled:opacity-40"
+        >
+          Exportar CSV
+        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

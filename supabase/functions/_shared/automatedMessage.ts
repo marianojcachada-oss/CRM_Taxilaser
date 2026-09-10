@@ -35,9 +35,15 @@ export async function sendAutomatedMessage(opts: {
 
   const { data: contact } = await supabase
     .from("contacts")
-    .select("preferred_channels")
+    .select("preferred_channels, do_not_contact")
     .eq("id", contactId)
     .maybeSingle();
+
+  // Cumplimiento STOP: si pidió baja, no se le manda ningún mensaje
+  // automático — ni por SMS ni por WhatsApp.
+  if (contact?.do_not_contact) {
+    return { sentVia: [], errors: [{ channel: "*", error: "Contacto dado de baja (STOP) — no se manda nada" }] };
+  }
 
   const channels: string[] =
     contact?.preferred_channels && contact.preferred_channels.length > 0

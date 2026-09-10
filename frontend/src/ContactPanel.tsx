@@ -13,18 +13,102 @@ import { getFunctionErrorMessage } from './functionsError'
 // texto del último mensaje (o todo el hilo) alcanza para un resumen útil.
 function summarizeIntent(lastMessage: string): string {
   const lower = lastMessage.toLowerCase()
-  if (lower.includes('esperando') || lower.includes('reclamo') || lower.includes('denuncia')) {
-    return 'Tiene un reclamo por demora — priorizar respuesta.'
+
+  // Urgente / reclamo — va primero, para que no lo tape ninguna otra regla
+  if (
+    lower.includes('reclamo') ||
+    lower.includes('denuncia') ||
+    lower.includes('indignante') ||
+    lower.includes('pésimo') ||
+    lower.includes('pesimo') ||
+    lower.includes('terrible') ||
+    lower.includes('quiero hablar con') ||
+    lower.includes('demanda')
+  ) {
+    return '🔴 Reclamo — priorizar respuesta.'
   }
-  if (lower.includes('cuánto') || lower.includes('precio') || lower.includes('tarifa') || lower.includes('cuesta')) {
+  if (lower.includes('chofer') && (lower.includes('mal') || lower.includes('grose') || lower.includes('maltrat'))) {
+    return '🔴 Queja sobre el trato del chofer — priorizar respuesta.'
+  }
+  if (lower.includes('accidente') || lower.includes('choc')) {
+    return '🔴 Menciona un accidente/choque — atender de inmediato.'
+  }
+
+  // Cancelación / cambio de plan
+  if (lower.includes('cancel')) {
+    return 'Quiere cancelar el viaje.'
+  }
+  if (
+    (lower.includes('cambi') && (lower.includes('direcci') || lower.includes('destino') || lower.includes('lugar'))) ||
+    lower.includes('mejor que me busque')
+  ) {
+    return 'Quiere cambiar la dirección o el destino del viaje.'
+  }
+
+  // Objeto perdido
+  if (lower.includes('olvid') || lower.includes('perdí') || lower.includes('perdi ') || lower.includes('dejé') || lower.includes('deje mi')) {
+    return 'Puede haber olvidado algo en el auto — objeto perdido.'
+  }
+
+  // Demora / dónde está el chofer
+  if (
+    lower.includes('dónde está') ||
+    lower.includes('donde esta') ||
+    lower.includes('cuánto falta') ||
+    lower.includes('cuanto falta') ||
+    lower.includes('tarda mucho') ||
+    lower.includes('hace rato') ||
+    lower.includes('sigue esperando')
+  ) {
+    return 'Pregunta por la demora / dónde está el chofer.'
+  }
+
+  // Precio / pago
+  if (
+    lower.includes('cuánto') ||
+    lower.includes('cuanto') ||
+    lower.includes('precio') ||
+    lower.includes('tarifa') ||
+    lower.includes('cuesta') ||
+    lower.includes('costo')
+  ) {
     return 'Quiere saber el precio o tarifa del viaje.'
   }
-  if (lower.includes('taxi') || lower.includes('auto') || lower.includes('necesito')) {
+  if (lower.includes('efectivo') || lower.includes('tarjeta') || lower.includes('cash') || lower.includes('recibo') || lower.includes('factura')) {
+    return 'Consulta sobre forma de pago o recibo/factura.'
+  }
+  if (lower.includes('cobr') && (lower.includes('mal') || lower.includes('demás') || lower.includes('error'))) {
+    return '🟡 Posible disputa de cobro — revisar la tarifa aplicada.'
+  }
+
+  // Pedido de viaje nuevo
+  if (
+    lower.includes('taxi') ||
+    lower.includes('auto') ||
+    lower.includes('necesito') ||
+    lower.includes('reserv') ||
+    lower.includes('me busca') ||
+    lower.includes('me pasa a buscar')
+  ) {
     return 'Está pidiendo un taxi.'
   }
-  if (lower.includes('gracias') || lower.includes('perfecto')) {
-    return 'Conversación probablemente resuelta.'
+
+  // Necesidades especiales
+  if (lower.includes('silla de ruedas') || lower.includes('discapacidad') || lower.includes('accesib')) {
+    return 'Menciona una necesidad de accesibilidad — confirmar que el vehículo sea apto.'
   }
+  if (lower.includes('mascota') || lower.includes('perro') || lower.includes('gato')) {
+    return 'Pregunta si puede viajar con mascota.'
+  }
+  if (lower.includes('equipaje') || lower.includes('maleta') || lower.includes('valija')) {
+    return 'Menciona equipaje — puede necesitar un vehículo más grande.'
+  }
+
+  // Cierre / agradecimiento
+  if (lower.includes('gracias') || lower.includes('perfecto') || lower.includes('genial') || lower.includes('buenísimo')) {
+    return '🟢 Conversación probablemente resuelta.'
+  }
+
   return 'Consulta general — revisar el hilo completo.'
 }
 

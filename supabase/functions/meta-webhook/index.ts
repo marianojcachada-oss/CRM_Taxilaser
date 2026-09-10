@@ -322,39 +322,17 @@ async function handleIncomingMessage(opts: {
     if (convError) throw convError;
     conversationId = convId;
   } else {
-    const { data: existingConversation } = await supabase
+    const { data: convId, error: convError } = await supabase.rpc(
+      "find_or_create_channel_conversation",
+      { p_contact_id: contactId, p_channel: channel },
+    );
+    if (convError) throw convError;
+    conversationId = convId;
+
+    await supabase
       .from("conversations")
-      .select("id, status")
-      .eq("contact_id", contactId)
-      .eq("channel", channel)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingConversation) {
-      conversationId = existingConversation.id;
-    } else {
-      const { data: queue } = await supabase
-        .from("queues")
-        .select("id")
-        .eq("name", `${channel}_general`)
-        .single();
-
-      const { data: newConversation, error: convErr } = await supabase
-        .from("conversations")
-        .insert({
-          contact_id: contactId,
-          channel,
-          channels_available: [channel],
-          queue_id: queue?.id ?? null, // el trigger de round robin corre acá
-          external_thread_id: externalContactId,
-        })
-        .select("id")
-        .single();
-
-      if (convErr) throw convErr;
-      conversationId = newConversation.id;
-    }
+      .update({ external_thread_id: externalContactId })
+      .eq("id", conversationId);
   }
 
   // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de

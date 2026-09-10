@@ -1,19 +1,42 @@
-// supabase/functions/taxicaller-cancel-webhook/index.ts
+// supabase/functions/taxicaller-webhook/index.ts
 //
-// Recibe el evento "Cancelado por la empresa" de TaxiCaller y le avisa
-// automáticamente al pasajero por SMS. Mismo patrón que
-// taxicaller-webhook (el de "Esperando al pasajero"), función separada
-// porque es un evento distinto con su propio mensaje.
+// Recibe el evento "Esperando al pasajero" (Wait) de TaxiCaller, y le
+// manda automáticamente un SMS al pasajero con los datos del chofer, el
+// vehículo, y el link de seguimiento — la notificación que veníamos
+// planeando desde el arranque del proyecto.
 //
-// Body esperado (configurado en el panel de TaxiCaller):
+// Body esperado (configurado como template en el panel de TaxiCaller).
+// Confirmado contra el webhook que YA tiene armado la otra plataforma
+// para este mismo evento — mismos nombres de tags, ya probados:
 // {
+//   "event": "waiting_for_passenger",
 //   "job_id": "[job.id]",
-//   "passenger_phone": "[job.client.phone]"
+//   "vehicle_make": "[vehicle.tags.make]",
+//   "vehicle_color": "[vehicle.tags.color_name]",
+//   "vehicle_plate": "[vehicle.tags.plate]",
+//   "passenger_phone": "[job.client.phone]",
+//   "passenger_name": "[job.client.name]"
 // }
+//
+// OJO con passenger_name: en TaxiCaller el pasajero se guarda como un
+// solo campo de nombre completo (no separado en nombre/apellido). Si tu
+// plantilla no tiene este tag agregado todavía, entrá al panel de
+// TaxiCaller → esa notificación → pestaña de Tags, buscá el tag del
+// nombre del cliente (algo como [job.client.name] o similar) y agregalo
+// al payload con la clave exacta "passenger_name" — mientras no esté en
+// la plantilla, este campo va a llegar vacío siempre, sin importar lo
+// que haga este código.
+//
+// El mensaje se arma como: "Su Taxi {make} {color} con placa {plate} ha
+// llegado / {tu número de RingCentral}". No tenemos indicativo (D1554) ni
+// modelo/año por separado — el otro sistema probablemente los arma
+// cruzando estos datos contra su propia base de vehículos, que nosotros
+// no tenemos. Si vehicle_make viniera combinado ("HYU Elantra 2012"), el
+// mensaje ya va a salir completo solo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
-import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
+import { sendSms } from "../_shared/ringcentral.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 
 const supabase = createClient(
@@ -22,6 +45,9 @@ const supabase = createClient(
 );
 
 Deno.serve(async (req) => {
+  // TaxiCaller no puede autenticarse con un JWT de Supabase — en vez de
+  // eso, validamos un secreto compartido que vos configurás como header
+  // custom en el panel de TaxiCaller.
   const expectedSecret = await getSetting("TAXICALLER_WEBHOOK_SECRET");
   const receivedSecret = req.headers.get("X-Webhook-Secret");
 
@@ -29,7 +55,10 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "Secreto inválido" }), { status: 401 });
   }
 
-  const enabled = await getSetting("TAXICALLER_CANCEL_MESSAGE_ENABLED");
+  // Interruptor manual: si está apagado desde Integrations, no se manda
+  // nada — ni el SMS ni se toca la base. Por defecto queda prendido
+  // (si nunca se cargó el valor, se lo trata como activado).
+  const enabled = await getSetting("TAXICALLER_AUTO_MESSAGE_ENABLED");
   if (enabled === "false") {
     return new Response("OK (desactivado desde Integrations)", { status: 200 });
   }
@@ -46,22 +75,85 @@ Deno.serve(async (req) => {
 
   const rawPhone = body.passenger_phone;
   if (!rawPhone) {
+    // No hay teléfono del pasajero en este evento — no hay a quién avisar
     return new Response("OK (sin teléfono)", { status: 200 });
   }
 
+  // Deduplicación: si TaxiCaller manda este mismo job dos veces (reintento,
+  // o dos notificaciones apuntando acá), la segunda vez choca contra la
+  // clave única y se corta antes de mandar nada de nuevo o crear un chat
+  // duplicado.
+  if (body.job_id) {
+    const { error: dedupError } = await supabase
+      .from("taxicaller_processed_events")
+      .insert({ job_id: String(body.job_id), event_type: "wait" });
+    if (dedupError) {
+      return new Response("OK (evento duplicado, ya procesado)", { status: 200 });
+    }
+  } else {
+    console.warn("Evento 'wait' sin job_id — no se puede deduplicar este en particular.");
+  }
+
   const phone = normalizePhone(rawPhone);
-  const passengerName = body.passenger_name || null;
+  // TaxiCaller guarda al pasajero con un solo campo de nombre completo
+  // (no separado en nombre/apellido) — probá con "passenger_name"
+  // primero; dejamos "passenger_first_name" como respaldo por si tu
+  // plantilla ya lo tenía armado así.
+  const passengerName = body.passenger_name || body.passenger_first_name || null;
+  if (!passengerName) {
+    console.warn("Evento 'wait' sin passenger_name — revisar si TaxiCaller lo está mandando. Body completo:", JSON.stringify(body));
+  }
+
   const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
+  const make = body.vehicle_make || "";
+  const color = body.vehicle_color || "";
+  const plate = body.vehicle_plate || "";
 
+  // vehicle_make ya viene completo desde TaxiCaller (indicativo + auto +
+  // año todo junto, según cómo lo tienen cargado) — no hace falta
+  // completar nada a mano. Igual dejamos un registro liviano por si
+  // sirve más adelante (ver histórico, cruzar datos, etc.), sin que
+  // afecte el mensaje.
+  if (plate) {
+    const { data: existingVehicle } = await supabase
+      .from("vehicles")
+      .select("id, make, color")
+      .eq("plate", plate)
+      .maybeSingle();
+
+    if (existingVehicle) {
+      const changed = existingVehicle.make !== make || existingVehicle.color !== color;
+      await supabase
+        .from("vehicles")
+        .update({
+          ...(changed ? { make, color, updated_at: new Date().toISOString() } : {}),
+          last_seen_at: new Date().toISOString(),
+        })
+        .eq("id", existingVehicle.id);
+    } else {
+      await supabase.from("vehicles").insert({ plate, make, color });
+    }
+  }
+
+  // Mismo formato que ya usa la empresa: "Su Taxi D1554 HYU Elantra 2012
+  // ROJO / RED con placa SJI7407 ha llegado / 404-596-8232"
+  const vehicleLine = [make, color].filter(Boolean).join(" ");
   const text =
-    `Su servicio ha sido cancelado. Para solicitarlo nuevamente por favor llame o envíe un SMS` +
-    (dispatchNumber ? ` al ${dispatchNumber}` : "");
+    `Su Taxi ${vehicleLine}${plate ? ` con placa ${plate}` : ""} ha llegado` +
+    (dispatchNumber ? ` / ${dispatchNumber}` : "");
 
-  // Buscar o crear el contacto ANTES de mandar el mensaje — hace falta
-  // su ID para saber por qué canal(es) prefiere recibir avisos.
+  try {
+    await sendSms(phone, text);
+  } catch (err) {
+    // Si falla el envío, igual queremos que quede registrado en la base
+    // para poder revisarlo — no cortamos acá.
+    console.error("No se pudo enviar el SMS de Wait:", err);
+  }
+
+  // Buscar o crear el contacto (completando el nombre si no lo teníamos)
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, full_name, servicios_cancelados")
+    .select("id, full_name")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -70,7 +162,7 @@ Deno.serve(async (req) => {
   if (!contactId) {
     const { data: newContact, error } = await supabase
       .from("contacts")
-      .insert({ phone, full_name: passengerName, servicios_cancelados: 1 })
+      .insert({ phone, full_name: passengerName })
       .select("id")
       .single();
     if (error) throw error;
@@ -81,39 +173,18 @@ Deno.serve(async (req) => {
       channel: "sms",
       external_id: phone,
     });
-  } else {
-    await supabase
-      .from("contacts")
-      .update({
-        // El nombre solo se completa una vez, si todavía no lo
-        // teníamos — si ya tiene uno cargado (por acá o a mano), no se
-        // toca más.
-        ...(!existingContact.full_name && passengerName ? { full_name: passengerName } : {}),
-        servicios_cancelados: (existingContact.servicios_cancelados ?? 0) + 1,
-        has_active_ride: false,
-        active_ride_status: "cancelled",
-        active_ride_completed_at: new Date().toISOString(),
-        active_ride_eta_minutes: null,
-        active_ride_eta_received_at: null,
-      })
-      .eq("id", contactId);
+  } else if (!existingContact.full_name && passengerName) {
+    await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
   }
 
-  const { sentVia } = await sendAutomatedMessage({ contactId, phone, text });
-
-  // Historial real, de acá en adelante — una fila por viaje
-  await supabase.from("ride_history").insert({
-    contact_id: contactId,
-    job_id: body.job_id ?? null,
-    event_type: "cancelled",
-  });
-
-  // Conversación de SMS más reciente (se reabre si estaba cerrada), o nueva
+  // Conversación de SMS/WhatsApp más reciente con este contacto (se
+  // reabre si estaba cerrada), o una nueva. Buscamos en los dos canales
+  // porque SMS y WhatsApp comparten una sola conversación por contacto.
   const { data: existingConversation } = await supabase
     .from("conversations")
     .select("id, status")
     .eq("contact_id", contactId)
-    .eq("channel", "sms")
+    .in("channel", ["sms", "whatsapp"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -132,11 +203,15 @@ Deno.serve(async (req) => {
   }
 
   if (!conversationId) {
+    // Ojo: sin queue_id a propósito — esto es un aviso automático, no
+    // algo que tenga que entrar al reparto de round robin ni figurar
+    // como "nueva" para un operador.
     const { data: newConversation, error } = await supabase
       .from("conversations")
       .insert({
         contact_id: contactId,
         channel: "sms",
+        channels_available: ["sms", "whatsapp"],
         queue_id: null,
         needs_assignment: false, // aviso informativo, no necesita que un operador lo tome
         // Cerrada de una: si el cliente no vuelve a escribir, no queda
@@ -154,19 +229,21 @@ Deno.serve(async (req) => {
     conversationId = newConversation.id;
   }
 
+  // Registrar el mensaje que se mandó, para que quede visible en el hilo
   await supabase.from("messages").insert({
     conversation_id: conversationId,
     sender_type: "operator",
     content: text,
-    sent_via_channel: sentVia.join(",") || "sms",
-    automation_type: "cancelled",
+    sent_via_channel: "sms",
+    automation_type: "wait",
   });
 
+  // Timeline del contacto
   await supabase.from("contact_timeline").insert({
     contact_id: contactId,
     conversation_id: conversationId,
-    event_type: "ride_cancelled",
-    description: `Servicio cancelado por la empresa — notificación automática enviada (job ${body.job_id ?? "?"})`,
+    event_type: "driver_arrived",
+    description: `Chofer llegó — notificación automática enviada (job ${body.job_id ?? "?"})`,
   });
 
   return new Response("OK", { status: 200 });

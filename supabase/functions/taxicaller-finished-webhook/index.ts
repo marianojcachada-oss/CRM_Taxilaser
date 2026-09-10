@@ -51,6 +51,15 @@ Deno.serve(async (req) => {
     return new Response("OK (sin teléfono)", { status: 200 });
   }
 
+  if (body.job_id) {
+    const { error: dedupError } = await supabase
+      .from("taxicaller_processed_events")
+      .insert({ job_id: String(body.job_id), event_type: "finished" });
+    if (dedupError) {
+      return new Response("OK (evento duplicado, ya procesado)", { status: 200 });
+    }
+  }
+
   const phone = normalizePhone(rawPhone);
   const make = body.vehicle_make || "";
   const fareTotal = body.fare_total || "";

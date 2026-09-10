@@ -79,12 +79,30 @@ Deno.serve(async (req) => {
     return new Response("OK (sin teléfono)", { status: 200 });
   }
 
+  // Deduplicación: si TaxiCaller manda este mismo job dos veces (reintento,
+  // o dos notificaciones apuntando acá), la segunda vez choca contra la
+  // clave única y se corta antes de mandar nada de nuevo o crear un chat
+  // duplicado.
+  if (body.job_id) {
+    const { error: dedupError } = await supabase
+      .from("taxicaller_processed_events")
+      .insert({ job_id: String(body.job_id), event_type: "wait" });
+    if (dedupError) {
+      return new Response("OK (evento duplicado, ya procesado)", { status: 200 });
+    }
+  } else {
+    console.warn("Evento 'wait' sin job_id — no se puede deduplicar este en particular.");
+  }
+
   const phone = normalizePhone(rawPhone);
   // TaxiCaller guarda al pasajero con un solo campo de nombre completo
   // (no separado en nombre/apellido) — probá con "passenger_name"
   // primero; dejamos "passenger_first_name" como respaldo por si tu
   // plantilla ya lo tenía armado así.
   const passengerName = body.passenger_name || body.passenger_first_name || null;
+  if (!passengerName) {
+    console.warn("Evento 'wait' sin passenger_name — revisar si TaxiCaller lo está mandando. Body completo:", JSON.stringify(body));
+  }
 
   const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
   const make = body.vehicle_make || "";

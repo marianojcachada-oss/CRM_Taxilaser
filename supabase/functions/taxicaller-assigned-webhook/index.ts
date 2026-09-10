@@ -17,6 +17,7 @@
 // {
 //   "job_id": "[job.id]",
 //   "passenger_phone": "[job.client.phone]",
+//   "passenger_name": "[job.client.name]",
 //   "vehicle_make": "[vehicle.tags.make]",
 //   "eta_minutes": "[job.route.pickup.eta]"
 // }
@@ -86,16 +87,24 @@ Deno.serve(async (req) => {
   }
 
   const phone = normalizePhone(rawPhone);
+  const passengerName = body.passenger_name || null;
   // job.route.pickup.eta puede venir en distintos formatos según cómo lo
   // maneje TaxiCaller — nos quedamos solo con los dígitos, por las dudas.
   const etaMinutes = parseEtaTimeToMinutes(String(body.eta_minutes ?? ""));
 
-  const { data: existingContact } = await supabase.from("contacts").select("id").eq("phone", phone).maybeSingle();
+  const { data: existingContact } = await supabase
+    .from("contacts")
+    .select("id, full_name")
+    .eq("phone", phone)
+    .maybeSingle();
 
   if (existingContact) {
     await supabase
       .from("contacts")
       .update({
+        // Igual que en los otros 3 webhooks: el nombre solo se completa
+        // si todavía no lo teníamos, una sola vez.
+        ...(!existingContact.full_name && passengerName ? { full_name: passengerName } : {}),
         has_active_ride: true,
         active_ride_status: "active",
         active_ride_unit: body.vehicle_make || null,
@@ -108,6 +117,7 @@ Deno.serve(async (req) => {
   } else {
     await supabase.from("contacts").insert({
       phone,
+      full_name: passengerName,
       has_active_ride: true,
       active_ride_status: "active",
       active_ride_unit: body.vehicle_make || null,

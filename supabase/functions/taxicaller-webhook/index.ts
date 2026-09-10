@@ -135,6 +135,46 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Buscar el contacto ANTES de mandar nada — hace falta para el chequeo
+  // de seguridad de acá abajo.
+  const { data: existingContact } = await supabase
+    .from("contacts")
+    .select("id, full_name, has_active_ride")
+    .eq("phone", phone)
+    .maybeSingle();
+
+  // -----------------------------------------------------------------
+  // Freno de seguridad: si TaxiCaller manda este evento con los datos
+  // del vehículo vacíos, o para un número que no tiene un servicio
+  // activo registrado (nunca pasó por "Servicio asignado"), es una
+  // señal fuerte de que el evento está mal — un número equivocado, un
+  // job de prueba, algo mal cargado del lado de TaxiCaller. En vez de
+  // mandarle un SMS confuso o directamente falso a un cliente real, se
+  // deja registrado en Errores para que lo revise un admin, y no se
+  // manda nada.
+  // -----------------------------------------------------------------
+  const hasVehicleData = Boolean(make || color || plate);
+  const hasActiveRide = existingContact?.has_active_ride === true;
+
+  if (!hasVehicleData || !hasActiveRide) {
+    const reasons = [
+      !hasVehicleData ? "sin datos del vehículo (make/color/plate vacíos)" : null,
+      !hasActiveRide ? "el contacto no tiene un servicio activo registrado" : null,
+    ].filter(Boolean).join(" y ");
+
+    console.error(`Evento 'wait' sospechoso para ${phone} — ${reasons}. Body completo:`, JSON.stringify(body));
+
+    await supabase.from("app_errors").insert({
+      context: "taxicaller-webhook (wait)",
+      message: `Aviso de "taxi llegó" NO enviado — ${reasons}. Teléfono: ${phone}, job_id: ${body.job_id ?? "?"}`,
+      stack: JSON.stringify(body, null, 2),
+    });
+
+    return new Response(JSON.stringify({ warning: "Evento sospechoso, no se mandó nada", reasons }), {
+      status: 200,
+    });
+  }
+
   // Mismo formato que ya usa la empresa: "Su Taxi D1554 HYU Elantra 2012
   // ROJO / RED con placa SJI7407 ha llegado / 404-596-8232"
   const vehicleLine = [make, color].filter(Boolean).join(" ");
@@ -150,30 +190,12 @@ Deno.serve(async (req) => {
     console.error("No se pudo enviar el SMS de Wait:", err);
   }
 
-  // Buscar o crear el contacto (completando el nombre si no lo teníamos)
-  const { data: existingContact } = await supabase
-    .from("contacts")
-    .select("id, full_name")
-    .eq("phone", phone)
-    .maybeSingle();
+  // El contacto ya se buscó más arriba (para el chequeo de seguridad) —
+  // llegado a este punto, sabemos que existe y tiene un servicio activo,
+  // así que solo falta completar el nombre si todavía no lo tenía.
+  const contactId = existingContact!.id;
 
-  let contactId = existingContact?.id;
-
-  if (!contactId) {
-    const { data: newContact, error } = await supabase
-      .from("contacts")
-      .insert({ phone, full_name: passengerName })
-      .select("id")
-      .single();
-    if (error) throw error;
-    contactId = newContact.id;
-
-    await supabase.from("contact_channels").insert({
-      contact_id: contactId,
-      channel: "sms",
-      external_id: phone,
-    });
-  } else if (!existingContact.full_name && passengerName) {
+  if (!existingContact!.full_name && passengerName) {
     await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
   }
 

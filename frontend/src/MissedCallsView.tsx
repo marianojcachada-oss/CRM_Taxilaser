@@ -45,18 +45,39 @@ export default function MissedCallsView() {
     await supabase.from('missed_calls').update({ acknowledged: true }).eq('id', id)
   }
 
+  async function acknowledgeAll() {
+    const pendingIds = calls.filter((c) => !c.acknowledged).map((c) => c.id)
+    if (pendingIds.length === 0) return
+    if (!confirm(`¿Marcar las ${pendingIds.length} llamadas perdidas sin ver como vistas?`)) return
+
+    setCalls((prev) => prev.map((c) => (pendingIds.includes(c.id) ? { ...c, acknowledged: true } : c)))
+    await supabase.from('missed_calls').update({ acknowledged: true }).in('id', pendingIds)
+  }
+
   async function copyPhone(id: string, phone: string) {
     await navigator.clipboard.writeText(phone)
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 1500)
   }
 
+  const pendingCount = calls.filter((c) => !c.acknowledged).length
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-4">
-      <p className="mb-4 rounded-sm border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
-        El sistema no atiende llamadas — esto solo te avisa cuando alguien te llamó y no contestaste,
-        para que lo llames de vuelta por WhatsApp, SMS o el medio que prefieras.
-      </p>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="flex-1 rounded-sm border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
+          El sistema no atiende llamadas — esto solo te avisa cuando alguien te llamó y no contestaste,
+          para que lo llames de vuelta por WhatsApp, SMS o el medio que prefieras.
+        </p>
+        {pendingCount > 0 && (
+          <button
+            onClick={acknowledgeAll}
+            className="shrink-0 rounded-sm border border-panel-light px-3 py-2 text-xs text-muted hover:border-mustard hover:text-mustard"
+          >
+            Marcar las {pendingCount} sin ver como vistas
+          </button>
+        )}
+      </div>
 
       {loading && <p className="text-sm text-muted">Cargando...</p>}
       {!loading && calls.length === 0 && (

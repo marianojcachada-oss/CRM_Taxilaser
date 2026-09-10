@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
   }
 
   const phone = normalizePhone(rawPhone);
+  const passengerName = body.passenger_name || null;
   const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
 
   const text =
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
   // su ID para saber por qué canal(es) prefiere recibir avisos.
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, servicios_cancelados")
+    .select("id, full_name, servicios_cancelados")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -69,7 +70,7 @@ Deno.serve(async (req) => {
   if (!contactId) {
     const { data: newContact, error } = await supabase
       .from("contacts")
-      .insert({ phone, servicios_cancelados: 1 })
+      .insert({ phone, full_name: passengerName, servicios_cancelados: 1 })
       .select("id")
       .single();
     if (error) throw error;
@@ -84,6 +85,10 @@ Deno.serve(async (req) => {
     await supabase
       .from("contacts")
       .update({
+        // El nombre solo se completa una vez, si todavía no lo
+        // teníamos — si ya tiene uno cargado (por acá o a mano), no se
+        // toca más.
+        ...(!existingContact.full_name && passengerName ? { full_name: passengerName } : {}),
         servicios_cancelados: (existingContact.servicios_cancelados ?? 0) + 1,
         has_active_ride: false,
         active_ride_status: "cancelled",

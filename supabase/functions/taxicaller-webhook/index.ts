@@ -14,8 +14,18 @@
 //   "vehicle_make": "[vehicle.tags.make]",
 //   "vehicle_color": "[vehicle.tags.color_name]",
 //   "vehicle_plate": "[vehicle.tags.plate]",
-//   "passenger_phone": "[job.client.phone]"
+//   "passenger_phone": "[job.client.phone]",
+//   "passenger_name": "[job.client.name]"
 // }
+//
+// OJO con passenger_name: en TaxiCaller el pasajero se guarda como un
+// solo campo de nombre completo (no separado en nombre/apellido). Si tu
+// plantilla no tiene este tag agregado todavía, entrá al panel de
+// TaxiCaller → esa notificación → pestaña de Tags, buscá el tag del
+// nombre del cliente (algo como [job.client.name] o similar) y agregalo
+// al payload con la clave exacta "passenger_name" — mientras no esté en
+// la plantilla, este campo va a llegar vacío siempre, sin importar lo
+// que haga este código.
 //
 // El mensaje se arma como: "Su Taxi {make} {color} con placa {plate} ha
 // llegado / {tu número de RingCentral}". No tenemos indicativo (D1554) ni
@@ -70,7 +80,11 @@ Deno.serve(async (req) => {
   }
 
   const phone = normalizePhone(rawPhone);
-  const passengerName = body.passenger_first_name || null;
+  // TaxiCaller guarda al pasajero con un solo campo de nombre completo
+  // (no separado en nombre/apellido) — probá con "passenger_name"
+  // primero; dejamos "passenger_first_name" como respaldo por si tu
+  // plantilla ya lo tenía armado así.
+  const passengerName = body.passenger_name || body.passenger_first_name || null;
 
   const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
   const make = body.vehicle_make || "";
@@ -145,13 +159,14 @@ Deno.serve(async (req) => {
     await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
   }
 
-  // Conversación de SMS más reciente con este contacto (se reabre si
-  // estaba cerrada), o una nueva
+  // Conversación de SMS/WhatsApp más reciente con este contacto (se
+  // reabre si estaba cerrada), o una nueva. Buscamos en los dos canales
+  // porque SMS y WhatsApp comparten una sola conversación por contacto.
   const { data: existingConversation } = await supabase
     .from("conversations")
     .select("id, status")
     .eq("contact_id", contactId)
-    .eq("channel", "sms")
+    .in("channel", ["sms", "whatsapp"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -178,6 +193,7 @@ Deno.serve(async (req) => {
       .insert({
         contact_id: contactId,
         channel: "sms",
+        channels_available: ["sms", "whatsapp"],
         queue_id: null,
         needs_assignment: false, // aviso informativo, no necesita que un operador lo tome
         // Cerrada de una: si el cliente no vuelve a escribir, no queda

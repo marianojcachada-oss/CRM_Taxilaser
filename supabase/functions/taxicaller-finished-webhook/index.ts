@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
   const phone = normalizePhone(rawPhone);
   const make = body.vehicle_make || "";
   const fareTotal = body.fare_total || "";
+  const passengerName = body.passenger_name || null;
 
   const text =
     `Su servicio${make ? ` con la unidad ${make}` : ""} fue finalizado` +
@@ -63,7 +64,7 @@ Deno.serve(async (req) => {
   // su ID para saber por qué canal(es) prefiere recibir avisos.
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, servicios_completados")
+    .select("id, full_name, servicios_completados")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -72,7 +73,7 @@ Deno.serve(async (req) => {
   if (!contactId) {
     const { data: newContact, error } = await supabase
       .from("contacts")
-      .insert({ phone, servicios_completados: 1 })
+      .insert({ phone, full_name: passengerName, servicios_completados: 1 })
       .select("id")
       .single();
     if (error) throw error;
@@ -87,6 +88,7 @@ Deno.serve(async (req) => {
     await supabase
       .from("contacts")
       .update({
+        ...(!existingContact.full_name && passengerName ? { full_name: passengerName } : {}),
         servicios_completados: (existingContact.servicios_completados ?? 0) + 1,
         has_active_ride: false,
         active_ride_status: "completed",

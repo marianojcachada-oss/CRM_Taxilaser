@@ -308,51 +308,53 @@ async function handleIncomingMessage(opts: {
     await supabase.from("contacts").update({ full_name: resolvedName }).eq("id", contactId);
   }
 
-  // 3. Buscar la conversación más reciente para este contacto — para
-  // WhatsApp, se busca también entre las de SMS, porque SMS y WhatsApp
-  // comparten una sola conversación por contacto (misma asignación de
-  // operador para los dos). Facebook e Instagram siguen exactos por
-  // canal, no se mezclan. Se reabre aunque esté cerrada, en vez de
-  // fragmentar el historial, o se crea una nueva si nunca hubo.
-  const mergedChannels = channel === "whatsapp" ? ["whatsapp", "sms"] : [channel];
+  // 3. Buscar/crear la conversación. Para WhatsApp usamos la función
+  // atómica (a prueba de dos llamadas simultáneas) porque comparte
+  // conversación con SMS — el mismo problema de carrera que tenía SMS.
+  // Facebook e Instagram siguen con su propia lógica, sin mezclarse.
+  let conversationId: string;
 
-  const { data: existingConversation } = await supabase
-    .from("conversations")
-    .select("id, status")
-    .eq("contact_id", contactId)
-    .in("channel", mergedChannels)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let conversationId = existingConversation?.id;
-
-  // Ya no reabrimos acá a mano — el trigger centralizado en `messages`
-  // (trg_reopen_and_reassign_on_client_message) lo hace solo apenas se
-  // inserte el mensaje, para cualquier canal, sin duplicar esta lógica.
-
-  if (!conversationId) {
-    // Ajustar el nombre de cola según tu convención (ej: 'whatsapp_general')
-    const { data: queue } = await supabase
-      .from("queues")
-      .select("id")
-      .eq("name", `${channel}_general`)
-      .single();
-
-    const { data: newConversation, error: convErr } = await supabase
+  if (channel === "whatsapp") {
+    const { data: convId, error: convError } = await supabase.rpc(
+      "find_or_create_sms_whatsapp_conversation",
+      { p_contact_id: contactId, p_default_channel: "whatsapp" },
+    );
+    if (convError) throw convError;
+    conversationId = convId;
+  } else {
+    const { data: existingConversation } = await supabase
       .from("conversations")
-      .insert({
-        contact_id: contactId,
-        channel,
-        channels_available: channel === "whatsapp" ? ["whatsapp", "sms"] : [channel],
-        queue_id: queue?.id ?? null, // el trigger de round robin corre acá
-        external_thread_id: externalContactId,
-      })
-      .select("id")
-      .single();
+      .select("id, status")
+      .eq("contact_id", contactId)
+      .eq("channel", channel)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (convErr) throw convErr;
-    conversationId = newConversation.id;
+    if (existingConversation) {
+      conversationId = existingConversation.id;
+    } else {
+      const { data: queue } = await supabase
+        .from("queues")
+        .select("id")
+        .eq("name", `${channel}_general`)
+        .single();
+
+      const { data: newConversation, error: convErr } = await supabase
+        .from("conversations")
+        .insert({
+          contact_id: contactId,
+          channel,
+          channels_available: [channel],
+          queue_id: queue?.id ?? null, // el trigger de round robin corre acá
+          external_thread_id: externalContactId,
+        })
+        .select("id")
+        .single();
+
+      if (convErr) throw convErr;
+      conversationId = newConversation.id;
+    }
   }
 
   // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de

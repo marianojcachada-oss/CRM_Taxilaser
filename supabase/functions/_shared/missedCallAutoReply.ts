@@ -96,48 +96,23 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
     });
   }
 
-  // Conversación de SMS/WhatsApp más reciente (comparten una sola, sin
-  // importar por cuál de los dos haya escrito antes), o una nueva.
-  const { data: existingConversation } = await supabase
+  // Conversación de SMS/WhatsApp (comparten una sola, de forma atómica
+  // — a prueba de dos llamadas simultáneas), o una nueva.
+  const { data: conversationId, error: convError } = await supabase.rpc(
+    "find_or_create_sms_whatsapp_conversation",
+    { p_contact_id: contactId, p_default_channel: conversationChannel },
+  );
+  if (convError) throw convError;
+
+  await supabase
     .from("conversations")
-    .select("id, status")
-    .eq("contact_id", contactId)
-    .in("channel", ["sms", "whatsapp"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let conversationId = existingConversation?.id;
-
-  if (conversationId) {
-    await supabase
-      .from("conversations")
-      .update({
-        status: "esperando_cliente",
-        unread: false,
-        assigned_operator_id: operator.id,
-        keep_with_operator: true,
-      })
-      .eq("id", conversationId);
-  } else {
-    const { data: newConversation, error } = await supabase
-      .from("conversations")
-      .insert({
-        contact_id: contactId,
-        channel: conversationChannel,
-        channels_available: ["sms", "whatsapp"],
-        queue_id: null,
-        unread: false,
-        external_thread_id: phone,
-        assigned_operator_id: operator.id,
-        keep_with_operator: true,
-        status: "esperando_cliente",
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
-    conversationId = newConversation.id;
-  }
+    .update({
+      status: "esperando_cliente",
+      unread: false,
+      assigned_operator_id: operator.id,
+      keep_with_operator: true,
+    })
+    .eq("id", conversationId);
 
   // El round robin normal descuenta/suma carga en sus propios triggers al
   // asignar por su cuenta — acá estamos asignando "a mano" y de una, así

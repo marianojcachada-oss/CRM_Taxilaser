@@ -120,51 +120,22 @@ Deno.serve(async (req) => {
     fare: fareTotal || null,
   });
 
-  // Conversación de SMS más reciente (se reabre si estaba cerrada), o nueva
-  const { data: existingConversation } = await supabase
-    .from("conversations")
-    .select("id, status")
-    .eq("contact_id", contactId)
-    .eq("channel", "sms")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let conversationId = existingConversation?.id;
+  // Conversación de SMS/WhatsApp (se reabre si estaba cerrada), de forma
+  // atómica — a prueba de dos llamadas simultáneas.
+  const { data: conversationId, error: convRpcError } = await supabase.rpc(
+    "find_or_create_sms_whatsapp_conversation",
+    { p_contact_id: contactId, p_default_channel: "sms" },
+  );
+  if (convRpcError) throw convRpcError;
 
   // Antes esto solo se ejecutaba si YA estaba cerrada (no hacia nada
   // nuevo) -- ahora cierra de una cualquier conversacion existente que
   // reciba uno de estos avisos automaticos, y la desasigna (para que no
   // quede pegada a un operador ni cuente para nadie).
-  if (conversationId) {
-    await supabase
-      .from("conversations")
-      .update({ status: "cerrada", unread: false, assigned_operator_id: null, needs_assignment: false })
-      .eq("id", conversationId);
-  }
-
-  if (!conversationId) {
-    const { data: newConversation, error } = await supabase
-      .from("conversations")
-      .insert({
-        contact_id: contactId,
-        channel: "sms",
-        queue_id: null,
-        needs_assignment: false, // aviso informativo, no necesita que un operador lo tome
-        // Cerrada de una: si el cliente no vuelve a escribir, no queda
-        // dando vueltas en ninguna bandeja activa (ni Mias, ni Sin
-        // asignar, ni Pendientes) — solo se ve en Todos. Si el cliente
-        // SI escribe algo despues, el trigger de reapertura la reabre y
-        // reparte normal, como cualquier conversacion cerrada.
-        status: 'cerrada',
-        unread: false,
-        external_thread_id: phone,
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
-    conversationId = newConversation.id;
-  }
+  await supabase
+    .from("conversations")
+    .update({ status: "cerrada", unread: false, assigned_operator_id: null, needs_assignment: false })
+    .eq("id", conversationId);
 
   await supabase.from("messages").insert({
     conversation_id: conversationId,

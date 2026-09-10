@@ -148,41 +148,18 @@ async function handleIncomingSms(opts: {
     await supabase.from("contacts").update({ full_name: contactName }).eq("id", contactId);
   }
 
-  // Buscamos la conversación más reciente con este contacto por SMS o
-  // WhatsApp (comparten conversación — misma asignación de operador
-  // para los dos), sin importar si está cerrada.
-  const { data: existingConversation } = await supabase
-    .from("conversations")
-    .select("id, status")
-    .eq("contact_id", contactId)
-    .in("channel", ["sms", "whatsapp"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let conversationId = existingConversation?.id;
+  // Buscamos o creamos, de forma atómica (a prueba de dos llamadas
+  // simultáneas), la conversación de SMS/WhatsApp de este contacto —
+  // comparten conversación (misma asignación de operador para los dos).
+  const { data: conversationId, error: convError } = await supabase.rpc(
+    "find_or_create_sms_whatsapp_conversation",
+    { p_contact_id: contactId, p_default_channel: "sms" },
+  );
+  if (convError) throw convError;
 
   // Ya no reabrimos acá a mano — el trigger centralizado en `messages`
   // (trg_reopen_and_reassign_on_client_message) lo hace solo apenas se
   // inserte el mensaje, para cualquier canal, sin duplicar esta lógica.
-
-  if (!conversationId) {
-    const { data: queue } = await supabase.from("queues").select("id").eq("name", "sms_general").maybeSingle();
-
-    const { data: newConversation, error } = await supabase
-      .from("conversations")
-      .insert({
-        contact_id: contactId,
-        channel: "sms",
-        channels_available: ["sms", "whatsapp"],
-        queue_id: queue?.id ?? null,
-        external_thread_id: phone,
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
-    conversationId = newConversation.id;
-  }
 
   await supabase.from("messages").insert({
     conversation_id: conversationId,

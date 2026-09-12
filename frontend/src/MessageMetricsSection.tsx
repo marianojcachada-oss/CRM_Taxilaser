@@ -99,16 +99,43 @@ export default function MessageMetricsSection() {
   }, [])
 
   useEffect(() => {
-    setLoading(true)
-    supabase
-      .from('messages')
-      .select('conversation_id, sender_type, sender_operator_id, sent_via_channel, automation_type, created_at')
-      .gte('created_at', `${dateFrom}T00:00:00`)
-      .lte('created_at', `${dateTo}T23:59:59`)
-      .then(({ data }) => {
-        setRows(data ?? [])
+    let cancelled = false
+
+    async function loadAllRows() {
+      setLoading(true)
+      // Supabase (PostgREST) corta cada consulta en 1000 filas por
+      // defecto — con volumen real, un rango de fechas amplio pisa ese
+      // techo fácil. Pedimos de a 1000 con .range() hasta que la
+      // página vuelva incompleta (esa es la señal de que ya no hay más).
+      const pageSize = 1000
+      let page = 0
+      let all: Row[] = []
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('conversation_id, sender_type, sender_operator_id, sent_via_channel, automation_type, created_at')
+          .gte('created_at', `${dateFrom}T00:00:00`)
+          .lte('created_at', `${dateTo}T23:59:59`)
+          .order('created_at', { ascending: true })
+          .range(page * pageSize, page * pageSize + pageSize - 1)
+
+        if (error || !data) break
+        all = all.concat(data)
+        if (data.length < pageSize) break // última página, no hace falta pedir más
+        page++
+      }
+
+      if (!cancelled) {
+        setRows(all)
         setLoading(false)
-      })
+      }
+    }
+
+    loadAllRows()
+    return () => {
+      cancelled = true
+    }
   }, [dateFrom, dateTo])
 
   async function loadWaiting() {

@@ -24,7 +24,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const COOLDOWN_MS = 30 * 60 * 1000;
+// El cooldown ahora vive en la función check_and_record_missed_call_cooldown (SQL).
 
 const MESSAGE_TEMPLATE =
   "Te comunicaste con Taxi Laser, vemos que tenemos una llamada perdida de tu número, en este momento habla con {{codigo}}. ¿Cómo le puedo ayudar?";
@@ -38,19 +38,15 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
   const enabled = await getSetting(settingKey);
   if (enabled !== "true") return; // apagado por defecto, hasta que un admin lo prenda
 
-  // Cooldown: 30 min por número + canal, contados desde el último auto-reply mandado.
-  const { data: lastReply } = await supabase
-    .from("missed_call_auto_replies")
-    .select("sent_at")
-    .eq("phone", phone)
-    .eq("channel", source)
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (lastReply && Date.now() - new Date(lastReply.sent_at).getTime() < COOLDOWN_MS) {
-    return; // ya se le mandó uno hace menos de 30 min, no se repite
-  }
+  // Cooldown: 30 min por número + canal — chequeo y registro atómicos
+  // (RPC con advisory lock), para que dos llamadas casi simultáneas no
+  // pasen las dos el chequeo a la vez.
+  const { data: canSend, error: cooldownError } = await supabase.rpc(
+    "check_and_record_missed_call_cooldown",
+    { p_phone: phone, p_channel: source, p_cooldown_minutes: 30 },
+  );
+  if (cooldownError) throw cooldownError;
+  if (!canSend) return; // ya se le mandó uno hace menos de 30 min, no se repite
 
   // Operador disponible con menos carga activa ahora mismo.
   const { data: operator } = await supabase
@@ -150,8 +146,6 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
     sent_via_channel: conversationChannel,
     automation_type: "missed_call_auto_reply",
   });
-
-  await supabase.from("missed_call_auto_replies").insert({ phone, channel: source });
 
   await supabase.from("contact_timeline").insert({
     contact_id: contactId,

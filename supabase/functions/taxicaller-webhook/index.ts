@@ -154,7 +154,23 @@ Deno.serve(async (req) => {
   // manda nada.
   // -----------------------------------------------------------------
   const hasVehicleData = Boolean(make || color || plate);
-  const hasActiveRide = existingContact?.has_active_ride === true;
+  // Chequeo ATÓMICO (no un simple SELECT): intenta "reclamar" el estado
+  // has_active_ride en el mismo UPDATE que lo verifica. Si justo se
+  // canceló casi al mismo tiempo (otra función tocando este mismo
+  // contacto), esto reduce la ventana de carrera a un solo statement en
+  // vez de dos pasos separados con tiempo entremedio para que algo más
+  // cambie el dato.
+  const { data: claim } = existingContact
+    ? await supabase
+        .from("contacts")
+        .update({ has_active_ride: true }) // valor sin cambios, solo para que el WHERE sea atómico
+        .eq("id", existingContact.id)
+        .eq("has_active_ride", true)
+        .select("id")
+        .maybeSingle()
+    : { data: null };
+
+  const hasActiveRide = Boolean(claim);
 
   if (existingContact?.do_not_contact) {
     return new Response("OK (contacto dado de baja, STOP)", { status: 200 });

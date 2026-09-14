@@ -210,6 +210,7 @@ export default function ConversationsView({
     [conversations, filter.channel],
   )
   const [thread, setThread] = useState<Message[]>([])
+  const threadEndRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
@@ -337,6 +338,12 @@ export default function ConversationsView({
     }
   }, [selectedId])
 
+  // Al abrir un chat, o al llegar un mensaje nuevo, va directo al final
+  // del hilo — no tiene que scrollear a mano para ver el último mensaje.
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [selectedId, thread.length])
+
   useEffect(() => {
     if (!selected) {
       setAvailableChannels([])
@@ -442,7 +449,25 @@ export default function ConversationsView({
           : c,
       ),
     )
-    await supabase.from('conversations').update({ assigned_operator_id: newOperatorId }).eq('id', selectedId)
+    const { error, data } = await supabase
+      .from('conversations')
+      .update({ assigned_operator_id: newOperatorId })
+      .eq('id', selectedId)
+      .select('id')
+
+    if (error || !data || data.length === 0) {
+      // El update no pegó de verdad (RLS, condición de carrera, lo que
+      // sea) — antes esto quedaba invisible: se veía reasignado del
+      // lado de quien lo hizo, pero en la base seguía como estaba.
+      toast.error('No se pudo reasignar — revertido. Probá de nuevo.')
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === selectedId ? { ...c, assignedOperatorId: previousOperatorId } : c,
+        ),
+      )
+      onRefreshConversations?.()
+      return
+    }
 
     // La reasignación manual también mueve carga real entre operadores —
     // si no ajustamos esto acá, el contador de "carga actual" que usa el
@@ -1046,6 +1071,7 @@ export default function ConversationsView({
                 </div>
                   </div>
               )})}
+              <div ref={threadEndRef} />
             </div>
 
             {typingOperators.length > 0 && (

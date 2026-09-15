@@ -104,11 +104,20 @@ function AppContent() {
       .select(CONVERSATION_SELECT)
       .neq('status', 'cerrada')
       .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(300)
+      .limit(1000)
       .then(({ data, error }) => {
         if (error) {
           console.error('No se pudieron cargar las conversaciones:', error.message)
           return
+        }
+        if ((data ?? []).length >= 1000) {
+          // Si llegamos justo al techo, hay que asumir que se está
+          // cortando algo real — con este volumen de operadores/
+          // vehículos conviene pasar esta lista a un fetch por
+          // operador en vez de una lista global compartida.
+          console.warn(
+            'loadConversations llegó al límite de 1000 — puede haber conversaciones activas que no se estén mostrando. Conviene revisar el volumen real.',
+          )
         }
         setConversations((data ?? []).map(mapConversation))
       })

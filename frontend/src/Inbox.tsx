@@ -42,6 +42,7 @@ type Props = {
   operatorName: string
   operatorId: string | null
   isAdmin: boolean
+  isSuperAdmin: boolean
   onOpenAdmin: () => void
   conversations: Conversation[]
   setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
@@ -58,6 +59,7 @@ export default function Inbox({
   operatorName,
   operatorId,
   isAdmin,
+  isSuperAdmin,
   onOpenAdmin,
   conversations,
   setConversations,
@@ -444,6 +446,7 @@ export default function Inbox({
             operatorId={operatorId}
             operatorName={operatorName}
             isAdmin={isAdmin}
+            isSuperAdmin={isSuperAdmin}
             theme={theme}
             filter={filter}
             onSelectFilter={(f) => setFilter(f)}

@@ -172,6 +172,7 @@ type Props = {
   operatorId: string | null
   operatorName: string
   isAdmin: boolean
+  isSuperAdmin: boolean
   theme: string
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
@@ -194,6 +195,7 @@ export default function ConversationsView({
   operatorId,
   operatorName,
   isAdmin,
+  isSuperAdmin,
   theme,
   filter,
   onSelectFilter,
@@ -222,6 +224,9 @@ export default function ConversationsView({
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const [translatingDraft, setTranslatingDraft] = useState(false)
   const [availableChannels, setAvailableChannels] = useState<Channel[]>([])
+  const [bulkSelectMode, setBulkSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [linkedChannels, setLinkedChannels] = useState<Set<Channel>>(new Set())
   const [sendChannel, setSendChannel] = useState<Channel | null>(null)
   const [typingOperators, setTypingOperators] = useState<string[]>([])
@@ -518,6 +523,43 @@ export default function ConversationsView({
     setConversations((prev) => prev.filter((c) => c.id !== selected.id))
   }
 
+  function toggleSelectId(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function exitBulkSelect() {
+    setBulkSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    const confirmed = window.confirm(
+      `¿Borrar ${selectedIds.size} conversaciones? Esto elimina también todos sus mensajes y no se puede deshacer.`,
+    )
+    if (!confirmed) return
+
+    setBulkDeleting(true)
+    const ids = Array.from(selectedIds)
+    const { error } = await supabase.from('conversations').delete().in('id', ids)
+    setBulkDeleting(false)
+
+    if (error) {
+      toast.error('No se pudo borrar: ' + error.message)
+      return
+    }
+
+    setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)))
+    if (selectedId && selectedIds.has(selectedId)) setSelectedId(null)
+    toast.success(`${ids.length} conversaciones borradas.`)
+    exitBulkSelect()
+  }
+
   async function applySnooze(until: Date | null) {
     if (!selectedId) return
     setConversations((prev) =>
@@ -705,6 +747,37 @@ export default function ConversationsView({
             {displayedConversations.length} {displayedConversations.length === 1 ? 'conversación' : 'conversaciones'}
             {filter.kind === 'mine' && ' · round robin activo'}
           </p>
+
+          {isSuperAdmin && (
+            <div className="mt-2">
+              {!bulkSelectMode ? (
+                <button
+                  onClick={() => setBulkSelectMode(true)}
+                  className="rounded-sm border border-panel-light px-2.5 py-1 text-[11px] text-muted hover:border-alert hover:text-alert"
+                >
+                  Seleccionar conversaciones para borrar
+                </button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 rounded-sm border border-alert/40 bg-alert/10 px-2.5 py-1.5">
+                  <span className="text-xs text-cream">{selectedIds.size} seleccionadas</span>
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={selectedIds.size === 0 || bulkDeleting}
+                    className="rounded-sm bg-alert px-2.5 py-1 text-[11px] font-medium text-asphalt disabled:opacity-40"
+                  >
+                    {bulkDeleting ? 'Borrando...' : 'Borrar seleccionadas'}
+                  </button>
+                  <button
+                    onClick={exitBulkSelect}
+                    className="rounded-sm border border-panel-light px-2.5 py-1 text-[11px] text-muted hover:text-cream"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             <button
               onClick={() => onSelectFilter({ kind: filter.kind })}
@@ -742,14 +815,35 @@ export default function ConversationsView({
             <button
               key={c.id}
               onClick={() => {
+                if (bulkSelectMode) {
+                  toggleSelectId(c.id)
+                  return
+                }
                 setSelectedId(c.id)
                 setShowEmoji(false)
                 setSendError(null)
               }}
               className={`flex w-full items-start gap-3 border-b border-l-2 border-panel-light px-4 py-3 text-left transition-colors ${
                 c.status === 'cancelacion' ? 'border-l-alert bg-alert/10 hover:bg-alert/15' : 'border-l-transparent'
-              } ${c.id === selectedId ? 'bg-panel-light' : 'hover:bg-panel-light/60'}`}
+              } ${
+                bulkSelectMode
+                  ? selectedIds.has(c.id)
+                    ? 'bg-alert/10'
+                    : 'hover:bg-panel-light/60'
+                  : c.id === selectedId
+                    ? 'bg-panel-light'
+                    : 'hover:bg-panel-light/60'
+              }`}
             >
+              {bulkSelectMode && (
+                <span
+                  className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border-2 ${
+                    selectedIds.has(c.id) ? 'border-alert bg-alert' : 'border-panel-light'
+                  }`}
+                >
+                  {selectedIds.has(c.id) && <Check size={13} className="text-asphalt" />}
+                </span>
+              )}
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
                 style={{ backgroundColor: channelAvatarColor[c.channel] }}

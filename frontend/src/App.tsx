@@ -247,6 +247,7 @@ function AppContent() {
       operatorName={operatorName}
       operatorId={operatorId}
       isAdmin={isAdmin}
+      isSuperAdmin={isSuperAdmin}
       onOpenAdmin={() => setView('admin')}
       conversations={conversations}
       setConversations={setConversations}

@@ -94,46 +94,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Conversación más reciente (se reabre si estaba cerrada, para no
-    // fragmentar el historial), o nueva si nunca hubo (dispara el round robin)
-    const { data: existingConversation } = await supabase
+    // 2. Conversación — misma función atómica que usan los webhooks
+    // reales (evita el "chat partido en dos" si se mandan simulados
+    // casi al mismo tiempo para el mismo número, que es justo el tipo
+    // de cosa que un stress test tiene que poder probar sin generar un
+    // falso positivo por una vulnerabilidad que solo existiera acá).
+    const rpcName = channel === "sms" || channel === "whatsapp"
+      ? "find_or_create_sms_whatsapp_conversation"
+      : "find_or_create_channel_conversation";
+    const rpcParams = channel === "sms" || channel === "whatsapp"
+      ? { p_contact_id: contactId, p_default_channel: channel }
+      : { p_contact_id: contactId, p_channel: channel };
+
+    const { data: conversationId, error: convError } = await supabase.rpc(rpcName, rpcParams);
+    if (convError) throw convError;
+
+    // Si estaba cerrada, la reabrimos (mismo criterio que los webhooks reales).
+    await supabase
       .from("conversations")
-      .select("id, status")
-      .eq("contact_id", contactId)
-      .eq("channel", channel)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let conversationId = existingConversation?.id;
-
-    if (conversationId && existingConversation!.status === "cerrada") {
-      await supabase
-        .from("conversations")
-        .update({ status: "esperando_operador", unread: true })
-        .eq("id", conversationId);
-    }
-
-    if (!conversationId) {
-      const { data: queue } = await supabase
-        .from("queues")
-        .select("id")
-        .eq("name", `${channel}_general`)
-        .maybeSingle();
-
-      const { data: newConversation, error } = await supabase
-        .from("conversations")
-        .insert({
-          contact_id: contactId,
-          channel,
-          queue_id: queue?.id ?? null,
-          external_thread_id: phone,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      conversationId = newConversation.id;
-    }
+      .update({ status: "esperando_operador", unread: true })
+      .eq("id", conversationId)
+      .eq("status", "cerrada");
 
     // 3. Mensaje (dispara la clasificación automática de estado)
     await supabase.from("messages").insert({

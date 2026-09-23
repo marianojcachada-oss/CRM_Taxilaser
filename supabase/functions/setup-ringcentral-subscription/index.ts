@@ -3,9 +3,9 @@
 // Activa o desactiva la suscripción de RingCentral que le dice "avisale a
 // esta URL cuando llegue un SMS". Sin activarla, ringcentral-webhook nunca
 // recibe nada, aunque esté bien desplegado. Solo un admin puede correrlo.
-// Las suscripciones activas expiran solas (máximo ~7 días) si no se
-// renuevan — hay que volver a activarla cada tanto hasta que armemos una
-// renovación automática.
+// La suscripción se pide con una duración de ~15.8 años (el máximo real
+// para el tipo de entrega WebHook) — en la práctica no hace falta
+// renovarla nunca, salvo que la desactives vos mismo.
 //
 // Body esperado: { "action": "activate" } o { "action": "deactivate" }
 
@@ -157,7 +157,14 @@ Deno.serve(async (req) => {
           `/restapi/v1.0/account/~/telephony/sessions?missedCall=true`,
         ],
         deliveryMode: { transportType: "WebHook", address },
-        expiresIn: 604800, // 7 días, el máximo habitual para WebHook
+        // Antes esto estaba en 604800 (7 días) por un comentario mío
+        // equivocado — ese límite de 7 días es para el tipo de entrega
+        // PubNub, no para WebHook. Para WebHook, RingCentral permite
+        // pedir hasta ~20 años. Con esto puesto en ~15.8 años, en la
+        // práctica no hace falta renovar nunca más — el botón "Renovar
+        // suscripción" sigue ahí como respaldo manual, por si alguna
+        // vez hiciera falta, pero no debería necesitarse.
+        expiresIn: 500000000,
       }),
     });
 

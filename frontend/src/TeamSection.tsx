@@ -44,6 +44,7 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkResults, setBulkResults] = useState<{ email: string; success: boolean; error?: string }[] | null>(null)
   const [releasingCapacity, setReleasingCapacity] = useState(false)
+  const [settingCapacity, setSettingCapacity] = useState(false)
 
   useEffect(() => {
     load()
@@ -257,6 +258,39 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
     load()
   }
 
+  // Para poner la misma capacidad máxima a todos de una, en vez de
+  // editarlos uno por uno. null = "sin límite" para todos.
+  async function handleSetAllCapacity() {
+    const input = prompt(
+      'Capacidad máxima para TODOS los operadores activos (dejá vacío para "sin límite"):',
+    )
+    if (input === null) return // canceló
+
+    const value = input.trim() === '' ? null : Number(input)
+    if (value !== null && (isNaN(value) || value < 0)) {
+      alert('Tiene que ser un número válido, o vacío para sin límite.')
+      return
+    }
+
+    const confirmed = confirm(
+      value === null
+        ? '¿Poner "sin límite" a TODOS los operadores activos?'
+        : `¿Poner la capacidad máxima en ${value} para TODOS los operadores activos?`,
+    )
+    if (!confirmed) return
+
+    setSettingCapacity(true)
+    const { data, error } = await supabase.rpc('set_all_operators_max_capacity', { p_value: value })
+    setSettingCapacity(false)
+
+    if (error) {
+      alert('No se pudo actualizar: ' + error.message)
+      return
+    }
+    alert(`Listo — se actualizaron ${data} operadores.`)
+    load()
+  }
+
   if (loading) return <p className="text-sm text-muted">Cargando equipo...</p>
   if (error) return <p className="text-sm text-alert">Error al cargar operadores: {error}</p>
 
@@ -283,6 +317,14 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
             title="Pone la carga de todos en 0 y marca como visto lo abierto y asignado — reinicia el round robin"
           >
             <RotateCcw size={13} /> {releasingCapacity ? 'Liberando...' : 'Liberar carga'}
+          </button>
+          <button
+            onClick={handleSetAllCapacity}
+            disabled={settingCapacity}
+            className="flex items-center gap-1 rounded-sm border border-panel-light px-3 py-1.5 text-xs text-muted hover:border-mustard hover:text-mustard disabled:opacity-50"
+            title="Poner la misma capacidad máxima a todos los operadores activos, de una"
+          >
+            {settingCapacity ? 'Aplicando...' : 'Igualar capacidad para todos'}
           </button>
         </div>
       </div>

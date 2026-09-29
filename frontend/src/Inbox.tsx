@@ -45,6 +45,8 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
       return isSnoozed(c)
     case 'my_history':
       return true // se resuelve con su propia consulta, no por esta función
+    case 'operator':
+      return c.assignedOperatorId === filter.operatorId
   }
 }
 
@@ -100,10 +102,25 @@ export default function Inbox({
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    supabase
-      .from('operators')
-      .select('id, full_name, operator_code')
-      .then(({ data }) => setOperators((data ?? []).slice().sort(byOperatorCode)))
+    function loadOperators() {
+      supabase
+        .from('operators')
+        .select('id, full_name, operator_code, presence')
+        .then(({ data }) => setOperators((data ?? []).slice().sort(byOperatorCode)))
+    }
+    loadOperators()
+
+    // Se mantiene al día en vivo — es lo que permite que el filtro "Ver
+    // bandeja de..." solo ofrezca operadores que están disponibles EN
+    // ESTE MOMENTO, no una foto vieja de cuando se abrió la pestaña.
+    const channel = supabase
+      .channel('operators-presence')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, loadOperators)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   useEffect(() => {
@@ -421,6 +438,7 @@ export default function Inbox({
         >
           <Sidebar
             conversations={conversations}
+            operators={operators}
             operatorId={operatorId}
             isAdmin={isAdmin}
             filter={filter}

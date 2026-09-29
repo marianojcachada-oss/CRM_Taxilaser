@@ -12,7 +12,7 @@ import {
   Inbox as InboxIcon,
   List,
 } from 'lucide-react'
-import type { Conversation, Channel } from './ConversationsView'
+import type { Conversation, Channel, Operator } from './ConversationsView'
 
 export type FilterValue =
   | { kind: 'all'; channel?: Channel }
@@ -22,6 +22,17 @@ export type FilterValue =
   | { kind: 'unassigned'; channel?: Channel }
   | { kind: 'snoozed'; channel?: Channel }
   | { kind: 'my_history'; channel?: Channel }
+  | { kind: 'operator'; operatorId: string; channel?: Channel }
+
+// Ordena por el número del código (D5 antes que D12), no por texto.
+function byOperatorCode(a: Operator, b: Operator) {
+  const numA = a.operator_code ? parseInt(a.operator_code.replace(/\D/g, ''), 10) : NaN
+  const numB = b.operator_code ? parseInt(b.operator_code.replace(/\D/g, ''), 10) : NaN
+  if (isNaN(numA) && isNaN(numB)) return a.full_name.localeCompare(b.full_name)
+  if (isNaN(numA)) return 1
+  if (isNaN(numB)) return -1
+  return numA - numB
+}
 
 const teams = ['Dispatchers', 'Managers']
 
@@ -29,6 +40,7 @@ const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo
 
 type Props = {
   conversations: Conversation[]
+  operators: Operator[]
   operatorId: string | null
   isAdmin: boolean
   filter: FilterValue
@@ -48,6 +60,7 @@ function GroupHeader({ label }: { label: string }) {
 
 export default function Sidebar({
   conversations,
+  operators,
   operatorId,
   isAdmin,
   filter,
@@ -69,6 +82,14 @@ export default function Sidebar({
   const snoozedCount = conversations.filter(
     (c) => c.snoozedUntil && new Date(c.snoozedUntil).getTime() > Date.now(),
   ).length
+
+  // Para "ver la bandeja de otro operador" (si pide ayuda) solo tiene
+  // sentido ofrecer a quien está disponible ahora mismo — a uno
+  // desconectado no tiene caso ir a mirarle la cola.
+  const availableOperators = operators
+    .filter((o) => o.presence === 'available' && o.id !== operatorId)
+    .slice()
+    .sort(byOperatorCode)
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
 
@@ -303,6 +324,32 @@ export default function Sidebar({
           active={view === 'inbox' && filter.kind === 'my_history'}
           onClick={() => onSelectFilter({ kind: 'my_history' })}
         />
+      </div>
+
+      <div>
+        <GroupHeader label="Ver bandeja de..." />
+        <select
+          value={filter.kind === 'operator' ? filter.operatorId : ''}
+          onChange={(e) => {
+            const id = e.target.value
+            if (id) onSelectFilter({ kind: 'operator', operatorId: id })
+          }}
+          className={`w-full rounded-md border px-2 py-2 text-xs outline-none ${
+            filter.kind === 'operator'
+              ? 'border-mustard bg-asphalt font-semibold text-cream'
+              : 'border-panel-light bg-asphalt text-muted'
+          }`}
+        >
+          <option value="">
+            {availableOperators.length === 0 ? 'Nadie disponible ahora' : 'Elegir operador disponible...'}
+          </option>
+          {availableOperators.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.operator_code ? `${o.operator_code} · ` : ''}
+              {o.full_name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>

@@ -58,7 +58,12 @@ export function ChannelIcon({ channel, size = 14, color }: { channel: Channel; s
   }
 }
 
-export type Operator = { id: string; full_name: string; operator_code?: string | null }
+export type Operator = {
+  id: string
+  full_name: string
+  operator_code?: string | null
+  presence?: 'available' | 'offline' | 'busy'
+}
 
 const urlPattern = /(https?:\/\/[^\s]+)/g
 

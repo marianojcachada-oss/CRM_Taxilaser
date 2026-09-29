@@ -11,6 +11,7 @@ import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 import { handleOptOutKeyword } from "../_shared/optOut.ts";
 import { maybeSendOutOfHoursNotice } from "../_shared/businessHours.ts";
+import { normalizePhone } from "../_shared/phone.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -291,7 +292,13 @@ async function handleIncomingMessage(opts: {
       .from("contacts")
       .insert({
         full_name: resolvedName,
-        phone: channel === "whatsapp" || channel === "sms" ? externalContactId : null,
+        // Se normaliza para que quede en el mismo formato (+1XXXXXXXXXX) que
+        // usan los webhooks de TaxiCaller al buscar el contacto por teléfono
+        // (ver taxicaller-assigned-webhook y los demás) — si no, un contacto
+        // creado por WhatsApp nunca matchea esa búsqueda y el "en camino" (o
+        // cualquier otro estado) termina creando un contacto duplicado en
+        // vez de actualizar el que ya tiene la conversación activa.
+        phone: channel === "whatsapp" || channel === "sms" ? normalizePhone(externalContactId) : null,
       })
       .select("id")
       .single();

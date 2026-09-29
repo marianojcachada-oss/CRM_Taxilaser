@@ -267,6 +267,7 @@ export default function ConversationsView({
   const [showContactPanel, setShowContactPanel] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const draftInputRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -277,6 +278,16 @@ export default function ConversationsView({
   // timer que lo saca solo si nunca llega el aviso de "dejó de escribir"
   // (por ejemplo, cerró la pestaña con texto cargado en el campo).
   const typingTimersRef = useRef<Map<string, { name: string; timer: ReturnType<typeof setTimeout> }>>(new Map())
+
+  // Auto-crece el textarea del mensaje a medida que se escribe (incluye
+  // los saltos de línea de Shift+Enter), como en WhatsApp — hasta un
+  // máximo de ~6 líneas, después scrollea adentro del campo.
+  useEffect(() => {
+    const el = draftInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`
+  }, [draft])
 
   useEffect(() => {
     supabase
@@ -775,7 +786,7 @@ export default function ConversationsView({
     setDraft(m.text ?? '')
   }
 
-  async function handleSend(e: React.FormEvent) {
+  async function handleSend(e: React.SyntheticEvent) {
     e.preventDefault()
     if (!selectedId || !operatorId || !sendChannel) return
     if (!draft.trim() && !pendingAttachment) return
@@ -1457,12 +1468,21 @@ export default function ConversationsView({
                 {recording ? <Square size={17} /> : <Mic size={18} />}
               </button>
 
-              <input
-                type="text"
+              <textarea
+                ref={draftInputRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter solo manda el mensaje; Shift+Enter (o Ctrl/Cmd+Enter)
+                  // inserta un salto de línea, como en WhatsApp.
+                  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault()
+                    handleSend(e)
+                  }
+                }}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
-                className="w-full rounded-full border border-panel-light bg-asphalt px-4 py-2.5 text-sm text-cream placeholder-muted outline-none focus:border-mustard"
+                rows={1}
+                className="max-h-36 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-4 py-2.5 text-sm leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
               />
 
               <button

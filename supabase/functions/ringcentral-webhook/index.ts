@@ -19,6 +19,7 @@ import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 import { handleOptOutKeyword } from "../_shared/optOut.ts";
 import { maybeSendOutOfHoursNotice } from "../_shared/businessHours.ts";
+import { getRingCentralAccessToken } from "../_shared/ringcentral.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -64,12 +65,27 @@ Deno.serve(async (req) => {
     // su libreta (caller ID / contactos del teléfono), cuando lo tiene.
     const contactName = body.from?.name?.trim() || null;
 
+    // MMS: RingCentral manda el/los adjuntos reales en "attachments" — el
+    // item de tipo "Text" es el texto (ya viene en subject, se ignora acá
+    // para no duplicarlo), cualquier otro tipo (Picture, Video,
+    // AudioRecording, etc.) es el contenido real. Antes esto se ignoraba
+    // por completo: el mensaje llegaba sin texto y sin nada más, y el
+    // módulo de IA respondía "no puedo visualizar imágenes" sin haber
+    // recibido ninguna imagen de verdad.
+    const mediaAttachment = (body.attachments ?? []).find((a: any) => a.type !== "Text");
+    let attachment: { url: string; name: string; kind: "image" | "audio" | "file" } | null = null;
+
+    if (mediaAttachment?.uri) {
+      attachment = await downloadAndStoreMmsAttachment(phone, mediaAttachment);
+    }
+
     if (phone) {
       await handleIncomingSms({
         phone,
         contactName,
         externalMessageId: String(body.id),
         text,
+        attachment,
       });
     }
   }
@@ -104,13 +120,58 @@ Deno.serve(async (req) => {
   return new Response("OK", { status: 200 });
 });
 
+// Baja el adjunto de MMS desde el message-store de RingCentral (el "uri"
+// del attachment devuelve el binario directo, igual que la documentación
+// de "Get Message Attachment") y lo sube a nuestro propio Storage, para no
+// depender de que ese link siga siendo accesible después.
+async function downloadAndStoreMmsAttachment(
+  phone: string,
+  mediaAttachment: { uri: string; contentType?: string; type?: string },
+): Promise<{ url: string; name: string; kind: "image" | "audio" | "file" } | null> {
+  try {
+    const accessToken = await getRingCentralAccessToken();
+    const fileRes = await fetch(mediaAttachment.uri, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!fileRes.ok) {
+      console.error("No se pudo bajar el adjunto de RingCentral:", fileRes.status, await fileRes.text());
+      return null;
+    }
+
+    const mimeType = mediaAttachment.contentType ?? fileRes.headers.get("content-type") ?? "application/octet-stream";
+    const bytes = new Uint8Array(await fileRes.arrayBuffer());
+
+    const kind: "image" | "audio" | "file" = mimeType.startsWith("image/")
+      ? "image"
+      : mimeType.startsWith("audio/")
+        ? "audio"
+        : "file";
+    const ext = mimeType.split("/")[1]?.split(";")[0] || "bin";
+    const filename = `${mediaAttachment.type ?? "adjunto"}.${ext}`;
+    const path = `sms/${phone}/${crypto.randomUUID()}.${ext}`;
+
+    const { error } = await supabase.storage.from("attachments").upload(path, bytes, { contentType: mimeType });
+    if (error) {
+      console.error("No se pudo subir el adjunto de RingCentral al Storage:", error.message);
+      return null;
+    }
+
+    const { data } = supabase.storage.from("attachments").getPublicUrl(path);
+    return { url: data.publicUrl, name: filename, kind };
+  } catch (err) {
+    console.error("Error bajando/subiendo adjunto de RingCentral:", err);
+    return null;
+  }
+}
+
 async function handleIncomingSms(opts: {
   phone: string;
   contactName: string | null;
   externalMessageId: string;
   text: string;
+  attachment: { url: string; name: string; kind: "image" | "audio" | "file" } | null;
 }) {
-  const { phone, contactName, externalMessageId, text } = opts;
+  const { phone, contactName, externalMessageId, text, attachment } = opts;
 
   // SMS ya viaja con el teléfono real — si ese número es pasajero
   // conocido en TaxiCaller, se prioriza ese nombre por sobre el que
@@ -176,8 +237,11 @@ async function handleIncomingSms(opts: {
   await supabase.from("messages").insert({
     conversation_id: conversationId,
     sender_type: "contact",
-    content: text,
+    content: text || null,
     external_message_id: externalMessageId,
     sent_via_channel: "sms",
+    attachment_url: attachment?.url ?? null,
+    attachment_name: attachment?.name ?? null,
+    attachment_kind: attachment?.kind ?? null,
   });
 }

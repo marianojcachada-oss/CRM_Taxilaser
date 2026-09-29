@@ -84,7 +84,7 @@ export async function sendSms(
   phone: string,
   text: string,
   attachment?: { bytes: Uint8Array; filename: string; mimeType: string },
-): Promise<void> {
+): Promise<{ id: string | null }> {
   const settings = await getSettings(["RINGCENTRAL_SERVER_URL", "RINGCENTRAL_EXTENSION_ID", "RINGCENTRAL_FROM_NUMBER"]);
   const rcServer = settings.RINGCENTRAL_SERVER_URL ?? "https://platform.ringcentral.com";
   const extensionId = settings.RINGCENTRAL_EXTENSION_ID || "~";
@@ -152,4 +152,10 @@ export async function sendSms(
     const errData = await res.json().catch(() => ({}));
     throw new Error(`RingCentral rechazó el envío: ${JSON.stringify(errData)}`);
   }
+
+  // El ID que devuelve acá es la clave que después usa ringcentral-webhook
+  // para encontrar este mensaje puntual cuando llegue el evento de estado
+  // (entregado / falló la entrega) — mismo patrón que el wamid de WhatsApp.
+  const data = await res.json().catch(() => ({}));
+  return { id: data?.id ? String(data.id) : null };
 }

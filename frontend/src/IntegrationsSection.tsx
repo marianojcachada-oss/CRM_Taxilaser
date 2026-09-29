@@ -27,6 +27,16 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
       { key: 'RINGCENTRAL_JWT', label: 'JWT Credential', secret: true },
       { key: 'RINGCENTRAL_EXTENSION_ID', label: 'Extension ID (la que recibe los SMS de clientes; "~" = tu propia extensión)' },
       { key: 'RINGCENTRAL_FROM_NUMBER', label: 'Número de teléfono para ENVIAR SMS (ej: +14045968232)' },
+      {
+        key: 'RINGCENTRAL_STATUS_WEBHOOK_URL',
+        label:
+          'Confirmación de entrega de SMS — URL pública de ringcentral-status-webhook (ej: https://TU-PROYECTO.supabase.co/functions/v1/ringcentral-status-webhook). OJO: esto es aparte del webhook que ya recibe los SMS entrantes — no confundir.',
+      },
+      {
+        key: 'RINGCENTRAL_STATUS_WEBHOOK_SECRET',
+        label: 'Confirmación de entrega de SMS — secreto (elegís vos un valor — se agrega solo como ?secret= en la URL que se registra en RingCentral)',
+        secret: true,
+      },
     ],
   },
   {

@@ -108,6 +108,8 @@ Deno.serve(async (req) => {
   // encontrar este mensaje puntual cuando llega el evento de "entregado"
   // o "leído" y así poder mostrar el check correspondiente.
   let wamid: string | null = null;
+  // Mismo concepto que wamid, pero para SMS por RingCentral.
+  let rcMessageId: string | null = null;
 
   // Solo hace falta buscar el ID externo (PSID/IGSID) cuando el canal es
   // Messenger o Instagram — WhatsApp y SMS ya resuelven todo por teléfono.
@@ -135,9 +137,11 @@ Deno.serve(async (req) => {
         const mimeType = fileRes.headers.get("content-type") ?? "application/octet-stream";
         const filename = attachmentName || "adjunto";
 
-        await sendSms(phone, text ?? "", { bytes, filename, mimeType });
+        const result = await sendSms(phone, text ?? "", { bytes, filename, mimeType });
+        rcMessageId = result.id;
       } else {
-        await sendSms(phone, text);
+        const result = await sendSms(phone, text);
+        rcMessageId = result.id;
       }
     } else if (channel === "whatsapp") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
@@ -266,7 +270,8 @@ Deno.serve(async (req) => {
         attachment_name: attachmentName || null,
         attachment_kind: attachmentKind || null,
         wamid,
-        delivery_status: channel === "whatsapp" ? "sent" : null,
+        rc_message_id: rcMessageId,
+        delivery_status: channel === "whatsapp" || channel === "sms" ? "sent" : null,
       })
       .select("id")
       .single();

@@ -255,9 +255,26 @@ Deno.serve(async (req) => {
   // nuevo) -- ahora cierra de una cualquier conversacion existente que
   // reciba uno de estos avisos automaticos, y la desasigna (para que no
   // quede pegada a un operador ni cuente para nadie).
+  //
+  // Guardamos quién la tenía asignada justo antes de desasignarla, en
+  // preferred_operator_id — si el cliente responde algo y el chat se
+  // reabre, el round robin le va a dar prioridad a esa misma persona
+  // (si sigue disponible) en vez de repartirlo a cualquiera del turno.
+  const { data: convBeforeClose } = await supabase
+    .from("conversations")
+    .select("assigned_operator_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+
   await supabase
     .from("conversations")
-    .update({ status: "cerrada", unread: false, assigned_operator_id: null, needs_assignment: false })
+    .update({
+      status: "cerrada",
+      unread: false,
+      assigned_operator_id: null,
+      needs_assignment: false,
+      preferred_operator_id: convBeforeClose?.assigned_operator_id ?? null,
+    })
     .eq("id", conversationId);
 
   // Registrar el mensaje que se mandó, para que quede visible en el hilo

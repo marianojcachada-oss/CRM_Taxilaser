@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, Pin, ArrowLeft, Info,
+  Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
@@ -134,7 +134,11 @@ export type Message = {
   senderOperatorId?: string
   time: string
   date?: string
-  status?: 'sending' | 'sent' | 'failed'
+  // 'delivered'/'read' solo aplican a WhatsApp (es lo único que manda esos
+  // eventos de status) — para los demás canales, un mensaje que no está
+  // "sending" ni "failed" se considera simplemente "sent" y no se puede
+  // saber más que eso.
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 }
 
 async function translateText(text: string, targetLang: 'es' | 'en'): Promise<string> {
@@ -298,6 +302,11 @@ export default function ConversationsView({
       attachment: m.attachment_url
         ? { url: m.attachment_url, name: m.attachment_name ?? 'archivo', kind: (m.attachment_kind ?? 'file') as AttachmentKind }
         : undefined,
+      // Un mensaje que ya está guardado en la base (no es el optimista que
+      // se agrega al mandar) nunca está "sending" ni "failed" — su estado
+      // real es el que haya quedado en delivery_status ("sent" por
+      // default para lo viejo que nunca tuvo este campo).
+      status: m.sender_type === 'operator' ? (m.delivery_status ?? 'sent') : undefined,
     }
   }
 
@@ -311,7 +320,7 @@ export default function ConversationsView({
 
     supabase
       .from('messages')
-      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel')
+      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status')
       .eq('conversation_id', selectedId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
@@ -333,6 +342,16 @@ export default function ConversationsView({
             if (prev.some((m) => m.id === payload.new.id)) return prev
             return [...prev, mapRow(payload.new)]
           })
+        },
+      )
+      .on(
+        // Sin esto, un cambio de "entregado" a "leído" (o el primer
+        // "entregado" en sí) nunca se veía reflejado en un chat que ya
+        // estaba abierto — solo aparecía al recargar la página.
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          setThread((prev) => prev.map((m) => (m.id === payload.new.id ? mapRow(payload.new) : m)))
         },
       )
       .subscribe()
@@ -1136,7 +1155,15 @@ export default function ConversationsView({
                       {m.status !== 'sending' && m.status !== 'failed' && (
                         <p className="flex items-center gap-1 font-mono text-[10px] opacity-60">
                           {m.time}
+                          {/* Un solo check: se mandó pero WhatsApp todavía no confirmó
+                              nada más (o es un canal que no manda estados, como SMS). */}
                           {m.status === 'sent' && <Check size={10} />}
+                          {/* Doble check gris: WhatsApp confirmó que llegó al teléfono
+                              del cliente, pero todavía no lo abrió. */}
+                          {m.status === 'delivered' && <CheckCheck size={10} />}
+                          {/* Doble check celeste: el cliente ya lo leyó — mismo color
+                              que usa WhatsApp para esto. */}
+                          {m.status === 'read' && <CheckCheck size={10} className="text-sky-400" />}
                         </p>
                       )}
                       {m.from === 'contact' && m.text && (

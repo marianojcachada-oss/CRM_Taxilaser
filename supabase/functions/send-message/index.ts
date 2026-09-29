@@ -89,6 +89,12 @@ Deno.serve(async (req) => {
 
   const phone = (conversation as any).contacts?.phone;
 
+  // Se guarda cuando el canal es WhatsApp — es el ID que Meta manda en la
+  // respuesta del envío, y es la clave que usa después meta-webhook para
+  // encontrar este mensaje puntual cuando llega el evento de "entregado"
+  // o "leído" y así poder mostrar el check correspondiente.
+  let wamid: string | null = null;
+
   // Solo hace falta buscar el ID externo (PSID/IGSID) cuando el canal es
   // Messenger o Instagram — WhatsApp y SMS ya resuelven todo por teléfono.
   let recipientExternalId: string | null = null;
@@ -176,6 +182,12 @@ Deno.serve(async (req) => {
         // es el error más probable si el envío falla acá.
         throw new Error(`Meta (WhatsApp) rechazó el envío: ${JSON.stringify(errData)}`);
       }
+
+      // Meta devuelve el wamid del mensaje recién mandado acá — es la
+      // clave que después usa meta-webhook para encontrar esta fila
+      // puntual cuando llegue el evento de "entregado" o "leído".
+      const resData = await res.json().catch(() => ({}));
+      wamid = resData?.messages?.[0]?.id ?? null;
     } else if (channel === "facebook" || channel === "instagram") {
       // Messenger e Instagram comparten el mismo "Send API" de Meta — el
       // token del System User (META_ACCESS_TOKEN) alcanza para los dos
@@ -239,6 +251,8 @@ Deno.serve(async (req) => {
         attachment_url: attachmentUrl || null,
         attachment_name: attachmentName || null,
         attachment_kind: attachmentKind || null,
+        wamid,
+        delivery_status: channel === "whatsapp" ? "sent" : null,
       })
       .select("id")
       .single();

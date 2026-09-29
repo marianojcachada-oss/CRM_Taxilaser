@@ -227,6 +227,13 @@ Deno.serve(async (req) => {
             await handleMissedCall(call.from);
           }
         }
+
+        // Estados de entrega de WhatsApp ("enviado" / "entregado" /
+        // "leído" / "falló") — esto es lo que permite mostrar los
+        // check(s) de WhatsApp en los mensajes que mandamos nosotros.
+        for (const status of value?.statuses ?? []) {
+          await handleStatusUpdate(status);
+        }
       }
     }
 
@@ -403,6 +410,42 @@ async function handleIncomingMessage(opts: {
     .from("conversations")
     .update({ last_message_at: new Date().toISOString() })
     .eq("id", conversationId);
+}
+
+// Orden de "avance" de un estado de WhatsApp — sirve para no pisar un
+// estado más avanzado con uno viejo si los eventos llegan fuera de orden
+// (Meta no garantiza el orden de entrega de los webhooks).
+const STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+
+async function handleStatusUpdate(status: { id?: string; status?: string; timestamp?: string }) {
+  const wamid = status.id;
+  const newStatus = status.status; // 'sent' | 'delivered' | 'read' | 'failed'
+  if (!wamid || !newStatus) return;
+
+  const { data: existing } = await supabase
+    .from("messages")
+    .select("id, delivery_status")
+    .eq("wamid", wamid)
+    .maybeSingle();
+
+  if (!existing) return; // puede llegar el status antes de que terminemos de guardar el insert, no pasa nada
+
+  const currentRank = STATUS_RANK[existing.delivery_status ?? ""] ?? 0;
+  const newRank = STATUS_RANK[newStatus] ?? 0;
+
+  // 'failed' se guarda siempre (hay que poder verlo aunque ya figurara
+  // como 'sent'), el resto solo avanza, nunca retrocede.
+  if (newStatus !== "failed" && newRank <= currentRank) return;
+
+  const patch: Record<string, unknown> = { delivery_status: newStatus };
+  const eventTime = status.timestamp
+    ? new Date(Number(status.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+
+  if (newStatus === "delivered") patch.delivered_at = eventTime;
+  if (newStatus === "read") patch.read_at = eventTime;
+
+  await supabase.from("messages").update(patch).eq("id", existing.id);
 }
 
 async function handleMissedCall(phone: string | undefined) {

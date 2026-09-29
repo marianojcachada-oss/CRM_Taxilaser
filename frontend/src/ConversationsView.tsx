@@ -295,7 +295,19 @@ export default function ConversationsView({
 
   useEffect(() => {
     if (!conversations.some((c) => c.id === selectedId)) {
-      setSelectedId(conversations[0]?.id ?? null)
+      // Si el operador está en medio de escribir algo (o tiene un adjunto
+      // cargado), NO lo sacamos de la conversación así nomás — esto era lo
+      // que pasaba en Round Robin: llegaba un mensaje nuevo, la lista se
+      // recalculaba, la conversación abierta quedaba momentáneamente
+      // afuera de esa lista (por el reordenamiento, una reasignación,
+      // etc.) y saltaba solo a otra — pero lo que estabas escribiendo
+      // seguía cargado en el campo, así que terminaba mandándose en el
+      // chat equivocado sin que se note. Si no hay nada escrito, no pasa
+      // nada por seguir el comportamiento de siempre.
+      const isComposing = draft.trim().length > 0 || pendingAttachment != null
+      if (!selectedId || !isComposing) {
+        setSelectedId(conversations[0]?.id ?? null)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations])

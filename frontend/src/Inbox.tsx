@@ -344,10 +344,29 @@ export default function Inbox({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && searchQuery) {
+                  e.preventDefault()
+                  setSearchQuery('')
+                }
+              }}
               placeholder="Buscar por nombre, teléfono, unidad o mensaje..."
               className="w-80 bg-transparent text-sm text-cream placeholder-muted outline-none"
             />
-            <span className="rounded-sm border border-panel-light px-1 font-mono text-[10px] text-muted">⌘K</span>
+            {searchQuery ? (
+              <button
+                onClick={() => {
+                  setSearchQuery('')
+                  searchInputRef.current?.focus()
+                }}
+                className="text-muted transition-colors hover:text-cream"
+                title="Limpiar búsqueda (Esc)"
+              >
+                <X size={13} />
+              </button>
+            ) : (
+              <span className="rounded-sm border border-panel-light px-1 font-mono text-[10px] text-muted">⌘K</span>
+            )}
           </div>
         </div>
 
@@ -421,6 +440,13 @@ export default function Inbox({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setSearchQuery('')
+                setShowMobileSearch(false)
+              }
+            }}
             placeholder="Buscar..."
             className="flex-1 bg-transparent text-sm text-cream placeholder-muted outline-none"
           />

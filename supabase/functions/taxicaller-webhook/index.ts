@@ -73,6 +73,30 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "Body no es JSON válido" }), { status: 400 });
   }
 
+  // Freno de seguridad: esta función solo debería recibir el evento de
+  // "esperando al pasajero" (el chofer llegó) — pero como TaxiCaller
+  // manda el "event" como un tag más dentro del mismo body, si en el
+  // panel de TaxiCaller la notificación de OTRO evento (cancelación,
+  // servicio finalizado, etc.) queda apuntando por error a esta misma
+  // URL, antes esto igual mandaba el aviso de "ha llegado" sin
+  // preguntar nada. Ahora, si viene un "event" y no es el que
+  // corresponde acá, se corta y se deja registrado en vez de mandar un
+  // mensaje falso al cliente.
+  if (body.event && body.event !== "waiting_for_passenger") {
+    console.error(
+      `taxicaller-webhook (wait) recibió un evento que no le corresponde: "${body.event}" — revisar en el panel de TaxiCaller si esa notificación quedó apuntando a esta URL por error. Body completo:`,
+      JSON.stringify(body),
+    );
+    await supabase.from("app_errors").insert({
+      context: "taxicaller-webhook (wait)",
+      message: `Evento "${body.event}" recibido en la URL de "esperando al pasajero" — revisar la configuración de notificaciones en TaxiCaller.`,
+      stack: JSON.stringify(body, null, 2),
+    });
+    return new Response(JSON.stringify({ warning: `Evento "${body.event}" no corresponde a este webhook` }), {
+      status: 200,
+    });
+  }
+
   const rawPhone = body.passenger_phone;
   if (!rawPhone) {
     // No hay teléfono del pasajero en este evento — no hay a quién avisar

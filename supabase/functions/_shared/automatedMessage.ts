@@ -119,8 +119,19 @@ export async function sendAutomatedMessage(opts: {
         }
         sentVia.push(channel);
       } catch (err) {
-        errors.push({ channel, error: err instanceof Error ? err.message : String(err) });
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        errors.push({ channel, error: errorMessage });
         console.error(`No se pudo mandar el mensaje automático por ${channel}:`, err);
+
+        // Antes esto solo quedaba en los logs de la Edge Function (nadie
+        // los mira en el momento) — se deja también en app_errors para
+        // que aparezca en el panel de administración, que es donde se
+        // puede notar de verdad que un aviso automático no llegó.
+        await supabase.from("app_errors").insert({
+          context: "sendAutomatedMessage",
+          message: `No se pudo mandar el mensaje automático por ${channel} a ${phone}: ${errorMessage}`,
+          stack: JSON.stringify({ contactId, phone, channel, text }, null, 2),
+        });
       }
     }),
   );

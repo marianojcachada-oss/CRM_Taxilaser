@@ -43,11 +43,12 @@ export default function ErrorLogsSection() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-cream">Errores del navegador</h2>
+          <h2 className="text-lg font-semibold text-cream">Errores</h2>
           <p className="text-xs text-muted">
-            Excepciones que le pasaron a algún operador en pantalla. Para errores del servidor
-            (Edge Functions: envío de mensajes, webhooks, etc.) mirá los Logs en el dashboard de
-            Supabase — esto solo cubre el lado del navegador.
+            Excepciones que le pasaron a algún operador en pantalla, más los mensajes (manuales o
+            automáticos de cancelación/llegada/finalizado) que se intentaron mandar por SMS,
+            WhatsApp, Facebook o Instagram y no salieron. Para el resto de lo que pasa del lado del
+            servidor (webhooks, etc.) mirá los Logs en el dashboard de Supabase.
           </p>
         </div>
         <div className="flex gap-2">

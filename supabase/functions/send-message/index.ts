@@ -277,7 +277,19 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }), {
+    const errorMessage = String(err instanceof Error ? err.message : err);
+
+    // Se ve al toque en pantalla como cartel de error, pero si el
+    // operador no lo llega a ver (se distrajo, cambió de conversación),
+    // queda igual el rastro acá para poder revisar después qué mensajes
+    // no salieron.
+    await serviceClient.from("app_errors").insert({
+      context: "send-message",
+      message: `No se pudo mandar el mensaje manual por ${channel} (conversación ${conversationId}): ${errorMessage}`,
+      operator_id: operator.id,
+    });
+
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

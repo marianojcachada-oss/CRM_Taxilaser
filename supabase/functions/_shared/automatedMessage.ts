@@ -1,15 +1,23 @@
 // supabase/functions/_shared/automatedMessage.ts
 //
-// Los mensajes automáticos (cancelación, servicio finalizado) hasta
-// ahora siempre salían por SMS. Esto los manda por cada canal que el
-// operador haya marcado como preferido para ese cliente en concreto
-// (contacts.preferred_channels, multicheck) — y si no marcó ninguno,
-// mantiene el comportamiento de siempre: solo SMS.
+// Los mensajes automáticos (cancelación, servicio finalizado, etc.) se
+// mandan por el canal REAL que el cliente usó la última vez que
+// escribió, para SMS y WhatsApp — no por un checkbox manual
+// (contacts.preferred_channels) que se puede desincronizar (por
+// ejemplo, un contacto que quedó con los dos tildados tras fusionar
+// duplicados, o con el que no corresponde). Como SMS y WhatsApp
+// comparten una misma conversación para un mismo cliente, esto
+// garantiza que nunca le llegue duplicado por los dos canales ni por
+// el que no usa.
 //
-// Manda por todos los canales elegidos en paralelo, y no corta si uno
-// falla — si el cliente eligió whatsapp + sms y whatsapp falla (por
-// ejemplo por estar fuera de la ventana de 24hs sin template), el SMS
-// tiene que salir igual.
+// Facebook/Instagram no comparten conversación con nada, así que ahí
+// sí se sigue respetando el check manual de "canal preferido" tal
+// como lo dejó el operador en la ficha del contacto.
+//
+// Manda por todos los canales que correspondan en paralelo, y no
+// corta si uno falla — si whatsapp falla (por ejemplo por estar fuera
+// de la ventana de 24hs sin template), el intento por el otro canal
+// tiene que seguir igual.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendSms } from "./ringcentral.ts";
@@ -22,9 +30,10 @@ const supabase = createClient(
 
 
 /**
- * Manda `text` a un cliente por cada canal que haya elegido para
- * mensajes automáticos. `phone` se usa para SMS y WhatsApp; `contactId`
- * para buscar el ID de Messenger/Instagram si hace falta.
+ * Manda `text` a un cliente: por SMS o WhatsApp (el que haya usado la
+ * última vez), más Facebook/Instagram si los tiene tildados a mano.
+ * `phone` se usa para SMS y WhatsApp; `contactId` para buscar el
+ * historial y el ID de Messenger/Instagram si hace falta.
  */
 export async function sendAutomatedMessage(opts: {
   contactId: string;
@@ -35,7 +44,7 @@ export async function sendAutomatedMessage(opts: {
 
   const { data: contact } = await supabase
     .from("contacts")
-    .select("preferred_channels, do_not_contact")
+    .select("preferred_channels, do_not_contact, blocked")
     .eq("id", contactId)
     .maybeSingle();
 
@@ -45,10 +54,53 @@ export async function sendAutomatedMessage(opts: {
     return { sentVia: [], errors: [{ channel: "*", error: "Contacto dado de baja (STOP) — no se manda nada" }] };
   }
 
-  const channels: string[] =
-    contact?.preferred_channels && contact.preferred_channels.length > 0
-      ? contact.preferred_channels
-      : ["sms"]; // sin preferencia cargada -> comportamiento de siempre
+  // Bloqueado a mano por un operador desde la ficha del contacto — no se
+  // le manda absolutamente nada, ni automático ni (aparte, en
+  // send-message) manual.
+  if (contact?.blocked) {
+    return { sentVia: [], errors: [{ channel: "*", error: "Contacto bloqueado — no se manda nada" }] };
+  }
+
+  // SMS y WhatsApp comparten una misma conversación por cliente (ver
+  // find_or_create_sms_whatsapp_conversation), así que el canal se
+  // decide mirando por cuál escribió la ÚLTIMA vez — no un checkbox
+  // guardado aparte que puede quedar desactualizado.
+  let smsWhatsappChannel: "sms" | "whatsapp" | null = null;
+
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("contact_id", contactId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (conv?.id) {
+    const { data: lastMsg } = await supabase
+      .from("messages")
+      .select("sent_via_channel")
+      .eq("conversation_id", conv.id)
+      .eq("sender_type", "contact")
+      .in("sent_via_channel", ["sms", "whatsapp"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastMsg?.sent_via_channel === "sms" || lastMsg?.sent_via_channel === "whatsapp") {
+      smsWhatsappChannel = lastMsg.sent_via_channel;
+    }
+  }
+
+  // Facebook/Instagram no comparten conversación con nada, ahí sigue
+  // valiendo el checkbox manual tal como estaba.
+  const metaChannels = (contact?.preferred_channels ?? []).filter(
+    (c: string) => c === "facebook" || c === "instagram",
+  );
+
+  const channels: string[] = [
+    smsWhatsappChannel ?? "sms", // sin historial todavía -> comportamiento de siempre
+    ...metaChannels,
+  ];
 
   const sentVia: string[] = [];
   const errors: { channel: string; error: string }[] = [];

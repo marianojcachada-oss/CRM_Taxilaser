@@ -55,7 +55,11 @@ Deno.serve(async (req) => {
   // son dos consultas que no dependen una de la otra.
   const [userResult, conversationResult] = await Promise.all([
     callerClient.auth.getUser(),
-    serviceClient.from("conversations").select("id, contact_id, contacts(phone)").eq("id", conversationId).single(),
+    serviceClient
+      .from("conversations")
+      .select("id, contact_id, contacts(phone, blocked)")
+      .eq("id", conversationId)
+      .single(),
   ]);
 
   if (userResult.error || !userResult.data.user) {
@@ -88,6 +92,16 @@ Deno.serve(async (req) => {
   }
 
   const phone = (conversation as any).contacts?.phone;
+
+  // Bloqueo real: hasta ahora "Bloquear" en la ficha del contacto solo
+  // pintaba un cartel — no impedía nada. Esto corta acá el envío manual
+  // (el automático se corta aparte, en sendAutomatedMessage).
+  if ((conversation as any).contacts?.blocked) {
+    return new Response(
+      JSON.stringify({ error: "Este contacto está bloqueado — no se le pueden mandar mensajes." }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   // Se guarda cuando el canal es WhatsApp — es el ID que Meta manda en la
   // respuesta del envío, y es la clave que usa después meta-webhook para

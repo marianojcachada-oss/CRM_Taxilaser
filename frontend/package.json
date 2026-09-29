@@ -1,5 +1,5 @@
 {
-  "name": "que-tal",
+  "name": "que-onda",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -15,6 +15,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "emoji-picker-react": "^4.19.4",
     "lucide-react": "^1.39.0",
+    "twemoji": "^14.0.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"
@@ -24,6 +25,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/twemoji": "^13.0.0",
     "@vitejs/plugin-react": "^6.1.0",
     "eslint": "^10.9.0",
     "eslint-plugin-react-hooks": "^7.1.1",

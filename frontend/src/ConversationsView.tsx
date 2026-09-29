@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
-  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock,
+  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
+import twemoji from 'twemoji'
 import { SiWhatsapp, SiFacebook, SiInstagram } from '@icons-pack/react-simple-icons'
 import ContactPanel from './ContactPanel'
 import { supabase } from './supabaseClient'
@@ -67,6 +68,28 @@ export type Operator = {
 
 const urlPattern = /(https?:\/\/[^\s]+)/g
 
+// Los emojis se dibujan con imágenes propias (Twemoji) en vez de
+// depender de la fuente instalada en la compu de cada operador — si al
+// sistema operativo le falta la fuente de emojis (pasa bastante en
+// Windows/Linux desactualizados), el emoji se ve como un cuadradito
+// aunque el dato haya llegado perfecto. Así se ve siempre igual para
+// todos, sea cual sea la máquina.
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function EmojiText({ text }: { text: string }) {
+  const html = twemoji.parse(escapeHtml(text), {
+    className: 'inline-block h-[1.2em] w-[1.2em] align-text-bottom mx-0.5',
+  })
+  return <span dangerouslySetInnerHTML={{ __html: html }} />
+}
+
 function Linkify({ text }: { text: string }) {
   const parts = text.split(urlPattern)
   return (
@@ -84,7 +107,7 @@ function Linkify({ text }: { text: string }) {
             {part}
           </a>
         ) : (
-          <span key={i}>{part}</span>
+          <EmojiText key={i} text={part} />
         ),
       )}
     </>
@@ -702,6 +725,10 @@ export default function ConversationsView({
     e.preventDefault()
     if (!selectedId || !operatorId || !sendChannel) return
     if (!draft.trim() && !pendingAttachment) return
+    if (selected?.blocked) {
+      setSendError('Este contacto está bloqueado — no se le pueden mandar mensajes.')
+      return
+    }
 
     const textToSend = draft.trim()
     const attachmentToSend = pendingAttachment
@@ -909,7 +936,7 @@ export default function ConversationsView({
                 </div>
                 <div className="mt-0.5 flex items-center gap-2">
                   <span className={`truncate text-sm ${c.unread ? 'text-cream' : 'text-muted'}`}>
-                    {c.lastMessage}
+                    <EmojiText text={c.lastMessage} />
                   </span>
                   {c.unread && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-mustard" />}
                 </div>
@@ -1249,6 +1276,12 @@ export default function ConversationsView({
               </p>
             )}
 
+            {selected.blocked ? (
+              <div className="flex items-center gap-2 border-t border-panel-light bg-panel px-4 py-3 text-sm text-alert">
+                <Ban size={16} /> Contacto bloqueado — no se le pueden mandar mensajes. Desbloqueá desde el panel de
+                contacto para volver a escribirle.
+              </div>
+            ) : (
             <form
               onSubmit={handleSend}
               className="relative flex items-center gap-1.5 border-t border-panel-light bg-panel px-4 py-3"
@@ -1383,6 +1416,7 @@ export default function ConversationsView({
                 <Send size={16} />
               </button>
             </form>
+            )}
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted">

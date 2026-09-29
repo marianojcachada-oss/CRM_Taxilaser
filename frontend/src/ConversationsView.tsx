@@ -270,12 +270,13 @@ export default function ConversationsView({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  // Evita volver a llamar track() en cada pausa al tipear si ya estaba
-  // marcado como "escribiendo" — cada track()/untrack() cuenta contra
-  // la cuota de Presence de Realtime, y sin este chequeo se repetía
-  // sin necesidad (mismo nombre, mismo estado) hasta pisar el límite
-  // ("ClientPresenceRateLimitReached") con varios operadores activos.
+  // Evita volver a mandar el mismo aviso en cada pausa al tipear si ya
+  // estaba marcado como "escribiendo".
   const isTypingRef = useRef(false)
+  // Quién más está escribiendo ahora mismo en esta conversación, y el
+  // timer que lo saca solo si nunca llega el aviso de "dejó de escribir"
+  // (por ejemplo, cerró la pestaña con texto cargado en el campo).
+  const typingTimersRef = useRef<Map<string, { name: string; timer: ReturnType<typeof setTimeout> }>>(new Map())
 
   useEffect(() => {
     supabase
@@ -454,23 +455,44 @@ export default function ConversationsView({
       supabase.removeChannel(presenceChannelRef.current)
       presenceChannelRef.current = null
     }
+    typingTimersRef.current.forEach((t) => clearTimeout(t.timer))
+    typingTimersRef.current.clear()
     setTypingOperators([])
-    isTypingRef.current = false // canal nuevo -> todavía no se mandó ningún track() en él
+    isTypingRef.current = false // canal nuevo -> todavía no se mandó ningún aviso en él
 
     if (!selectedId || !operatorId) return
 
+    // Se usa Broadcast en vez de Presence para el indicador de "está
+    // escribiendo...": Presence (track()/untrack()) cuenta contra una
+    // cuota chica de Realtime por proyecto, y con un par de operadores
+    // tipeando ya se agotaba (ClientPresenceRateLimitReached en los
+    // logs). Broadcast es otro canal de Realtime, sin esa cuota.
     const channel = supabase.channel(`typing_${selectedId}`, {
-      config: { presence: { key: operatorId } },
+      config: { broadcast: { self: false } },
     })
 
     channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState<{ name: string }>()
-        const names = Object.entries(state)
-          .filter(([key]) => key !== operatorId)
-          .map(([, entries]) => entries[0]?.name)
-          .filter(Boolean) as string[]
-        setTypingOperators(names)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        const from = payload as { operatorId?: string; name?: string; typing?: boolean }
+        if (!from.operatorId || from.operatorId === operatorId) return
+
+        const existing = typingTimersRef.current.get(from.operatorId)
+        if (existing) clearTimeout(existing.timer)
+
+        if (!from.typing) {
+          typingTimersRef.current.delete(from.operatorId)
+        } else if (from.name) {
+          // Si nunca llega el aviso de "dejó de escribir" (cerró la
+          // pestaña, se cayó la conexión), se lo saca solo a los pocos
+          // segundos en vez de quedar pegado como "escribiendo...".
+          const timer = setTimeout(() => {
+            typingTimersRef.current.delete(from.operatorId!)
+            setTypingOperators(Array.from(typingTimersRef.current.values()).map((v) => v.name))
+          }, 6000)
+          typingTimersRef.current.set(from.operatorId, { name: from.name, timer })
+        }
+
+        setTypingOperators(Array.from(typingTimersRef.current.values()).map((v) => v.name))
       })
       .subscribe()
 
@@ -488,20 +510,20 @@ export default function ConversationsView({
 
     const timeout = setTimeout(() => {
       const hasText = draft.trim().length > 0
-      // Solo se llama track()/untrack() en el cambio real de estado
-      // (empezó a escribir / borró todo) — no en cada pausa mientras
-      // sigue con texto en el campo, que es lo que agotaba la cuota.
+      // Solo se manda un aviso en el cambio real de estado (empezó a
+      // escribir / borró todo) — no en cada pausa mientras sigue con
+      // texto en el campo.
       if (hasText && !isTypingRef.current) {
-        channel.track({ name: operatorName })
+        channel.send({ type: 'broadcast', event: 'typing', payload: { operatorId, name: operatorName, typing: true } })
         isTypingRef.current = true
       } else if (!hasText && isTypingRef.current) {
-        channel.untrack()
+        channel.send({ type: 'broadcast', event: 'typing', payload: { operatorId, name: operatorName, typing: false } })
         isTypingRef.current = false
       }
     }, 250)
 
     return () => clearTimeout(timeout)
-  }, [draft, operatorName])
+  }, [draft, operatorName, operatorId])
 
   async function markAsRead() {
     if (!selectedId) return
@@ -775,7 +797,11 @@ export default function ConversationsView({
     setShowEmoji(false)
     setSendError(null)
     if (isTypingRef.current) {
-      presenceChannelRef.current?.untrack()
+      presenceChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { operatorId, name: operatorName, typing: false },
+      })
       isTypingRef.current = false
     }
 

@@ -36,8 +36,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
-import { sendSms } from "../_shared/ringcentral.ts";
 import { normalizePhone } from "../_shared/phone.ts";
+import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -202,18 +202,17 @@ Deno.serve(async (req) => {
     `Su Taxi ${vehicleLine}${plate ? ` con placa ${plate}` : ""} ha llegado` +
     (dispatchNumber ? ` / ${dispatchNumber}` : "");
 
-  try {
-    await sendSms(phone, text);
-  } catch (err) {
-    // Si falla el envío, igual queremos que quede registrado en la base
-    // para poder revisarlo — no cortamos acá.
-    console.error("No se pudo enviar el SMS de Wait:", err);
-  }
-
   // El contacto ya se buscó más arriba (para el chequeo de seguridad) —
   // llegado a este punto, sabemos que existe y tiene un servicio activo,
   // así que solo falta completar el nombre si todavía no lo tenía.
   const contactId = existingContact!.id;
+
+  // Igual que cancelación y servicio finalizado: se manda por cada canal
+  // que el operador haya marcado como preferido para este contacto (o
+  // SMS si no marcó ninguno). Antes esto llamaba a sendSms() derecho,
+  // ignorando la preferencia — por eso este aviso puntual ("ha llegado")
+  // seguía saliendo por SMS aunque el contacto tuviera tildado WhatsApp.
+  const { sentVia } = await sendAutomatedMessage({ contactId, phone, text });
 
   if (!existingContact!.full_name && passengerName) {
     await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
@@ -242,7 +241,7 @@ Deno.serve(async (req) => {
     conversation_id: conversationId,
     sender_type: "operator",
     content: text,
-    sent_via_channel: "sms",
+    sent_via_channel: sentVia.join(",") || "sms",
     automation_type: "wait",
   });
 

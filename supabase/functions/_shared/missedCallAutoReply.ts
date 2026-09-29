@@ -128,11 +128,16 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
     .update({ current_load: (operator.current_load ?? 0) + 1 })
     .eq("id", operator.id);
 
+  let wamid: string | null = null;
+  let rcMessageId: string | null = null;
+
   try {
     if (conversationChannel === "whatsapp") {
-      await sendWhatsappText(phone, text);
+      const result = await sendWhatsappText(phone, text);
+      wamid = result.wamid;
     } else {
-      await sendSms(phone, text);
+      const result = await sendSms(phone, text);
+      rcMessageId = result.id;
     }
   } catch (err) {
     console.error(`No se pudo mandar el auto-reply de llamada perdida (${source}):`, err);
@@ -145,6 +150,9 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
     content: text,
     sent_via_channel: conversationChannel,
     automation_type: "missed_call_auto_reply",
+    wamid,
+    rc_message_id: rcMessageId,
+    delivery_status: "sent",
   });
 
   await supabase.from("contact_timeline").insert({

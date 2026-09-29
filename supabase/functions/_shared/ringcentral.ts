@@ -153,9 +153,11 @@ export async function sendSms(
     throw new Error(`RingCentral rechazó el envío: ${JSON.stringify(errData)}`);
   }
 
-  // El ID que devuelve acá es la clave que después usa ringcentral-webhook
-  // para encontrar este mensaje puntual cuando llegue el evento de estado
-  // (entregado / falló la entrega) — mismo patrón que el wamid de WhatsApp.
+  // El ID que devuelve RingCentral acá es el que después usa
+  // ringcentral-status-webhook para encontrar este mensaje y
+  // actualizarle el estado de entrega — sin guardarlo, este mensaje
+  // se queda para siempre en "enviado" (un solo check) aunque
+  // RingCentral confirme la entrega.
   const data = await res.json().catch(() => ({}));
   return { id: data?.id ? String(data.id) : null };
 }

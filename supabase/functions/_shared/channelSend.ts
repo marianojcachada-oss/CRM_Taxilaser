@@ -15,7 +15,7 @@ const supabase = createClient(
 
 const GRAPH_VERSION = "v26.0";
 
-export async function sendWhatsappText(phone: string, text: string) {
+export async function sendWhatsappText(phone: string, text: string): Promise<{ wamid: string | null }> {
   const settings = await getSettings(["META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID"]);
   if (!settings.META_ACCESS_TOKEN || !settings.META_PHONE_NUMBER_ID) {
     throw new Error("Falta META_ACCESS_TOKEN o META_PHONE_NUMBER_ID en Integrations");
@@ -35,10 +35,14 @@ export async function sendWhatsappText(phone: string, text: string) {
       text: { body: text },
     }),
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(`Meta (WhatsApp) rechazó el envío: ${JSON.stringify(errData)}`);
+    throw new Error(`Meta (WhatsApp) rechazó el envío: ${JSON.stringify(data)}`);
   }
+  // Igual que con RingCentral: sin este ID (wamid), el webhook de estado
+  // de Meta no tiene forma de encontrar este mensaje para actualizarle
+  // "entregado" / "leído" más adelante.
+  return { wamid: data?.messages?.[0]?.id ?? null };
 }
 
 export async function sendMetaChannelText(channel: "facebook" | "instagram", contactId: string, text: string) {

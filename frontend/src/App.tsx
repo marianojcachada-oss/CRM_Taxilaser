@@ -129,10 +129,17 @@ function AppContent() {
     if (!session) return
     loadConversations()
 
+    // OJO: antes había también una suscripción aparte a "cada mensaje
+    // nuevo de cualquier conversación" (sin filtrar, a TODOS los
+    // operadores conectados) — pero cada mensaje que entra ya toca la
+    // fila de "conversations" (last_message_at, vista/no vista,
+    // clasificación), así que esa segunda suscripción era redundante:
+    // duplicaba el aviso y multiplicaba la cantidad de mensajes de
+    // Realtime que consume el proyecto, sin agregar nada que esta de
+    // acá abajo no cubra ya.
     const channel = supabase
       .channel('conversations-list')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, loadConversations)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, loadConversations)
       .subscribe()
 
     return () => {

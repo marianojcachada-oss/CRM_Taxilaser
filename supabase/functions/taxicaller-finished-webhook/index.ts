@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
       .eq("id", contactId);
   }
 
-  const { sentVia } = await sendAutomatedMessage({ contactId, phone, text });
+  const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
 
   // Historial real, de acá en adelante — una fila por viaje
   await supabase.from("ride_history").insert({
@@ -143,6 +143,9 @@ Deno.serve(async (req) => {
     content: text,
     sent_via_channel: sentVia.join(",") || "sms",
     automation_type: "finished",
+    wamid,
+    rc_message_id: rcMessageId,
+    delivery_status: "sent",
   });
 
   await supabase.from("contact_timeline").insert({

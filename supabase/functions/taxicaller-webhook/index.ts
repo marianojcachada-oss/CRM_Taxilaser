@@ -236,7 +236,7 @@ Deno.serve(async (req) => {
   // SMS si no marcó ninguno). Antes esto llamaba a sendSms() derecho,
   // ignorando la preferencia — por eso este aviso puntual ("ha llegado")
   // seguía saliendo por SMS aunque el contacto tuviera tildado WhatsApp.
-  const { sentVia } = await sendAutomatedMessage({ contactId, phone, text });
+  const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
 
   if (!existingContact!.full_name && passengerName) {
     await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
@@ -267,6 +267,9 @@ Deno.serve(async (req) => {
     content: text,
     sent_via_channel: sentVia.join(",") || "sms",
     automation_type: "wait",
+    wamid,
+    rc_message_id: rcMessageId,
+    delivery_status: "sent",
   });
 
   // Timeline del contacto

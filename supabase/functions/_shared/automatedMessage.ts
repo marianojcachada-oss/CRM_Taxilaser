@@ -39,7 +39,15 @@ export async function sendAutomatedMessage(opts: {
   contactId: string;
   phone: string;
   text: string;
-}): Promise<{ sentVia: string[]; errors: { channel: string; error: string }[] }> {
+}): Promise<{
+  sentVia: string[];
+  errors: { channel: string; error: string }[];
+  // IDs que devuelven RingCentral/Meta al mandar — sin guardar esto en
+  // el mensaje, los webhooks de estado de entrega no tienen forma de
+  // encontrarlo después para marcarlo como "entregado".
+  wamid: string | null;
+  rcMessageId: string | null;
+}> {
   const { contactId, phone, text } = opts;
 
   const { data: contact } = await supabase
@@ -104,14 +112,18 @@ export async function sendAutomatedMessage(opts: {
 
   const sentVia: string[] = [];
   const errors: { channel: string; error: string }[] = [];
+  let wamid: string | null = null;
+  let rcMessageId: string | null = null;
 
   await Promise.all(
     channels.map(async (channel) => {
       try {
         if (channel === "sms") {
-          await sendSms(phone, text);
+          const result = await sendSms(phone, text);
+          rcMessageId = result.id;
         } else if (channel === "whatsapp") {
-          await sendWhatsappText(phone, text);
+          const result = await sendWhatsappText(phone, text);
+          wamid = result.wamid;
         } else if (channel === "facebook" || channel === "instagram") {
           await sendMetaChannelText(channel, contactId, text);
         } else {
@@ -136,5 +148,5 @@ export async function sendAutomatedMessage(opts: {
     }),
   );
 
-  return { sentVia, errors };
+  return { sentVia, errors, wamid, rcMessageId };
 }

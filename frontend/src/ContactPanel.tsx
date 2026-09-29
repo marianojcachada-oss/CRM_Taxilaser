@@ -590,11 +590,12 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         <div className="mb-3">
           <p className="mb-1 text-xs text-muted">Mensajes automáticos — canal preferido</p>
           <p className="mb-1.5 text-[10px] text-muted">
-            Por dónde recibir avisos de cancelación/finalización. Sin ninguno tildado, se manda por SMS
-            como siempre.
+            SMS y WhatsApp ya no se eligen acá: los avisos de cancelación/llegada/finalización se mandan
+            solos por el canal que el cliente usó la última vez. Facebook e Instagram sí siguen siendo
+            manuales — tildalos acá si corresponde (y el cliente ya te escribió por ese canal alguna vez).
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {(['whatsapp', 'sms', 'facebook', 'instagram'] as const).map((channel) => {
+            {(['facebook', 'instagram'] as const).map((channel) => {
               const checked = preferredChannels.includes(channel)
               return (
                 <button

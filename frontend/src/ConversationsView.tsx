@@ -402,6 +402,26 @@ export default function ConversationsView({
     threadEndRef.current?.scrollIntoView({ block: 'end' })
   }, [selectedId, thread.length])
 
+  // El canal de envío arranca en selected.channel (fijo, el que tenía
+  // la conversación al crearse), pero como SMS y WhatsApp comparten una
+  // misma conversación, un cliente puede escribir por SMS y después
+  // pasarse a WhatsApp sin que ese campo se entere. Esto lo corrige: al
+  // cargar (o actualizarse) el hilo, sigue el canal del ÚLTIMO mensaje
+  // real del cliente — así la respuesta sale por donde el cliente
+  // efectivamente está mirando, en vez de por un canal viejo que ya no
+  // usa (la causa más probable de "en RingCentral figura enviado pero
+  // el cliente dice que no le llegó nada").
+  useEffect(() => {
+    if (!selected || (selected.channel !== 'sms' && selected.channel !== 'whatsapp')) return
+
+    const lastContactMsg = [...thread].reverse().find((m) => m.from === 'contact')
+    const lastChannel = lastContactMsg?.sentViaChannel
+    if ((lastChannel === 'sms' || lastChannel === 'whatsapp') && lastChannel !== sendChannel) {
+      setSendChannel(lastChannel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread, selected?.channel])
+
   useEffect(() => {
     if (!selected) {
       setAvailableChannels([])
@@ -961,14 +981,15 @@ export default function ConversationsView({
                 </button>
                 <span
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-                  style={{ backgroundColor: channelAvatarColor[selected.channel] }}
+                  style={{ backgroundColor: channelAvatarColor[sendChannel ?? selected.channel] }}
                 >
-                  <ChannelIcon channel={selected.channel} size={16} color="white" />
+                  <ChannelIcon channel={sendChannel ?? selected.channel} size={16} color="white" />
                 </span>
                 <div>
                   <p className="text-sm font-semibold text-cream">{selected.name}</p>
                   <p className="flex items-center gap-1 text-xs text-muted">
-                    <ChannelIcon channel={selected.channel} size={11} /> {channelLabel[selected.channel]} · {selected.phone}
+                    <ChannelIcon channel={sendChannel ?? selected.channel} size={11} />{' '}
+                    {channelLabel[sendChannel ?? selected.channel]} · {selected.phone}
                   </p>
                 </div>
               </div>
@@ -1229,10 +1250,17 @@ export default function ConversationsView({
                       )}
                     </div>
                   </div>
-                  {m.from !== 'contact' && m.sentViaChannel && (
+                  {/* Antes esto solo se mostraba en los mensajes del operador — pero
+                      como SMS y WhatsApp comparten una misma conversación, un cliente
+                      puede escribir por SMS un rato y después por WhatsApp sin que se
+                      note en pantalla. Mostrarlo también en los mensajes DEL CLIENTE es
+                      lo que permite notar el cambio y contestarle por el canal correcto
+                      (si no, la respuesta sale por un canal que el cliente ya no mira, y
+                      "no le llega" aunque en RingCentral figure como enviado). */}
+                  {m.sentViaChannel && (
                     <span
                       className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-panel-light bg-panel"
-                      title={`Enviado por ${channelLabel[m.sentViaChannel]}`}
+                      title={`${m.from === 'contact' ? 'Escrito por' : 'Enviado por'} ${channelLabel[m.sentViaChannel]}`}
                     >
                       <ChannelIcon channel={m.sentViaChannel} size={11} />
                     </span>

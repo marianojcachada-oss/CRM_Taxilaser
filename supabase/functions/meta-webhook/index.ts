@@ -198,6 +198,25 @@ Deno.serve(async (req) => {
             } else {
               text = `[Mensaje de tipo "${msg.type}" — falta META_ACCESS_TOKEN en Integrations para poder bajarlo]`;
             }
+          } else if (msg.type === "contacts") {
+            // El cliente comparte una tarjeta de contacto de WhatsApp (un
+            // nombre + uno o más teléfonos). Se arma un texto legible en
+            // vez del cartel genérico — no se descarga nada, es
+            // información que ya viene completa en el propio webhook.
+            const cards = msg.contacts ?? [];
+            if (cards.length > 0) {
+              const lines = cards.map((card: any) => {
+                const name = card?.name?.formatted_name || "Contacto sin nombre";
+                const phones = (card?.phones ?? [])
+                  .map((p: any) => p?.phone)
+                  .filter(Boolean)
+                  .join(", ");
+                return `👤 ${name}${phones ? ` — ${phones}` : ""}`;
+              });
+              text = `Contacto compartido:\n${lines.join("\n")}`;
+            } else {
+              text = "[Contacto de WhatsApp compartido — revisar en WhatsApp directamente]";
+            }
           } else if (msg.type === "system") {
             // No es un mensaje del cliente — es un aviso que manda la propia
             // API de WhatsApp (cambió de número, cambió el código de

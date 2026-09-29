@@ -15,6 +15,8 @@ export const themes = [
   { id: 'alto-contraste', label: 'Alto contraste', asphalt: '#000000', mustard: '#FFD400' },
   { id: 'oceano', label: 'Océano', asphalt: '#071B26', mustard: '#2DD4C8' },
   { id: 'esmeralda', label: 'Esmeralda', asphalt: '#0B1410', mustard: '#34E89E' },
+  { id: 'whatsapp', label: 'WhatsApp', asphalt: '#0B141A', mustard: '#00A884' },
+  { id: 'ringcentral', label: 'RingCentral', asphalt: '#F4F6F8', mustard: '#FF7A00' },
 ]
 
 type Props = {

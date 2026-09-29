@@ -194,6 +194,36 @@
   --color-muted: #86AC9B;
 }
 
+/* Inspirado en el look oscuro de WhatsApp Web: fondo casi negro con
+   verde-azulado como color de acento, en vez del mostaza. */
+[data-theme='whatsapp'] {
+  --color-asphalt: #0B141A;
+  --color-panel: #111B21;
+  --color-panel-light: #202C33;
+  --color-mustard: #00A884;
+  --color-alert: #F15C6D;
+  --color-available: #25D366;
+  --color-warning: #FFD279;
+  --color-info: #53BDEB;
+  --color-cream: #E9EDEF;
+  --color-muted: #8696A0;
+}
+
+/* Inspirado en el look claro de RingCentral: fondos blancos/grises y
+   naranja como color de acento. */
+[data-theme='ringcentral'] {
+  --color-asphalt: #F4F6F8;
+  --color-panel: #FFFFFF;
+  --color-panel-light: #EDEFF2;
+  --color-mustard: #FF7A00;
+  --color-alert: #D32F2F;
+  --color-available: #2E7D32;
+  --color-warning: #ED8936;
+  --color-info: #0066CC;
+  --color-cream: #1A1D1F;
+  --color-muted: #6B7280;
+}
+
 body {
   margin: 0;
   background-color: var(--color-asphalt);

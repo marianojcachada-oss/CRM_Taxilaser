@@ -5,6 +5,7 @@ import { supabase } from './supabaseClient'
 type OperatorRow = {
   id: string
   full_name: string
+  operator_code: string | null
   presence: string
   current_load: number
   max_capacity: number | null
@@ -12,6 +13,18 @@ type OperatorRow = {
 }
 
 type Queue = { id: string; name: string }
+
+// Ordena por el número del código (D5 antes que D12), no por texto — un
+// orden alfabético pondría "D12" antes que "D5". Los que no tengan código
+// van al final, ordenados por nombre.
+function byOperatorCode(a: OperatorRow, b: OperatorRow) {
+  const numA = a.operator_code ? parseInt(a.operator_code.replace(/\D/g, ''), 10) : NaN
+  const numB = b.operator_code ? parseInt(b.operator_code.replace(/\D/g, ''), 10) : NaN
+  if (isNaN(numA) && isNaN(numB)) return a.full_name.localeCompare(b.full_name)
+  if (isNaN(numA)) return 1
+  if (isNaN(numB)) return -1
+  return numA - numB
+}
 
 export default function RoundRobinSection() {
   const [operators, setOperators] = useState<OperatorRow[]>([])
@@ -32,8 +45,7 @@ export default function RoundRobinSection() {
     const [{ data: ops }, { data: queues }, { data: members }, { count }] = await Promise.all([
       supabase
         .from('operators')
-        .select('id, full_name, presence, current_load, max_capacity, last_assigned_at')
-        .order('full_name'),
+        .select('id, full_name, operator_code, presence, current_load, max_capacity, last_assigned_at'),
       supabase.from('queues').select('id, name').order('name'),
       supabase.from('queue_members').select('operator_id, queue_id'),
       supabase
@@ -43,7 +55,7 @@ export default function RoundRobinSection() {
         .neq('status', 'cerrada'),
     ])
 
-    setOperators(ops ?? [])
+    setOperators((ops ?? []).slice().sort(byOperatorCode))
     setAllQueues(queues ?? [])
     setUnassignedCount(count ?? 0)
 

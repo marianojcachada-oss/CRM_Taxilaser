@@ -15,6 +15,18 @@ type Operator = {
   is_active: boolean
 }
 
+// Ordena por el número del código (D5 antes que D12), no por texto — un
+// orden alfabético pondría "D12" antes que "D5". Los que no tengan código
+// van al final, ordenados por nombre.
+function byOperatorCode(a: Operator, b: Operator) {
+  const numA = a.operator_code ? parseInt(a.operator_code.replace(/\D/g, ''), 10) : NaN
+  const numB = b.operator_code ? parseInt(b.operator_code.replace(/\D/g, ''), 10) : NaN
+  if (isNaN(numA) && isNaN(numB)) return a.full_name.localeCompare(b.full_name)
+  if (isNaN(numA)) return 1
+  if (isNaN(numB)) return -1
+  return numA - numB
+}
+
 export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [operators, setOperators] = useState<Operator[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,7 +69,7 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
       .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_superadmin, is_active')
       .then(({ data, error }) => {
         if (error) setError(error.message)
-        else setOperators(data ?? [])
+        else setOperators((data ?? []).slice().sort(byOperatorCode))
         setLoading(false)
       })
   }

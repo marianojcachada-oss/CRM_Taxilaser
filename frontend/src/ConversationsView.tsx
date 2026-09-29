@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
+  Search, ChevronDown,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -249,6 +250,8 @@ export default function ConversationsView({
   const [draft, setDraft] = useState('')
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showReassignMenu, setShowReassignMenu] = useState(false)
+  const [reassignSearch, setReassignSearch] = useState('')
   const [templates, setTemplates] = useState<{ id: string; title: string; body: string }[]>([])
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null)
   const [recording, setRecording] = useState(false)
@@ -1061,20 +1064,72 @@ export default function ConversationsView({
                   </button>
                 </div>
               </div>
-              <select
-                value={selected.assignedOperatorId ?? ''}
-                onChange={(e) => reassign(e.target.value)}
-                className="rounded-full border border-panel-light bg-asphalt px-3 py-1.5 text-xs text-cream outline-none focus:border-mustard"
-              >
-                <option value="" disabled>
-                  Sin asignar
-                </option>
-                {operators.map((op) => (
-                  <option key={op.id} value={op.id}>
-                    {op.full_name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowReassignMenu((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-full border border-panel-light bg-asphalt px-3 py-1.5 text-xs text-cream outline-none transition-colors hover:border-mustard focus:border-mustard"
+                >
+                  {selected.assignedOperatorId
+                    ? (operators.find((o) => o.id === selected.assignedOperatorId)?.full_name ?? 'Asignado')
+                    : 'Sin asignar'}
+                  <ChevronDown size={12} className="text-muted" />
+                </button>
+
+                {showReassignMenu && (
+                  <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-sm border border-panel-light bg-panel p-1.5 shadow-lg">
+                    <div className="mb-1 flex items-center gap-1.5 rounded-sm border border-panel-light bg-asphalt px-2 py-1.5">
+                      <Search size={12} className="shrink-0 text-muted" />
+                      <input
+                        autoFocus
+                        value={reassignSearch}
+                        onChange={(e) => setReassignSearch(e.target.value)}
+                        placeholder="Buscar dispatcher..."
+                        className="w-full bg-transparent text-xs text-cream placeholder-muted outline-none"
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {operators
+                        .filter((op) => {
+                          const q = reassignSearch.trim().toLowerCase()
+                          if (!q) return true
+                          return (
+                            op.full_name.toLowerCase().includes(q) ||
+                            (op.operator_code ?? '').toLowerCase().includes(q)
+                          )
+                        })
+                        .map((op) => (
+                          <button
+                            key={op.id}
+                            type="button"
+                            onClick={() => {
+                              reassign(op.id)
+                              setShowReassignMenu(false)
+                              setReassignSearch('')
+                            }}
+                            className={`block w-full truncate rounded-sm px-2 py-1.5 text-left text-xs transition-colors ${
+                              op.id === selected.assignedOperatorId
+                                ? 'bg-panel-light text-mustard'
+                                : 'text-cream hover:bg-panel-light/60'
+                            }`}
+                          >
+                            {op.operator_code ? `${op.operator_code} · ${op.full_name}` : op.full_name}
+                          </button>
+                        ))}
+                      {operators.filter((op) => {
+                        const q = reassignSearch.trim().toLowerCase()
+                        if (!q) return true
+                        return (
+                          op.full_name.toLowerCase().includes(q) ||
+                          (op.operator_code ?? '').toLowerCase().includes(q)
+                        )
+                      }).length === 0 && (
+                        <p className="px-2 py-2 text-xs text-muted">Sin resultados</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 border-b border-panel-light bg-panel px-4 py-2">

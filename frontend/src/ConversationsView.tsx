@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
-  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban,
+  MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -10,6 +10,7 @@ import ContactPanel from './ContactPanel'
 import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import { getFunctionErrorMessage } from './functionsError'
+import { phoneForCopy } from './phone'
 
 export type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'sms'
 
@@ -265,6 +266,7 @@ export default function ConversationsView({
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
   const [customSnooze, setCustomSnooze] = useState('')
   const [showContactPanel, setShowContactPanel] = useState(false)
+  const [headerPhoneCopied, setHeaderPhoneCopied] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const draftInputRef = useRef<HTMLTextAreaElement>(null)
@@ -547,6 +549,13 @@ export default function ConversationsView({
 
     return () => clearTimeout(timeout)
   }, [draft, operatorName, operatorId])
+
+  async function copyHeaderPhone() {
+    if (!selected) return
+    await navigator.clipboard.writeText(phoneForCopy(selected.phone))
+    setHeaderPhoneCopied(true)
+    setTimeout(() => setHeaderPhoneCopied(false), 1500)
+  }
 
   async function markAsRead() {
     if (!selectedId) return
@@ -1036,10 +1045,20 @@ export default function ConversationsView({
                 </span>
                 <div>
                   <p className="text-sm font-semibold text-cream">{selected.name}</p>
-                  <p className="flex items-center gap-1 text-xs text-muted">
+                  <button
+                    type="button"
+                    onClick={copyHeaderPhone}
+                    title="Copiar número"
+                    className="flex items-center gap-1 text-xs text-muted transition-colors hover:text-mustard"
+                  >
                     <ChannelIcon channel={sendChannel ?? selected.channel} size={11} />{' '}
                     {channelLabel[sendChannel ?? selected.channel]} · {selected.phone}
-                  </p>
+                    {headerPhoneCopied ? (
+                      <Check size={11} className="text-available" />
+                    ) : (
+                      <Copy size={11} />
+                    )}
+                  </button>
                 </div>
               </div>
               <select
@@ -1273,11 +1292,11 @@ export default function ConversationsView({
                       {m.status !== 'sending' && m.status !== 'failed' && (
                         <p className="flex items-center gap-1 font-mono text-[10px] opacity-60">
                           {m.time}
-                          {/* Un solo check: se mandó pero WhatsApp todavía no confirmó
-                              nada más (o es un canal que no manda estados, como SMS). */}
+                          {/* Un solo check: se mandó pero todavía no llegó confirmación
+                              de entrega (WhatsApp/RingCentral no avisaron nada más). */}
                           {m.status === 'sent' && <Check size={10} />}
-                          {/* Doble check gris: WhatsApp confirmó que llegó al teléfono
-                              del cliente, pero todavía no lo abrió. */}
+                          {/* Doble check gris: confirmado como entregado — WhatsApp al
+                              teléfono del cliente, o RingCentral al operador móvil. */}
                           {m.status === 'delivered' && <CheckCheck size={10} />}
                           {/* Doble check celeste: el cliente ya lo leyó — mismo color
                               que usa WhatsApp para esto. */}

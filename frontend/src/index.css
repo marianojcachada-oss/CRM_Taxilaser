@@ -224,6 +224,21 @@
   --color-muted: #6B7280;
 }
 
+/* Inspirado en el look de Callbell: fondos azul-violeta oscuro y verde
+   como color de acento (botón de enviar, ícono de WhatsApp, etc). */
+[data-theme='nostalgic'] {
+  --color-asphalt: #211F3A;
+  --color-panel: #2B2944;
+  --color-panel-light: #363455;
+  --color-mustard: #21C685;
+  --color-alert: #E5599C;
+  --color-available: #21C685;
+  --color-warning: #F5A623;
+  --color-info: #4A90E2;
+  --color-cream: #F2F1F7;
+  --color-muted: #9997B3;
+}
+
 body {
   margin: 0;
   background-color: var(--color-asphalt);

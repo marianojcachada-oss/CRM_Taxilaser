@@ -286,8 +286,28 @@ async function handleIncomingMessage(opts: {
     if (taxicallerName) resolvedName = taxicallerName;
   }
 
-  // 2. Si no existe, crear contacto + su contact_channel
+  // 2. Si no hay mapeo de canal todavía, antes de crear un contacto nuevo
+  // hay que ver si ya existe uno con este mismo teléfono (por ejemplo,
+  // alguien que ya escribió por SMS y ahora escribe por WhatsApp por
+  // primera vez) — si no se busca esto, cada canal nuevo de un cliente ya
+  // conocido termina creando un contacto duplicado con su propia
+  // conversación separada, en vez de sumarse al que ya existe.
+  const normalizedPhoneForLookup =
+    channel === "whatsapp" || channel === "sms" ? normalizePhone(externalContactId) : null;
+
+  if (!contactId && normalizedPhoneForLookup) {
+    const { data: existingByPhone } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("phone", normalizedPhoneForLookup)
+      .maybeSingle();
+    if (existingByPhone) contactId = existingByPhone.id;
+  }
+
+  // 3. Si sigue sin existir, recién ahí se crea el contacto + su contact_channel
+  let isNewContact = false;
   if (!contactId) {
+    isNewContact = true;
     const { data: newContact, error: contactErr } = await supabase
       .from("contacts")
       .insert({
@@ -298,7 +318,7 @@ async function handleIncomingMessage(opts: {
         // creado por WhatsApp nunca matchea esa búsqueda y el "en camino" (o
         // cualquier otro estado) termina creando un contacto duplicado en
         // vez de actualizar el que ya tiene la conversación activa.
-        phone: channel === "whatsapp" || channel === "sms" ? normalizePhone(externalContactId) : null,
+        phone: normalizedPhoneForLookup,
       })
       .select("id")
       .single();
@@ -311,7 +331,19 @@ async function handleIncomingMessage(opts: {
       channel,
       external_id: externalContactId,
     });
-  } else if (resolvedName && resolvedName !== contactName) {
+  } else if (!existingChannel) {
+    // Se encontró el contacto por teléfono pero todavía no tenía este
+    // canal mapeado (primer WhatsApp de un cliente que ya conocíamos por
+    // SMS, típicamente) — se suma el mapeo al contacto existente en vez
+    // de dejarlo suelto.
+    await supabase.from("contact_channels").insert({
+      contact_id: contactId,
+      channel,
+      external_id: externalContactId,
+    });
+  }
+
+  if (!isNewContact && resolvedName && resolvedName !== contactName) {
     // Contacto ya existente: si TaxiCaller nos devolvió un nombre, lo
     // pisamos aunque ya hubiera uno cargado — es la fuente de verdad.
     await supabase.from("contacts").update({ full_name: resolvedName }).eq("id", contactId);

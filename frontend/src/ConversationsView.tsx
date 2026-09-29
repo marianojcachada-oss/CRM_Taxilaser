@@ -286,7 +286,7 @@ export default function ConversationsView({
     const el = draftInputRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 144)}px`
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }, [draft])
 
   useEffect(() => {
@@ -1361,7 +1361,7 @@ export default function ConversationsView({
             ) : (
             <form
               onSubmit={handleSend}
-              className="relative flex items-center gap-1.5 border-t border-panel-light bg-panel px-4 py-3"
+              className="relative flex items-center gap-2.5 border-t border-panel-light bg-panel px-4 py-4"
             >
               {showEmoji && (
                 <div className="absolute bottom-full left-4 z-10 mb-2">
@@ -1388,7 +1388,7 @@ export default function ConversationsView({
                             ? `Enviar por ${channelLabel[ch]}`
                             : `${channelLabel[ch]} bloqueado — vinculá el perfil desde el panel de contacto`
                         }
-                        className={`flex h-7 w-7 items-center justify-center rounded-sm border transition-colors ${
+                        className={`flex h-8 w-8 items-center justify-center rounded-sm border transition-colors ${
                           isActive && isLinked
                             ? 'border-mustard bg-mustard/10'
                             : isLinked
@@ -1397,9 +1397,9 @@ export default function ConversationsView({
                         }`}
                       >
                         {isLinked ? (
-                          <ChannelIcon channel={ch} size={13} color={isActive ? 'var(--color-mustard)' : undefined} />
+                          <ChannelIcon channel={ch} size={15} color={isActive ? 'var(--color-mustard)' : undefined} />
                         ) : (
-                          <Lock size={12} className="text-muted" />
+                          <Lock size={14} className="text-muted" />
                         )}
                       </button>
                     )
@@ -1413,7 +1413,7 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard"
                 title="Emojis"
               >
-                <Smile size={18} />
+                <Smile size={22} />
               </button>
 
               <div className="relative">
@@ -1423,7 +1423,7 @@ export default function ConversationsView({
                   className="shrink-0 text-muted transition-colors hover:text-mustard"
                   title="Plantillas"
                 >
-                  <FileText size={18} />
+                  <FileText size={22} />
                 </button>
                 {showTemplates && (
                   <div className="absolute bottom-full left-0 z-10 mb-2 w-64 rounded-sm border border-panel-light bg-panel p-1.5 shadow-lg">
@@ -1452,7 +1452,7 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard disabled:opacity-40"
                 title={pendingAttachment ? 'Ya hay un adjunto cargado' : 'Adjuntar archivo'}
               >
-                <Paperclip size={18} />
+                <Paperclip size={22} />
               </button>
               <input ref={fileInputRef} type="file" onChange={handleFilesSelected} className="hidden" />
 
@@ -1465,7 +1465,7 @@ export default function ConversationsView({
                 }`}
                 title={recording ? 'Detener grabación' : 'Grabar audio'}
               >
-                {recording ? <Square size={17} /> : <Mic size={18} />}
+                {recording ? <Square size={21} /> : <Mic size={22} />}
               </button>
 
               <textarea
@@ -1482,7 +1482,7 @@ export default function ConversationsView({
                 }}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
                 rows={1}
-                className="max-h-36 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-4 py-2.5 text-sm leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
+                className="max-h-40 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
               />
 
               <button
@@ -1492,14 +1492,14 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard disabled:opacity-40"
                 title="Traducir antes de enviar"
               >
-                {translatingDraft ? <Loader2 size={17} className="animate-spin" /> : <Languages size={17} />}
+                {translatingDraft ? <Loader2 size={20} className="animate-spin" /> : <Languages size={20} />}
               </button>
 
               <button
                 type="submit"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-mustard text-asphalt transition-opacity hover:opacity-90"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-mustard text-asphalt transition-opacity hover:opacity-90"
               >
-                <Send size={16} />
+                <Send size={19} />
               </button>
             </form>
             )}

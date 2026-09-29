@@ -242,6 +242,12 @@ export default function ConversationsView({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  // Evita volver a llamar track() en cada pausa al tipear si ya estaba
+  // marcado como "escribiendo" — cada track()/untrack() cuenta contra
+  // la cuota de Presence de Realtime, y sin este chequeo se repetía
+  // sin necesidad (mismo nombre, mismo estado) hasta pisar el límite
+  // ("ClientPresenceRateLimitReached") con varios operadores activos.
+  const isTypingRef = useRef(false)
 
   useEffect(() => {
     supabase
@@ -401,6 +407,7 @@ export default function ConversationsView({
       presenceChannelRef.current = null
     }
     setTypingOperators([])
+    isTypingRef.current = false // canal nuevo -> todavía no se mandó ningún track() en él
 
     if (!selectedId || !operatorId) return
 
@@ -432,10 +439,16 @@ export default function ConversationsView({
     if (!channel) return
 
     const timeout = setTimeout(() => {
-      if (draft.trim()) {
+      const hasText = draft.trim().length > 0
+      // Solo se llama track()/untrack() en el cambio real de estado
+      // (empezó a escribir / borró todo) — no en cada pausa mientras
+      // sigue con texto en el campo, que es lo que agotaba la cuota.
+      if (hasText && !isTypingRef.current) {
         channel.track({ name: operatorName })
-      } else {
+        isTypingRef.current = true
+      } else if (!hasText && isTypingRef.current) {
         channel.untrack()
+        isTypingRef.current = false
       }
     }, 250)
 
@@ -709,7 +722,10 @@ export default function ConversationsView({
     setPendingAttachment(null)
     setShowEmoji(false)
     setSendError(null)
-    presenceChannelRef.current?.untrack()
+    if (isTypingRef.current) {
+      presenceChannelRef.current?.untrack()
+      isTypingRef.current = false
+    }
 
     if (attachmentToSend) {
       const path = `${selectedId}/${crypto.randomUUID()}-${attachmentToSend.name}`

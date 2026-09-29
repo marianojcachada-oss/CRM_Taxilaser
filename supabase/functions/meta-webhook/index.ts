@@ -198,6 +198,25 @@ Deno.serve(async (req) => {
             } else {
               text = `[Mensaje de tipo "${msg.type}" — falta META_ACCESS_TOKEN en Integrations para poder bajarlo]`;
             }
+          } else if (msg.type === "system") {
+            // No es un mensaje del cliente — es un aviso que manda la propia
+            // API de WhatsApp (cambió de número, cambió el código de
+            // seguridad, etc.). Se intenta dar un texto legible según el
+            // subtipo; si viene uno que no está contemplado, se cae al body
+            // que manda Meta (en inglés, pero al menos dice algo concreto)
+            // en vez del cartel genérico de "revisar en WhatsApp".
+            const systemType = msg.system?.type;
+            if (systemType === "user_changed_number" || systemType === "customer_changed_number") {
+              const newNumber = msg.system?.wa_id ? ` (nuevo número: +${msg.system.wa_id})` : "";
+              text = `⚙️ Aviso de WhatsApp: el cliente cambió el número asociado a esta cuenta${newNumber}.`;
+            } else if (systemType === "customer_identity_changed" || systemType === "user_identity_changed") {
+              text =
+                "⚙️ Aviso de WhatsApp: cambió el código de seguridad del cliente (reinstaló WhatsApp o cambió de teléfono).";
+            } else if (msg.system?.body) {
+              text = `⚙️ Aviso de WhatsApp: ${msg.system.body}`;
+            } else {
+              text = "⚙️ Aviso automático de WhatsApp — revisar en WhatsApp directamente.";
+            }
           } else if (msg.type) {
             text = `[Mensaje de tipo "${msg.type}" — revisar en WhatsApp directamente]`;
           }

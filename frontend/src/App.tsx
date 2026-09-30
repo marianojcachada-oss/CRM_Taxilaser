@@ -374,7 +374,7 @@ function AppContent() {
   }, [theme])
 
   // --- Auto-logout por inactividad -----------------------------------
-  // Pedido puntual: si pasan 30 minutos sin que el operador mande un
+  // Pedido puntual: si pasan 10 minutos sin que el operador mande un
   // mensaje (no actividad genérica de mouse/teclado, sino su propia
   // participación en la mensajería), se cierra la sesión sola y se
   // avisa en pantalla. Esto también ayuda a bajar la cantidad de
@@ -399,7 +399,7 @@ function AppContent() {
   useEffect(() => {
     if (!session) return
 
-    const INACTIVITY_LIMIT_MS = 30 * 60 * 1000 // 30 minutos
+    const INACTIVITY_LIMIT_MS = 10 * 60 * 1000 // 10 minutos
 
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
@@ -439,7 +439,7 @@ function AppContent() {
       <>
         {loggedOutForInactivity && (
           <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-            Se cerró tu sesión por inactividad (30 minutos sin mandar mensajes). Volvé a iniciar sesión para continuar.
+            Se cerró tu sesión por inactividad (10 minutos sin mandar mensajes). Volvé a iniciar sesión para continuar.
           </div>
         )}
         <Login />

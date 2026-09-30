@@ -143,15 +143,36 @@ export default function Inbox({
     }
   }, [])
 
-  // "Todos" es el histórico completo de verdad — a diferencia de la
-  // lista principal (que a propósito solo trae lo activo, para que la
-  // bandeja cargue rápido), esto consulta sin importar el estado.
+  // Contador total de conversaciones (para "Todos"). OJO: esto antes
+  // dependía de "[conversations]" — ese array cambia de referencia con
+  // CADA mensaje/reasignación/cierre de CUALQUIER conversación de
+  // cualquier operador (la lista se actualiza en vivo en App.tsx), así
+  // que este conteo se volvía a pedir a la base en cada uno de esos
+  // eventos, multiplicado por cada operador conectado. Eso es lo que se
+  // veía en los logs como cientos de HEAD /rest/v1/conversations por
+  // minuto. El total real (cuántas conversaciones existen en toda la
+  // tabla) solo cambia cuando se crea o se borra una conversación — no
+  // con cada mensaje — así que ahora se calcula una sola vez al entrar
+  // y se refresca solo con esos dos eventos, mucho menos frecuentes.
   useEffect(() => {
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .then(({ count }) => setTotalConversationsCount(count ?? 0))
-  }, [conversations])
+    function loadTotalConversationsCount() {
+      supabase
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .then(({ count }) => setTotalConversationsCount(count ?? 0))
+    }
+    loadTotalConversationsCount()
+
+    const channel = supabase
+      .channel('total-conversations-count')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   useEffect(() => {
     if (filter.kind !== 'all') {
@@ -242,21 +263,10 @@ export default function Inbox({
     return () => clearTimeout(timeout)
   }, [searchQuery])
 
-  // "Todos" trae de verdad todo, incluidas las cerradas — la consulta
-  // base de arranque las excluye a propósito (por rendimiento), así que
-  // esta pestaña necesita su propia consulta aparte.
-  useEffect(() => {
-    if (filter.kind !== 'all') {
-      setAllHistoryResults(null)
-      return
-    }
-    supabase
-      .from('conversations')
-      .select(CONVERSATION_SELECT)
-      .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(300)
-      .then(({ data }) => setAllHistoryResults((data ?? []).map(mapConversation)))
-  }, [filter.kind])
+  // (Antes había acá un segundo efecto que pedía exactamente lo mismo
+  // que el de arriba — misma consulta, mismo disparador — así que cada
+  // vez que alguien abría "Todos" se pedían las 300 conversaciones DOS
+  // veces. Se saca; el efecto de arriba ya cubre esto.)
 
   // "Mis respuestas": conversaciones donde YO mandé al menos un mensaje
   // alguna vez, más allá de que hoy estén asignadas a otro operador,

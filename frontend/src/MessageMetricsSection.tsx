@@ -90,12 +90,27 @@ export default function MessageMetricsSection() {
   const [operators, setOperators] = useState<{ id: string; full_name: string }[]>([])
   const [waiting, setWaiting] = useState<WaitingConversation[]>([])
   const [waitingLoading, setWaitingLoading] = useState(true)
+  // A qué operador está asignada cada conversación AHORA — no hay un
+  // historial de reasignaciones, así que "recibidos por operador" usa el
+  // asignado actual como aproximación (si una conversación se reasignó en
+  // el medio, los mensajes viejos del cliente quedan contados para quien
+  // la tiene ahora, no para quien la tenía en ese momento).
+  const [convAssignments, setConvAssignments] = useState<Map<string, string | null>>(new Map())
 
   useEffect(() => {
     supabase
       .from('operators')
       .select('id, full_name')
       .then(({ data }) => setOperators(data ?? []))
+  }, [])
+
+  useEffect(() => {
+    supabase
+      .from('conversations')
+      .select('id, assigned_operator_id')
+      .then(({ data }) => {
+        setConvAssignments(new Map((data ?? []).map((c) => [c.id, c.assigned_operator_id])))
+      })
   }, [])
 
   useEffect(() => {
@@ -269,6 +284,33 @@ export default function MessageMetricsSection() {
     return { avg, median, perOperator, perHour, count: sortedMinutes.length }
   }, [responseTimes, operators])
 
+  const receivedVsAnswered = useMemo(() => {
+    const byOperator = new Map<string, { received: number; answered: number }>()
+    function bump(id: string, key: 'received' | 'answered') {
+      if (!byOperator.has(id)) byOperator.set(id, { received: 0, answered: 0 })
+      byOperator.get(id)![key]++
+    }
+    for (const m of rows) {
+      if (m.sender_type === 'contact') {
+        const assignedTo = convAssignments.get(m.conversation_id)
+        if (assignedTo) bump(assignedTo, 'received')
+      } else if (m.sender_type === 'operator' && m.sender_operator_id && m.automation_type == null) {
+        // Los automáticos (automation_type seteado) no cuentan como
+        // "contestado" por nadie — no los mandó una persona.
+        bump(m.sender_operator_id, 'answered')
+      }
+    }
+    return operators
+      .map((op) => ({
+        id: op.id,
+        name: op.full_name,
+        received: byOperator.get(op.id)?.received ?? 0,
+        answered: byOperator.get(op.id)?.answered ?? 0,
+      }))
+      .filter((r) => r.received > 0 || r.answered > 0)
+      .sort((a, b) => b.received - a.received)
+  }, [rows, convAssignments, operators])
+
   const buckets = useMemo(() => {
     const map = new Map<string, number>()
     for (const m of rows) {
@@ -402,6 +444,32 @@ export default function MessageMetricsSection() {
             </div>
           ))}
         </div>
+      </Panel>
+
+      <Panel title="Recibidos vs. contestados por operador">
+        {receivedVsAnswered.length === 0 ? (
+          <p className="text-xs text-muted">Sin datos suficientes en este rango.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {receivedVsAnswered.map((op) => {
+              const pct = op.received > 0 ? Math.round((op.answered / op.received) * 100) : null
+              return (
+                <div key={op.id} className="flex items-center justify-between rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-xs">
+                  <span className="text-cream">{op.name}</span>
+                  <span className="font-mono text-muted">
+                    {op.received} recibidos · {op.answered} contestados
+                    {pct !== null && <span className="ml-1 text-[10px]">({pct}%)</span>}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-muted">
+          "Recibidos" cuenta los mensajes del cliente en conversaciones asignadas HOY a ese operador (no hay
+          historial de reasignaciones) — "contestados" son los mensajes que ese operador mandó a mano, sin contar
+          los automáticos.
+        </p>
       </Panel>
 
       <Panel title="Tiempo de primera respuesta">

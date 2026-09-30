@@ -252,6 +252,14 @@ export default function ConversationsView({
   )
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
+  const threadContainerRef = useRef<HTMLDivElement>(null)
+  // Si el operador está mirando el final del chat ahora mismo — se guarda
+  // en un ref (no en un state) porque se lee desde el efecto de "llegó un
+  // mensaje nuevo" sin que ese efecto tenga que depender de él ni
+  // volver a dispararse cada vez que cambia.
+  const isAtBottomRef = useRef(true)
+  const prevThreadLengthRef = useRef(0)
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [draft, setDraft] = useState('')
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
@@ -436,11 +444,47 @@ export default function ConversationsView({
     }
   }, [selectedId])
 
-  // Al abrir un chat, o al llegar un mensaje nuevo, va directo al final
-  // del hilo — no tiene que scrollear a mano para ver el último mensaje.
+  function scrollThreadToBottom(smooth: boolean) {
+    threadEndRef.current?.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  function handleThreadScroll() {
+    const el = threadContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const atBottom = distanceFromBottom < 80 // margen chico, no hace falta estar al píxel exacto
+    isAtBottomRef.current = atBottom
+    setShowJumpToBottom(!atBottom)
+  }
+
+  // Al ABRIR un chat, siempre se arranca viendo el último mensaje — eso no
+  // cambia. Lo que sí cambia: esto ya no depende de thread.length, así que
+  // no vuelve a saltar solo cada vez que llega un mensaje nuevo con el
+  // chat ya abierto (ver el efecto de abajo para eso).
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [selectedId, thread.length])
+    scrollThreadToBottom(false)
+    isAtBottomRef.current = true
+    setShowJumpToBottom(false)
+  }, [selectedId])
+
+  // Cuando llega un mensaje nuevo (el hilo creció): si lo mandó el propio
+  // operador, siempre se ve (recién lo escribió). Si es del cliente, solo
+  // salta solo cuando ya se estaba mirando el final del chat — si el
+  // operador estaba leyendo mensajes viejos más arriba, no se lo saca de
+  // ahí de golpe; en vez de eso aparece la flechita para bajar cuando
+  // quiera.
+  useEffect(() => {
+    const grew = thread.length > prevThreadLengthRef.current
+    prevThreadLengthRef.current = thread.length
+    if (!grew) return
+
+    const lastMessage = thread[thread.length - 1]
+    if (lastMessage?.from === 'operator' || isAtBottomRef.current) {
+      scrollThreadToBottom(true)
+    } else {
+      setShowJumpToBottom(true)
+    }
+  }, [thread.length])
 
   // El canal de envío arranca en selected.channel (fijo, el que tenía
   // la conversación al crearse), pero como SMS y WhatsApp comparten una
@@ -1282,7 +1326,8 @@ export default function ConversationsView({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="relative flex-1 overflow-hidden">
+            <div ref={threadContainerRef} onScroll={handleThreadScroll} className="h-full overflow-y-auto px-6 py-4">
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1445,6 +1490,20 @@ export default function ConversationsView({
                   </div>
               )})}
               <div ref={threadEndRef} />
+            </div>
+
+            {showJumpToBottom && (
+              <button
+                onClick={() => {
+                  scrollThreadToBottom(true)
+                  setShowJumpToBottom(false)
+                }}
+                className="absolute bottom-4 right-6 flex h-9 w-9 items-center justify-center rounded-full border border-panel-light bg-panel text-cream shadow-lg transition-opacity hover:opacity-90"
+                title="Ir al último mensaje"
+              >
+                <ChevronDown size={18} />
+              </button>
+            )}
             </div>
 
             {typingOperators.length > 0 && (

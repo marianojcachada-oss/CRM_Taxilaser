@@ -51,6 +51,7 @@ function AppContent() {
   const lastActivityRef = useRef<number>(Date.now())
   const [operatorNames, setOperatorNames] = useState<Map<string, string>>(new Map())
   const operatorNamesRef = useRef<Map<string, string>>(new Map())
+  const [updateAvailable, setUpdateAvailable] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -112,6 +113,39 @@ function AppContent() {
   useEffect(() => {
     operatorNamesRef.current = operatorNames
   }, [operatorNames])
+
+  // Detecta cuando hay una versión nueva del sitio ya deployada — así no
+  // dependemos de que cada operador se acuerde de recargar la pestaña
+  // después de cada deploy. Es justo lo que pasó hoy: arreglamos varios
+  // bugs de Realtime del lado del código, pero varios operadores
+  // siguieron corriendo el bundle viejo en su pestaña (ya abierta desde
+  // antes) hasta que recargaron a mano, y mientras tanto los logs
+  // seguían mostrando el patrón viejo. Cada build de Vite genera un
+  // archivo con un hash distinto en el nombre (ej. index-ab12cd.js) —
+  // si el hash que está usando esta pestaña no coincide con el que trae
+  // el index.html más fresco del servidor, es que hay una versión nueva.
+  useEffect(() => {
+    const currentScriptSrc = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src
+    if (!currentScriptSrc) return
+
+    async function checkForUpdate() {
+      try {
+        const res = await fetch(`/?_=${Date.now()}`, { cache: 'no-store' })
+        const html = await res.text()
+        const match = html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/)
+        const latestSrc = match?.[1]
+        if (latestSrc && currentScriptSrc && !currentScriptSrc.endsWith(latestSrc)) {
+          setUpdateAvailable(true)
+        }
+      } catch {
+        // Sin conexión momentánea o falló el fetch — no pasa nada, se
+        // vuelve a intentar en el próximo chequeo.
+      }
+    }
+
+    const interval = setInterval(checkForUpdate, 5 * 60 * 1000) // cada 5 minutos
+    return () => clearInterval(interval)
+  }, [])
 
   async function toggleOwnPresence() {
     if (!operatorId) return
@@ -417,8 +451,8 @@ function AppContent() {
     return <ResetPassword onDone={() => setPasswordRecovery(false)} />
   }
 
-  if (view === 'admin' && isAdmin) {
-    return (
+  const mainContent =
+    view === 'admin' && isAdmin ? (
       <AdminPanel
         theme={theme}
         onChangeTheme={changeTheme}
@@ -427,25 +461,39 @@ function AppContent() {
         onBack={() => setView('inbox')}
         conversations={conversations}
       />
+    ) : (
+      <Inbox
+        theme={theme}
+        onChangeTheme={changeTheme}
+        operatorName={operatorName}
+        operatorId={operatorId}
+        isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
+        onOpenAdmin={() => setView('admin')}
+        conversations={conversations}
+        setConversations={setConversations}
+        onRefreshConversations={loadConversations}
+        muted={muted}
+        onToggleMuted={toggleMuted}
+        operatorPresence={operatorPresence}
+        onTogglePresence={toggleOwnPresence}
+      />
     )
-  }
 
   return (
-    <Inbox
-      theme={theme}
-      onChangeTheme={changeTheme}
-      operatorName={operatorName}
-      operatorId={operatorId}
-      isAdmin={isAdmin}
-      isSuperAdmin={isSuperAdmin}
-      onOpenAdmin={() => setView('admin')}
-      conversations={conversations}
-      setConversations={setConversations}
-      onRefreshConversations={loadConversations}
-      muted={muted}
-      onToggleMuted={toggleMuted}
-      operatorPresence={operatorPresence}
-      onTogglePresence={toggleOwnPresence}
-    />
+    <>
+      {updateAvailable && (
+        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
+          Hay una versión nueva del sistema — actualizá para evitar errores.
+          <button
+            onClick={() => window.location.reload()}
+            className="rounded-sm bg-asphalt px-3 py-1 text-xs font-semibold text-mustard"
+          >
+            Actualizar ahora
+          </button>
+        </div>
+      )}
+      {mainContent}
+    </>
   )
 }

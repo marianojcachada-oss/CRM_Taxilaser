@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
-  Search, ChevronDown,
+  Search, ChevronDown, Reply,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -169,6 +169,11 @@ export type Message = {
   // "sending" ni "failed" se considera simplemente "sent" y no se puede
   // saber más que eso.
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
+  // A qué mensaje responde (cita), si es que responde a alguno — solo
+  // tiene sentido para WhatsApp. La vista previa de lo citado no se pide
+  // aparte a la base: se busca por este id dentro de "thread", que ya
+  // tiene cargada toda la conversación.
+  replyToMessageId?: string
 }
 
 async function translateText(text: string, targetLang: 'es' | 'en'): Promise<string> {
@@ -248,6 +253,7 @@ export default function ConversationsView({
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState('')
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showReassignMenu, setShowReassignMenu] = useState(false)
@@ -370,10 +376,15 @@ export default function ConversationsView({
       // real es el que haya quedado en delivery_status ("sent" por
       // default para lo viejo que nunca tuvo este campo).
       status: m.sender_type === 'operator' ? (m.delivery_status ?? 'sent') : undefined,
+      replyToMessageId: m.reply_to_message_id ?? undefined,
     }
   }
 
   useEffect(() => {
+    // Una cita "enganchada" en el composer es del chat que se estaba viendo
+    // — no tiene sentido que sobreviva a cambiar de conversación.
+    setReplyingTo(null)
+
     if (!selectedId) {
       setThread([])
       return
@@ -383,7 +394,7 @@ export default function ConversationsView({
 
     supabase
       .from('messages')
-      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status')
+      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status, reply_to_message_id')
       .eq('conversation_id', selectedId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
@@ -809,6 +820,11 @@ export default function ConversationsView({
 
     const textToSend = draft.trim()
     const attachmentToSend = pendingAttachment
+    // Solo tiene sentido mandar la cita si el canal de esta respuesta es
+    // WhatsApp — si el cliente venía por SMS y no cambió a WhatsApp, no
+    // hay forma de citar nada aunque hubiera quedado "enganchado" algo
+    // de antes.
+    const replyToMessageIdToSend = sendChannel === 'whatsapp' ? replyingTo?.id : undefined
     const tempId = `temp-${crypto.randomUUID()}`
 
     // El mensaje aparece al toque, con un estado "Enviando..." — no
@@ -825,10 +841,12 @@ export default function ConversationsView({
           : undefined,
         time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
         status: 'sending',
+        replyToMessageId: replyToMessageIdToSend,
       },
     ])
     setDraft('')
     setPendingAttachment(null)
+    setReplyingTo(null)
     setShowEmoji(false)
     setSendError(null)
     if (isTypingRef.current) {
@@ -860,6 +878,7 @@ export default function ConversationsView({
           attachmentUrl: urlData.publicUrl,
           attachmentName: attachmentToSend.name,
           attachmentKind: attachmentToSend.kind,
+          replyToMessageId: replyToMessageIdToSend,
         },
       })
 
@@ -872,7 +891,7 @@ export default function ConversationsView({
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
-        body: { conversationId: selectedId, channel: sendChannel, text: textToSend },
+        body: { conversationId: selectedId, channel: sendChannel, text: textToSend, replyToMessageId: replyToMessageIdToSend },
       })
 
       if (error || data?.error) {
@@ -1277,7 +1296,16 @@ export default function ConversationsView({
                         <div className="h-px flex-1 bg-panel-light" />
                       </div>
                     )}
-                    <div className={`mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`group mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                      {m.from === 'operator' && sendChannel === 'whatsapp' && (
+                        <button
+                          onClick={() => setReplyingTo(m)}
+                          className="mb-1 shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:text-cream group-hover:opacity-100"
+                          title="Responder a este mensaje"
+                        >
+                          <Reply size={14} />
+                        </button>
+                      )}
                       <div
                         className={`max-w-md break-words px-3 py-2 text-sm ${
                           m.from === 'operator'
@@ -1295,6 +1323,22 @@ export default function ConversationsView({
                         🤖 Mensaje enviado automáticamente
                       </p>
                     )}
+                    {m.replyToMessageId && (() => {
+                      const quoted = thread.find((t) => t.id === m.replyToMessageId)
+                      return (
+                        <div
+                          className={`mb-1.5 rounded-sm border-l-2 px-2 py-1 text-xs opacity-80 ${
+                            m.from === 'operator' ? 'border-asphalt/40 bg-black/10' : 'border-mustard/60 bg-black/20'
+                          }`}
+                        >
+                          <p className="truncate">
+                            {quoted
+                              ? quoted.text || (quoted.attachment ? `📎 ${quoted.attachment.name}` : 'Mensaje')
+                              : 'Mensaje citado'}
+                          </p>
+                        </div>
+                      )
+                    })()}
                     {m.text && <p className="break-words">{<Linkify text={m.text} />}</p>}
 
                     {m.attachment && (
@@ -1388,6 +1432,15 @@ export default function ConversationsView({
                       <ChannelIcon channel={m.sentViaChannel} size={11} />
                     </span>
                   )}
+                  {m.from === 'contact' && sendChannel === 'whatsapp' && (
+                    <button
+                      onClick={() => setReplyingTo(m)}
+                      className="mb-1 shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:text-cream group-hover:opacity-100"
+                      title="Responder a este mensaje"
+                    >
+                      <Reply size={14} />
+                    </button>
+                  )}
                 </div>
                   </div>
               )})}
@@ -1433,9 +1486,28 @@ export default function ConversationsView({
                 contacto para volver a escribirle.
               </div>
             ) : (
+            <>
+            {replyingTo && (
+              <div className="flex items-center gap-2 border-t border-panel-light bg-panel px-4 pt-2.5">
+                <Reply size={13} className="shrink-0 text-mustard" />
+                <div className="min-w-0 flex-1 border-l-2 border-mustard/60 pl-2">
+                  <p className="text-[10px] font-semibold text-mustard">Respondiendo a</p>
+                  <p className="truncate text-xs text-muted">
+                    {replyingTo.text || (replyingTo.attachment ? `📎 ${replyingTo.attachment.name}` : 'Mensaje')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReplyingTo(null)}
+                  className="shrink-0 text-muted hover:text-cream"
+                  title="Cancelar respuesta"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             <form
               onSubmit={handleSend}
-              className="relative flex items-center gap-2.5 border-t border-panel-light bg-panel px-4 py-4"
+              className={`relative flex items-center gap-2.5 bg-panel px-4 py-4 ${replyingTo ? 'pt-2.5' : 'border-t border-panel-light'}`}
             >
               {showEmoji && (
                 <div className="absolute bottom-full left-4 z-10 mb-2">
@@ -1576,6 +1648,7 @@ export default function ConversationsView({
                 <Send size={19} />
               </button>
             </form>
+            </>
             )}
           </>
         ) : (

@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { conversationId, channel, text, attachmentUrl, attachmentName, attachmentKind } = await req.json();
+  const { conversationId, channel, text, attachmentUrl, attachmentName, attachmentKind, replyToMessageId } = await req.json();
 
   if (!conversationId || !channel || (!text && !attachmentUrl)) {
     return new Response(JSON.stringify({ error: "Faltan conversationId, channel, y text o attachmentUrl" }), {
@@ -108,8 +108,6 @@ Deno.serve(async (req) => {
   // encontrar este mensaje puntual cuando llega el evento de "entregado"
   // o "leído" y así poder mostrar el check correspondiente.
   let wamid: string | null = null;
-  // Mismo concepto que wamid, pero para SMS por RingCentral.
-  let rcMessageId: string | null = null;
 
   // Solo hace falta buscar el ID externo (PSID/IGSID) cuando el canal es
   // Messenger o Instagram — WhatsApp y SMS ya resuelven todo por teléfono.
@@ -122,6 +120,22 @@ Deno.serve(async (req) => {
       .eq("channel", channel)
       .maybeSingle();
     recipientExternalId = contactChannel?.external_id ?? null;
+  }
+
+  // Si se está respondiendo a un mensaje puntual (citándolo, como en
+  // WhatsApp), hace falta el ID que WhatsApp le puso a ESE mensaje —
+  // "wamid" si lo mandamos nosotros, "external_message_id" si lo mandó el
+  // cliente (son columnas distintas porque vienen de dos lugares
+  // distintos: la respuesta de Meta al enviar, o el webhook al recibir).
+  // Solo aplica a WhatsApp — SMS no tiene forma de citar un mensaje.
+  let quotedWamid: string | null = null;
+  if (channel === "whatsapp" && replyToMessageId) {
+    const { data: quotedMessage } = await serviceClient
+      .from("messages")
+      .select("wamid, external_message_id")
+      .eq("id", replyToMessageId)
+      .maybeSingle();
+    quotedWamid = quotedMessage?.wamid ?? quotedMessage?.external_message_id ?? null;
   }
 
   try {
@@ -137,11 +151,9 @@ Deno.serve(async (req) => {
         const mimeType = fileRes.headers.get("content-type") ?? "application/octet-stream";
         const filename = attachmentName || "adjunto";
 
-        const result = await sendSms(phone, text ?? "", { bytes, filename, mimeType });
-        rcMessageId = result.id;
+        await sendSms(phone, text ?? "", { bytes, filename, mimeType });
       } else {
-        const result = await sendSms(phone, text);
-        rcMessageId = result.id;
+        await sendSms(phone, text);
       }
     } else if (channel === "whatsapp") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
@@ -182,6 +194,15 @@ Deno.serve(async (req) => {
           type: "text",
           text: { body: text },
         };
+      }
+
+      // "context" es lo que hace que el mensaje le aparezca CITADO al
+      // cliente en su WhatsApp, igual que cuando uno le responde a un
+      // mensaje puntual a mano — si no se encontró el wamid del mensaje
+      // citado (por ejemplo, es viejo y no lo teníamos guardado), se manda
+      // igual pero sin la cita, en vez de cortar el envío.
+      if (quotedWamid) {
+        body.context = { message_id: quotedWamid };
       }
 
       const res = await fetch(`https://graph.facebook.com/v26.0/${phoneNumberId}/messages`, {
@@ -270,8 +291,8 @@ Deno.serve(async (req) => {
         attachment_name: attachmentName || null,
         attachment_kind: attachmentKind || null,
         wamid,
-        rc_message_id: rcMessageId,
-        delivery_status: channel === "whatsapp" || channel === "sms" ? "sent" : null,
+        reply_to_message_id: channel === "whatsapp" ? replyToMessageId || null : null,
+        delivery_status: channel === "whatsapp" ? "sent" : null,
       })
       .select("id")
       .single();
@@ -282,19 +303,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const errorMessage = String(err instanceof Error ? err.message : err);
-
-    // Se ve al toque en pantalla como cartel de error, pero si el
-    // operador no lo llega a ver (se distrajo, cambió de conversación),
-    // queda igual el rastro acá para poder revisar después qué mensajes
-    // no salieron.
-    await serviceClient.from("app_errors").insert({
-      context: "send-message",
-      message: `No se pudo mandar el mensaje manual por ${channel} (conversación ${conversationId}): ${errorMessage}`,
-      operator_id: operator.id,
-    });
-
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

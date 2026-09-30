@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import Login from './Login'
 import ResetPassword from './ResetPassword'
@@ -47,6 +47,10 @@ function AppContent() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
+  const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
+  const lastActivityRef = useRef<number>(Date.now())
+  const [operatorNames, setOperatorNames] = useState<Map<string, string>>(new Map())
+  const operatorNamesRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -86,6 +90,29 @@ function AppContent() {
       })
   }, [session])
 
+  // Nombres de operadores para poder resolver "assignedToName" en las
+  // actualizaciones en vivo sin tener que volver a pedir la conversación
+  // entera con el join — es una tabla chica que casi no cambia.
+  useEffect(() => {
+    if (!session) return
+    supabase
+      .from('operators')
+      .select('id, full_name')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('No se pudieron cargar los nombres de operadores:', error.message)
+          return
+        }
+        const map = new Map<string, string>()
+        for (const o of data ?? []) map.set(o.id, o.full_name ?? '')
+        setOperatorNames(map)
+      })
+  }, [session])
+
+  useEffect(() => {
+    operatorNamesRef.current = operatorNames
+  }, [operatorNames])
+
   async function toggleOwnPresence() {
     if (!operatorId) return
     const next = operatorPresence === 'available' ? 'offline' : 'available'
@@ -123,6 +150,52 @@ function AppContent() {
       })
   }, [session])
 
+  // Aplica un UPDATE de "conversations" en vivo a la conversación que ya
+  // tenemos en memoria, sin volver a pedir las 1000 filas con sus joins.
+  // Solo toca las columnas propias de "conversations" — nombre, teléfono,
+  // tags, notas, etc. vienen de "contacts" y no cambian acá, así que se
+  // conservan tal cual ya los teníamos.
+  function applyConversationPatch(
+    prev: Conversation,
+    row: Record<string, any>,
+    names: Map<string, string>,
+  ): Conversation {
+    return {
+      ...prev,
+      channel: row.channel,
+      lastMessage: row.last_message_preview ?? '',
+      time: row.last_message_at
+        ? new Date(row.last_message_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+        : '',
+      createdAt: row.created_at,
+      snoozedUntil: row.snoozed_until ?? null,
+      lastContactMessageAt: row.last_contact_message_at ?? null,
+      keepWithOperator: row.keep_with_operator ?? false,
+      needsAssignment: row.needs_assignment ?? true,
+      unread: row.unread,
+      status: row.status,
+      assignedOperatorId: row.assigned_operator_id,
+      assignedToName: row.assigned_operator_id ? names.get(row.assigned_operator_id) ?? prev.assignedToName : null,
+      team: row.team,
+    }
+  }
+
+  // Trae una sola conversación completa (con sus joins) y la agrega a la
+  // lista si todavía no está — para cuando llega una realmente nueva, o
+  // se reabre una que no teníamos cargada.
+  function fetchAndAddConversation(id: string) {
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .eq('id', id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) return
+        const mapped = mapConversation(data)
+        setConversations((prev) => (prev.some((c) => c.id === mapped.id) ? prev : [mapped, ...prev]))
+      })
+  }
+
   // Carga inicial + se mantiene al día en vivo (conversaciones nuevas,
   // reasignadas, cerradas, o con mensajes nuevos de cualquier canal).
   useEffect(() => {
@@ -137,9 +210,52 @@ function AppContent() {
     // duplicaba el aviso y multiplicaba la cantidad de mensajes de
     // Realtime que consume el proyecto, sin agregar nada que esta de
     // acá abajo no cubra ya.
+    //
+    // ANTES: cualquier cambio en CUALQUIER conversación de la empresa
+    // (de cualquier operador) volvía a pedir las 1000 conversaciones
+    // ENTERAS, con los joins de contacts/operators, a TODOS los
+    // operadores conectados a la vez. Con varios operadores y mensajes
+    // entrando todo el día, esto multiplicaba muchísimo la cantidad de
+    // requests — es la causa más probable de los picos de Realtime/uso
+    // de API que estábamos viendo.
+    //
+    // AHORA: cada evento se aplica en memoria (sin ir a la base) salvo
+    // en los dos casos en que realmente hace falta traer datos que no
+    // tenemos: una conversación nueva, o una que se reabre y no
+    // estábamos mostrando — ahí se trae SOLO esa fila, no las 1000.
     const channel = supabase
       .channel('conversations-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, loadConversations)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
+        const row = payload.new as Record<string, any>
+        if (row.status === 'cerrada') return
+        fetchAndAddConversation(row.id)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
+        const row = payload.new as Record<string, any>
+
+        if (row.status === 'cerrada') {
+          // La lista activa nunca incluye cerradas.
+          setConversations((prev) => prev.filter((c) => c.id !== row.id))
+          return
+        }
+
+        setConversations((prev) => {
+          const idx = prev.findIndex((c) => c.id === row.id)
+          if (idx === -1) {
+            // No la teníamos (se acaba de reabrir, o había quedado
+            // afuera del límite de 1000) — recién acá hace falta traerla.
+            fetchAndAddConversation(row.id)
+            return prev
+          }
+          const next = [...prev]
+          next[idx] = applyConversationPatch(next[idx], row, operatorNamesRef.current)
+          return next
+        })
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
+        const oldRow = payload.old as Record<string, any>
+        setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
+      })
       .subscribe()
 
     return () => {
@@ -223,6 +339,44 @@ function AppContent() {
     }
   }, [theme])
 
+  // --- Auto-logout por inactividad -----------------------------------
+  // Pedido puntual: si pasan 30 minutos sin que el operador mande un
+  // mensaje (no actividad genérica de mouse/teclado, sino su propia
+  // participación en la mensajería), se cierra la sesión sola y se
+  // avisa en pantalla. Esto también ayuda a bajar la cantidad de
+  // conexiones de Realtime abiertas de operadores que quedaron
+  // logueados pero inactivos.
+  useEffect(() => {
+    function markActivity() {
+      lastActivityRef.current = Date.now()
+    }
+    window.addEventListener('operator-activity', markActivity)
+    return () => window.removeEventListener('operator-activity', markActivity)
+  }, [])
+
+  // Arranca el contador limpio en cada sesión nueva (login).
+  useEffect(() => {
+    if (session) {
+      lastActivityRef.current = Date.now()
+      setLoggedOutForInactivity(false)
+    }
+  }, [session])
+
+  useEffect(() => {
+    if (!session) return
+
+    const INACTIVITY_LIMIT_MS = 30 * 60 * 1000 // 30 minutos
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
+        setLoggedOutForInactivity(true)
+        supabase.auth.signOut()
+      }
+    }, 30_000) // chequear cada 30s alcanza, no hace falta más seguido
+
+    return () => clearInterval(interval)
+  }, [session])
+
   async function changeTheme(next: string) {
     setTheme(next)
     if (operatorId) {
@@ -246,7 +400,18 @@ function AppContent() {
     )
   }
 
-  if (!session) return <Login />
+  if (!session) {
+    return (
+      <>
+        {loggedOutForInactivity && (
+          <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
+            Se cerró tu sesión por inactividad (30 minutos sin mandar mensajes). Volvé a iniciar sesión para continuar.
+          </div>
+        )}
+        <Login />
+      </>
+    )
+  }
 
   if (passwordRecovery) {
     return <ResetPassword onDone={() => setPasswordRecovery(false)} />

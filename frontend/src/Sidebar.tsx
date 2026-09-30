@@ -78,7 +78,12 @@ export default function Sidebar({
   const mineCount = conversations.filter(
     (c) => c.assignedOperatorId === operatorId && (c.unread || c.status !== 'cerrada'),
   ).length
-  const unassignedCount = conversations.filter((c) => c.assignedOperatorId === null).length
+  // Tiene que ser EXACTAMENTE el mismo filtro que usa la pestaña "Sin
+  // asignar" para mostrar la lista (en Inbox.tsx) — antes este número
+  // solo miraba assignedOperatorId, sin needsAssignment, así que el
+  // contador podía mostrar conversaciones que la lista de abajo no
+  // mostraba (ej: cerradas sin asignar, que no "necesitan" asignación).
+  const unassignedCount = conversations.filter((c) => c.assignedOperatorId === null && c.needsAssignment).length
   const snoozedCount = conversations.filter(
     (c) => c.snoozedUntil && new Date(c.snoozedUntil).getTime() > Date.now(),
   ).length

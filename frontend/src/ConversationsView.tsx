@@ -933,6 +933,9 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      // Avisa a App.tsx que el operador acaba de participar (se usa para
+      // el auto-logout por inactividad — 30 min sin mandar un mensaje).
+      window.dispatchEvent(new Event('operator-activity'))
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
         body: { conversationId: selectedId, channel: sendChannel, text: textToSend, replyToMessageId: replyToMessageIdToSend },
@@ -945,6 +948,7 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      window.dispatchEvent(new Event('operator-activity'))
     }
   }
 

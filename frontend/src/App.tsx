@@ -149,33 +149,51 @@ function AppContent() {
 
   // Sonido + notificación del navegador cuando llega un mensaje nuevo de un cliente
   useEffect(() => {
-    if (!session) return
+    if (!session || !operatorId) return
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
 
+    // Antes esto escuchaba TODOS los mensajes de TODOS los clientes, sin
+    // filtrar, y por cada uno hacía una consulta aparte a "conversations"
+    // solo para chequear si era mío — con varios operadores conectados,
+    // cada mensaje de cualquier cliente generaba un evento de Realtime +
+    // una consulta a la base POR CADA operador conectado, casi todas
+    // descartadas al toque. Eso suma bastante al uso de Supabase sin
+    // necesidad.
+    //
+    // Ahora se filtra directo por "assigned_operator_id" — Realtime SÍ
+    // puede filtrar esto del lado del servidor porque es una columna
+    // propia de la tabla a la que nos suscribimos (no hace falta cruzar
+    // con "messages"), así que Supabase ya me manda solo lo que me toca,
+    // sin la consulta extra. "conversations.last_contact_message_at" se
+    // actualiza solo con cada mensaje real del cliente (trigger ya
+    // existente), así que alcanza con mirar ese campo.
     const channel = supabase
-      .channel('new-messages-notify')
+      .channel(`my-new-messages-${operatorId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: 'sender_type=eq.contact' },
-        async (payload) => {
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversations',
+          filter: `assigned_operator_id=eq.${operatorId}`,
+        },
+        (payload) => {
           if (muted) return
 
-          // Solo suena si el mensaje cayó en una conversación asignada A
-          // MÍ — no es un sonido universal para todo el equipo por cada
-          // mensaje que entra, sea de quien sea.
-          const { data: conv } = await supabase
-            .from('conversations')
-            .select('assigned_operator_id')
-            .eq('id', payload.new.conversation_id)
-            .maybeSingle()
-
-          if (conv?.assigned_operator_id !== operatorId) return
+          // "last_contact_message_at" puede venir en updates que no son
+          // un mensaje nuevo (por ejemplo, reasignación) — se chequea que
+          // sea reciente (últimos 10s) para no sonar de más en esos casos.
+          const lastContactAt = payload.new.last_contact_message_at as string | null
+          if (!lastContactAt) return
+          if (Date.now() - new Date(lastContactAt).getTime() > 10_000) return
 
           playNotificationSound()
           if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Mensaje nuevo', { body: String(payload.new.content ?? '').slice(0, 120) })
+            new Notification('Mensaje nuevo', {
+              body: String(payload.new.last_message_preview ?? '').slice(0, 120),
+            })
           }
         },
       )

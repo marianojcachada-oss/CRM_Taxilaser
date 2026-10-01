@@ -52,6 +52,8 @@ function AppContent() {
   const [operatorNames, setOperatorNames] = useState<Map<string, string>>(new Map())
   const operatorNamesRef = useRef<Map<string, string>>(new Map())
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [totalConversationsCount, setTotalConversationsCount] = useState(0)
+  const inFlightFetchRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -217,18 +219,42 @@ function AppContent() {
   // Trae una sola conversación completa (con sus joins) y la agrega a la
   // lista si todavía no está — para cuando llega una realmente nueva, o
   // se reabre una que no teníamos cargada.
+  //
+  // "inFlightFetchRef" evita pedir la misma conversación dos veces si
+  // llegan dos eventos casi juntos para el mismo id (por ejemplo, se
+  // crea y al toque se actualiza) antes de que el primer pedido termine
+  // y la agregue a la lista — sin esto, el segundo evento todavía la ve
+  // como "no la tengo" y dispara otro pedido igual.
   function fetchAndAddConversation(id: string) {
+    if (inFlightFetchRef.current.has(id)) return
+    inFlightFetchRef.current.add(id)
     supabase
       .from('conversations')
       .select(CONVERSATION_SELECT)
       .eq('id', id)
       .single()
       .then(({ data, error }) => {
+        inFlightFetchRef.current.delete(id)
         if (error || !data) return
         const mapped = mapConversation(data)
         setConversations((prev) => (prev.some((c) => c.id === mapped.id) ? prev : [mapped, ...prev]))
       })
   }
+
+  // Contador total de conversaciones (para "Todos"), movido acá desde
+  // Inbox.tsx: antes tenía su PROPIA suscripción de Realtime a toda la
+  // tabla "conversations", separada de esta — eso significa que cada
+  // INSERT/DELETE se entregaba DOS VECES (una por cada canal suscripto).
+  // Ahora se calcula una sola vez al entrar y se ajusta con los mismos
+  // eventos INSERT/DELETE que ya está escuchando el canal de abajo, sin
+  // sumar una suscripción nueva.
+  useEffect(() => {
+    if (!session) return
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .then(({ count }) => setTotalConversationsCount(count ?? 0))
+  }, [session])
 
   // Carga inicial + se mantiene al día en vivo (conversaciones nuevas,
   // reasignadas, cerradas, o con mensajes nuevos de cualquier canal).
@@ -261,6 +287,7 @@ function AppContent() {
       .channel('conversations-list')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
         const row = payload.new as Record<string, any>
+        setTotalConversationsCount((n) => n + 1)
         if (row.status === 'cerrada') return
         fetchAndAddConversation(row.id)
       })
@@ -288,6 +315,7 @@ function AppContent() {
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
         const oldRow = payload.old as Record<string, any>
+        setTotalConversationsCount((n) => Math.max(0, n - 1))
         setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
       })
       .subscribe()
@@ -473,6 +501,7 @@ function AppContent() {
         conversations={conversations}
         setConversations={setConversations}
         onRefreshConversations={loadConversations}
+        totalConversationsCount={totalConversationsCount}
         muted={muted}
         onToggleMuted={toggleMuted}
         operatorPresence={operatorPresence}

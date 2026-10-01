@@ -61,6 +61,7 @@ type Props = {
   conversations: Conversation[]
   setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
   onRefreshConversations: () => void
+  totalConversationsCount: number
   muted: boolean
   onToggleMuted: () => void
   operatorPresence: 'available' | 'offline' | 'busy'
@@ -78,6 +79,7 @@ export default function Inbox({
   conversations,
   setConversations,
   onRefreshConversations,
+  totalConversationsCount,
   muted,
   onToggleMuted,
   operatorPresence,
@@ -85,7 +87,6 @@ export default function Inbox({
 }: Props) {
   const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
   const [missedCallsCount, setMissedCallsCount] = useState(0)
-  const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [internalChannel, setInternalChannel] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
@@ -176,36 +177,11 @@ export default function Inbox({
     }
   }, [])
 
-  // Contador total de conversaciones (para "Todos"). OJO: esto antes
-  // dependía de "[conversations]" — ese array cambia de referencia con
-  // CADA mensaje/reasignación/cierre de CUALQUIER conversación de
-  // cualquier operador (la lista se actualiza en vivo en App.tsx), así
-  // que este conteo se volvía a pedir a la base en cada uno de esos
-  // eventos, multiplicado por cada operador conectado. Eso es lo que se
-  // veía en los logs como cientos de HEAD /rest/v1/conversations por
-  // minuto. El total real (cuántas conversaciones existen en toda la
-  // tabla) solo cambia cuando se crea o se borra una conversación — no
-  // con cada mensaje — así que ahora se calcula una sola vez al entrar
-  // y se refresca solo con esos dos eventos, mucho menos frecuentes.
-  useEffect(() => {
-    function loadTotalConversationsCount() {
-      supabase
-        .from('conversations')
-        .select('id', { count: 'exact', head: true })
-        .then(({ count }) => setTotalConversationsCount(count ?? 0))
-    }
-    loadTotalConversationsCount()
-
-    const channel = supabase
-      .channel('total-conversations-count')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [])
+  // Contador total de conversaciones (para "Todos"): ahora se calcula una
+  // sola vez y se mantiene al día en App.tsx (que ya tiene abierto el
+  // canal realtime de "conversations"), y llega acá como prop
+  // "totalConversationsCount" — así se evita un segundo canal realtime
+  // suscripto a la misma tabla (que antes duplicaba los eventos recibidos).
 
   useEffect(() => {
     if (filter.kind !== 'all') {

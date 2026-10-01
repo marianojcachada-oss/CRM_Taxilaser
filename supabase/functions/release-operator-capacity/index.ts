@@ -1,11 +1,10 @@
-// supabase/functions/release-operator-capacity/index.ts
+// supabase/functions/deactivate-operator/index.ts
 //
-// Botón de emergencia para reiniciar el reparto: pone current_load en 0
-// para todos los operadores, y marca como visto todas las conversaciones
-// abiertas que quedaron asignadas. Solo un admin puede llamarla — el
-// permiso se verifica acá contra el JWT de quien llama, no en el
-// frontend, así que aunque alguien manipule el botón no puede ejecutarla
-// sin ser admin de verdad.
+// Desactiva un operador en vez de borrarlo: le corta el acceso (login
+// bloqueado), lo saca de todas las colas y libera lo que tuviera
+// asignado — pero conserva su fila en operators intacta, para que el
+// historial de auditoría siga mostrando quién hizo qué mientras estuvo
+// activo. Solo un admin puede llamarla.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -18,6 +17,7 @@ const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400", // cachea el preflight OPTIONS del navegador por 24hs
 };
 
 Deno.serve(async (req) => {
@@ -51,49 +51,59 @@ Deno.serve(async (req) => {
     .single();
 
   if (!callerOperator?.is_admin) {
-    return new Response(JSON.stringify({ error: "Solo un administrador puede liberar la carga" }), {
+    return new Response(JSON.stringify({ error: "Solo un administrador puede desactivar operadores" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // 1. Todos los operadores vuelven a carga 0 — reinicia el reparto del
-  // round robin desde cero para todo el equipo.
-  const { error: loadError, count: operatorsReset } = await serviceClient
+  const { operator_id } = await req.json();
+  if (!operator_id) {
+    return new Response(JSON.stringify({ error: "Falta operator_id" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const { data: target } = await serviceClient
     .from("operators")
-    .update({ current_load: 0 })
-    .neq("current_load", 0)
-    .select("id", { count: "exact", head: true });
+    .select("auth_user_id")
+    .eq("id", operator_id)
+    .single();
 
-  if (loadError) {
-    return new Response(JSON.stringify({ error: loadError.message }), {
+  if (!target) {
+    return new Response(JSON.stringify({ error: "Ese operador no existe" }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Liberar lo que tuviera asignado, para que vuelva a repartirse solo
+  await serviceClient.from("conversations").update({ assigned_operator_id: null }).eq("assigned_operator_id", operator_id);
+
+  // Sacarlo de todas las colas — no vuelve a entrar al round robin
+  await serviceClient.from("queue_members").delete().eq("operator_id", operator_id);
+
+  // Marcarlo inactivo y no disponible, sin borrar la fila (mantiene el
+  // historial de auditoría con su nombre real, no un actor desconocido)
+  const { error: updateError } = await serviceClient
+    .from("operators")
+    .update({ is_active: false, presence: "unavailable" })
+    .eq("id", operator_id);
+  if (updateError) {
+    return new Response(JSON.stringify({ error: updateError.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // 2. Todo lo abierto y asignado pasa a "visto" — limpia la bandeja para
-  // arrancar de nuevo, sin tocar lo cerrado ni lo todavía sin asignar.
-  const { error: unreadError, count: conversationsMarkedRead } = await serviceClient
-    .from("conversations")
-    .update({ unread: false })
-    .neq("status", "cerrada")
-    .not("assigned_operator_id", "is", null)
-    .select("id", { count: "exact", head: true });
-
-  if (unreadError) {
-    return new Response(JSON.stringify({ error: unreadError.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  // Bloquearle el login (baneo largo, no borra la cuenta) — un admin
+  // puede reactivarlo más adelante si hace falta
+  if (target.auth_user_id) {
+    await serviceClient.auth.admin.updateUserById(target.auth_user_id, { ban_duration: "876000h" });
   }
 
-  return new Response(
-    JSON.stringify({
-      success: true,
-      operatorsReset: operatorsReset ?? 0,
-      conversationsMarkedRead: conversationsMarkedRead ?? 0,
-    }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-  );
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });

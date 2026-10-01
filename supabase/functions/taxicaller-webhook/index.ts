@@ -35,7 +35,7 @@
 // mensaje ya va a salir completo solo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getSetting } from "../_shared/settings.ts";
+import { getSettings } from "../_shared/settings.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
 
@@ -45,10 +45,19 @@ const supabase = createClient(
 );
 
 Deno.serve(async (req) => {
+  // Las 3 claves que puede llegar a necesitar esta función se piden juntas
+  // en una sola consulta — antes eran 3 consultas separadas (una por
+  // getSetting()) en CADA evento que manda TaxiCaller.
+  const settings = await getSettings([
+    "TAXICALLER_WEBHOOK_SECRET",
+    "TAXICALLER_AUTO_MESSAGE_ENABLED",
+    "RINGCENTRAL_FROM_NUMBER",
+  ]);
+
   // TaxiCaller no puede autenticarse con un JWT de Supabase — en vez de
   // eso, validamos un secreto compartido que vos configurás como header
   // custom en el panel de TaxiCaller.
-  const expectedSecret = await getSetting("TAXICALLER_WEBHOOK_SECRET");
+  const expectedSecret = settings.TAXICALLER_WEBHOOK_SECRET;
   const receivedSecret = req.headers.get("X-Webhook-Secret");
 
   if (expectedSecret && receivedSecret !== expectedSecret) {
@@ -58,7 +67,7 @@ Deno.serve(async (req) => {
   // Interruptor manual: si está apagado desde Integrations, no se manda
   // nada — ni el SMS ni se toca la base. Por defecto queda prendido
   // (si nunca se cargó el valor, se lo trata como activado).
-  const enabled = await getSetting("TAXICALLER_AUTO_MESSAGE_ENABLED");
+  const enabled = settings.TAXICALLER_AUTO_MESSAGE_ENABLED;
   if (enabled === "false") {
     return new Response("OK (desactivado desde Integrations)", { status: 200 });
   }
@@ -128,7 +137,7 @@ Deno.serve(async (req) => {
     console.warn("Evento 'wait' sin passenger_name — revisar si TaxiCaller lo está mandando. Body completo:", JSON.stringify(body));
   }
 
-  const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
+  const dispatchNumber = settings.RINGCENTRAL_FROM_NUMBER ?? "";
   const make = body.vehicle_make || "";
   const color = body.vehicle_color || "";
   const plate = body.vehicle_plate || "";

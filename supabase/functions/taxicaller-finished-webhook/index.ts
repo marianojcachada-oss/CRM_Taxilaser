@@ -14,7 +14,7 @@
 // }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getSetting } from "../_shared/settings.ts";
+import { getSettings } from "../_shared/settings.ts";
 import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 
@@ -24,14 +24,18 @@ const supabase = createClient(
 );
 
 Deno.serve(async (req) => {
-  const expectedSecret = await getSetting("TAXICALLER_WEBHOOK_SECRET");
+  // Ambas claves en una sola consulta — antes eran 2 consultas separadas
+  // en CADA evento que manda TaxiCaller.
+  const settings = await getSettings(["TAXICALLER_WEBHOOK_SECRET", "TAXICALLER_FINISHED_MESSAGE_ENABLED"]);
+
+  const expectedSecret = settings.TAXICALLER_WEBHOOK_SECRET;
   const receivedSecret = req.headers.get("X-Webhook-Secret");
 
   if (expectedSecret && receivedSecret !== expectedSecret) {
     return new Response(JSON.stringify({ error: "Secreto inválido" }), { status: 401 });
   }
 
-  const enabled = await getSetting("TAXICALLER_FINISHED_MESSAGE_ENABLED");
+  const enabled = settings.TAXICALLER_FINISHED_MESSAGE_ENABLED;
   if (enabled === "false") {
     return new Response("OK (desactivado desde Integrations)", { status: 200 });
   }
@@ -132,9 +136,26 @@ Deno.serve(async (req) => {
   // nuevo) -- ahora cierra de una cualquier conversacion existente que
   // reciba uno de estos avisos automaticos, y la desasigna (para que no
   // quede pegada a un operador ni cuente para nadie).
+  //
+  // Guardamos quién la tenía asignada justo antes de desasignarla, en
+  // preferred_operator_id — si el cliente responde algo y el chat se
+  // reabre, el round robin le va a dar prioridad a esa misma persona
+  // (si sigue disponible) en vez de repartirlo a cualquiera del turno.
+  const { data: convBeforeClose } = await supabase
+    .from("conversations")
+    .select("assigned_operator_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+
   await supabase
     .from("conversations")
-    .update({ status: "cerrada", unread: false, assigned_operator_id: null, needs_assignment: false })
+    .update({
+      status: "cerrada",
+      unread: false,
+      assigned_operator_id: null,
+      needs_assignment: false,
+      preferred_operator_id: convBeforeClose?.assigned_operator_id ?? null,
+    })
     .eq("id", conversationId);
 
   await supabase.from("messages").insert({

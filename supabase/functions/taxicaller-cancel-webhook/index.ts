@@ -12,7 +12,7 @@
 // }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getSetting } from "../_shared/settings.ts";
+import { getSettings } from "../_shared/settings.ts";
 import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 
@@ -22,14 +22,23 @@ const supabase = createClient(
 );
 
 Deno.serve(async (req) => {
-  const expectedSecret = await getSetting("TAXICALLER_WEBHOOK_SECRET");
+  // Las 3 claves que puede llegar a necesitar esta función se piden juntas
+  // en una sola consulta — antes eran 3 consultas separadas (una por
+  // getSetting()) en CADA evento que manda TaxiCaller.
+  const settings = await getSettings([
+    "TAXICALLER_WEBHOOK_SECRET",
+    "TAXICALLER_CANCEL_MESSAGE_ENABLED",
+    "RINGCENTRAL_FROM_NUMBER",
+  ]);
+
+  const expectedSecret = settings.TAXICALLER_WEBHOOK_SECRET;
   const receivedSecret = req.headers.get("X-Webhook-Secret");
 
   if (expectedSecret && receivedSecret !== expectedSecret) {
     return new Response(JSON.stringify({ error: "Secreto inválido" }), { status: 401 });
   }
 
-  const enabled = await getSetting("TAXICALLER_CANCEL_MESSAGE_ENABLED");
+  const enabled = settings.TAXICALLER_CANCEL_MESSAGE_ENABLED;
   if (enabled === "false") {
     return new Response("OK (desactivado desde Integrations)", { status: 200 });
   }
@@ -60,7 +69,7 @@ Deno.serve(async (req) => {
 
   const phone = normalizePhone(rawPhone);
   const passengerName = body.passenger_name || null;
-  const dispatchNumber = (await getSetting("RINGCENTRAL_FROM_NUMBER")) ?? "";
+  const dispatchNumber = settings.RINGCENTRAL_FROM_NUMBER ?? "";
 
   const text =
     `Su servicio ha sido cancelado. Para solicitarlo nuevamente por favor llame o envíe un SMS` +

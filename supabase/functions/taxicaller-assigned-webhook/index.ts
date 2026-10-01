@@ -23,7 +23,7 @@
 // }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getSetting } from "../_shared/settings.ts";
+import { getSettings } from "../_shared/settings.ts";
 import { normalizePhone } from "../_shared/phone.ts";
 
 const supabase = createClient(
@@ -59,14 +59,18 @@ function parseEtaTimeToMinutes(etaTimeStr: string): number | null {
 }
 
 Deno.serve(async (req) => {
-  const expectedSecret = await getSetting("TAXICALLER_WEBHOOK_SECRET");
+  // Ambas claves en una sola consulta — antes eran 2 consultas separadas
+  // en CADA evento que manda TaxiCaller.
+  const settings = await getSettings(["TAXICALLER_WEBHOOK_SECRET", "TAXICALLER_ASSIGNED_TRACKING_ENABLED"]);
+
+  const expectedSecret = settings.TAXICALLER_WEBHOOK_SECRET;
   const receivedSecret = req.headers.get("X-Webhook-Secret");
 
   if (expectedSecret && receivedSecret !== expectedSecret) {
     return new Response(JSON.stringify({ error: "Secreto inválido" }), { status: 401 });
   }
 
-  const enabled = await getSetting("TAXICALLER_ASSIGNED_TRACKING_ENABLED");
+  const enabled = settings.TAXICALLER_ASSIGNED_TRACKING_ENABLED;
   if (enabled === "false") {
     return new Response("OK (desactivado desde Integrations)", { status: 200 });
   }

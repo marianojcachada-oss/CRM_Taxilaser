@@ -6,7 +6,7 @@
 // de asignar el operador automáticamente al insertar la conversación.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getSetting } from "../_shared/settings.ts";
+import { getSetting, getSettings } from "../_shared/settings.ts";
 import { lookupPassengerName } from "../_shared/taxicaller.ts";
 import { handleMissedCallAutoReply } from "../_shared/missedCallAutoReply.ts";
 import { handleOptOutKeyword } from "../_shared/optOut.ts";
@@ -114,11 +114,20 @@ Deno.serve(async (req) => {
   }
 
   // -----------------------------------------------------
+  // Las tres claves que puede llegar a necesitar este webhook se piden
+  // juntas, en una sola consulta — antes eran 2 o 3 consultas separadas
+  // (una por getSetting()) en CADA mensaje/estado que manda Meta, que es
+  // justamente el webhook con más volumen de todos. META_ACCESS_TOKEN
+  // casi nunca hace falta (solo para bajar adjuntos), pero pedirla acá
+  // no cuesta una consulta extra — ya viene en el mismo viaje.
+  // -----------------------------------------------------
+  const metaSettings = await getSettings(["META_INTAKE_ENABLED", "META_APP_SECRET", "META_ACCESS_TOKEN"]);
+
+  // -----------------------------------------------------
   // Freno propio: si está desactivado desde Integrations, no se procesa
   // nada — sin importar el estado real de la suscripción en Meta.
   // -----------------------------------------------------
-  const intakeEnabled = await getSetting("META_INTAKE_ENABLED");
-  if (intakeEnabled === "false") {
+  if (metaSettings.META_INTAKE_ENABLED === "false") {
     return new Response("OK (integración desactivada)", { status: 200 });
   }
 
@@ -128,7 +137,7 @@ Deno.serve(async (req) => {
   // no de cualquiera que haya encontrado esta URL.
   // -----------------------------------------------------
   const rawBody = await req.text();
-  const appSecret = await getSetting("META_APP_SECRET");
+  const appSecret = metaSettings.META_APP_SECRET;
 
   if (appSecret) {
     const signatureHeader = req.headers.get("X-Hub-Signature-256") ?? "";
@@ -176,7 +185,7 @@ Deno.serve(async (req) => {
                 ? `📍 Ubicación compartida${label ? ` (${label})` : ""}: https://maps.google.com/?q=${lat},${lng}`
                 : "📍 Ubicación compartida (sin coordenadas)";
           } else if (msg.type === "image" || msg.type === "audio" || msg.type === "video" || msg.type === "document" || msg.type === "sticker") {
-            const metaToken = await getSetting("META_ACCESS_TOKEN");
+            const metaToken = metaSettings.META_ACCESS_TOKEN;
             const mediaObj = msg[msg.type];
             const mediaId = mediaObj?.id;
 

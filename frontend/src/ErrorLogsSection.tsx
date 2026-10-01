@@ -83,7 +83,21 @@ export default function ErrorLogsSection() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-cream">{e.message}</p>
                   <p className="text-[11px] text-muted">
-                    {new Date(e.created_at).toLocaleString('es-AR')} · {e.context ?? 'sin contexto'}
+                    {new Date(e.created_at).toLocaleString('es-AR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      // Por defecto 'es-AR' usa formato 24hs sin aclarar
+                      // AM/PM, lo que hacía ambigua una hora como "11:01"
+                      // (¿de la mañana o de la noche?). Fuerza 12hs con
+                      // a. m./p. m. explícito para que no haga falta
+                      // adivinar.
+                      hour12: true,
+                    })}{' '}
+                    · {e.context ?? 'sin contexto'}
                   </p>
                 </div>
               </button>

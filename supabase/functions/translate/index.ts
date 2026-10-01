@@ -5,11 +5,12 @@
 // cargadas ahí, usan los secrets de la CLI como respaldo.
 // La llama el navegador directamente, así que necesita headers de CORS.
 
-import { getSetting } from "../_shared/settings.ts";
+import { getSettings } from "../_shared/settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400", // cachea el preflight OPTIONS del navegador por 24hs
 };
 
 Deno.serve(async (req) => {
@@ -27,10 +28,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Las 2 claves en una sola consulta — antes eran 2 consultas separadas
+    // en CADA traducción pedida desde el chat.
+    const settings = await getSettings(["LIBRETRANSLATE_URL", "LIBRETRANSLATE_API_KEY"]);
     const libretranslateUrl =
-      (await getSetting("LIBRETRANSLATE_URL", "LIBRETRANSLATE_URL")) ??
-      "https://translate.argosopentech.com";
-    const apiKey = await getSetting("LIBRETRANSLATE_API_KEY", "LIBRETRANSLATE_API_KEY");
+      settings.LIBRETRANSLATE_URL ?? Deno.env.get("LIBRETRANSLATE_URL") ?? "https://translate.argosopentech.com";
+    const apiKey = settings.LIBRETRANSLATE_API_KEY ?? Deno.env.get("LIBRETRANSLATE_API_KEY");
 
     const body: Record<string, string> = {
       q: text,

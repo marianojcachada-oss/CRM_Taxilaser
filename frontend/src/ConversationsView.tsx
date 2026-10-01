@@ -1695,7 +1695,12 @@ export default function ConversationsView({
                 }}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
                 rows={1}
-                className="max-h-40 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
+                // "flex-1 min-w-0": sin esto, en pantallas angostas (o con
+                // zoom/escala de Windows alto) el textarea no cedía el
+                // espacio sobrante a los íconos de al lado — todo quedaba
+                // amontonado contra el cuadro de texto en vez de que el
+                // cuadro se achique y los íconos mantengan su tamaño fijo.
+                className="min-w-0 max-h-40 flex-1 resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
               />
 
               <button

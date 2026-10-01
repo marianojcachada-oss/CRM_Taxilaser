@@ -28,11 +28,15 @@
 // que haga este código.
 //
 // El mensaje se arma como: "Su Taxi {make} {color} con placa {plate} ha
-// llegado / {tu número de RingCentral}". No tenemos indicativo (D1554) ni
-// modelo/año por separado — el otro sistema probablemente los arma
-// cruzando estos datos contra su propia base de vehículos, que nosotros
-// no tenemos. Si vehicle_make viniera combinado ("HYU Elantra 2012"), el
-// mensaje ya va a salir completo solo.
+// llegado". No tenemos indicativo (D1554) ni modelo/año por separado — el
+// otro sistema probablemente los arma cruzando estos datos contra su
+// propia base de vehículos, que nosotros no tenemos. Si vehicle_make
+// viniera combinado ("HYU Elantra 2012"), el mensaje ya va a salir
+// completo solo.
+//
+// Antes el mensaje terminaba agregando el número de RingCentral de la
+// empresa ("... ha llegado / +14045968232") — se sacó a pedido: ya no se
+// expone ningún número de teléfono en este aviso automático.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";
@@ -51,7 +55,6 @@ Deno.serve(async (req) => {
   const settings = await getSettings([
     "TAXICALLER_WEBHOOK_SECRET",
     "TAXICALLER_AUTO_MESSAGE_ENABLED",
-    "RINGCENTRAL_FROM_NUMBER",
   ]);
 
   // TaxiCaller no puede autenticarse con un JWT de Supabase — en vez de
@@ -137,7 +140,6 @@ Deno.serve(async (req) => {
     console.warn("Evento 'wait' sin passenger_name — revisar si TaxiCaller lo está mandando. Body completo:", JSON.stringify(body));
   }
 
-  const dispatchNumber = settings.RINGCENTRAL_FROM_NUMBER ?? "";
   const make = body.vehicle_make || "";
   const color = body.vehicle_color || "";
   const plate = body.vehicle_plate || "";
@@ -228,12 +230,10 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Mismo formato que ya usa la empresa: "Su Taxi D1554 HYU Elantra 2012
-  // ROJO / RED con placa SJI7407 ha llegado / 404-596-8232"
+  // "Su Taxi D1554 HYU Elantra 2012 ROJO / RED con placa SJI7407 ha
+  // llegado" — sin el número de teléfono de la empresa al final.
   const vehicleLine = [make, color].filter(Boolean).join(" ");
-  const text =
-    `Su Taxi ${vehicleLine}${plate ? ` con placa ${plate}` : ""} ha llegado` +
-    (dispatchNumber ? ` / ${dispatchNumber}` : "");
+  const text = `Su Taxi ${vehicleLine}${plate ? ` con placa ${plate}` : ""} ha llegado`;
 
   // El contacto ya se buscó más arriba (para el chequeo de seguridad) —
   // llegado a este punto, sabemos que existe y tiene un servicio activo,

@@ -405,10 +405,10 @@ export default function ContactPanel({ conversation, onClose }: Props) {
                 {hasName ? conversation.name : 'Contacto nuevo'}
                 {conversation.vip && <Star size={13} className="fill-mustard text-mustard" />}
               </h2>
-              <p className="flex items-center gap-1 font-mono text-xs text-muted">
+              <p className="flex items-center gap-1 font-mono text-sm text-muted">
                 {conversation.phone}
                 <button onClick={copyPhone} className="text-muted transition-colors hover:text-mustard" title="Copiar teléfono">
-                  {copied ? <Check size={12} className="text-available" /> : <Copy size={12} />}
+                  {copied ? <Check size={14} className="text-available" /> : <Copy size={14} />}
                 </button>
               </p>
             </div>

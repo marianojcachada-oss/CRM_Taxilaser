@@ -18,6 +18,11 @@ export const themes = [
   { id: 'whatsapp', label: 'WhatsApp', asphalt: '#0B141A', mustard: '#00A884' },
   { id: 'ringcentral', label: 'RingCentral', asphalt: '#F4F6F8', mustard: '#FF7A00' },
   { id: 'nostalgic', label: 'Nostalgic', asphalt: '#2B2944', mustard: '#21C685' },
+  { id: 'rosa', label: 'Rosa', asphalt: '#1F0A14', mustard: '#FF4FA3' },
+  { id: 'zello', label: 'Zello', asphalt: '#1A1F22', mustard: '#EF5E14' },
+  { id: 'verde-negro', label: 'Verde y negro', asphalt: '#000000', mustard: '#39FF14' },
+  { id: 'facebook', label: 'Facebook', asphalt: '#F0F2F5', mustard: '#1877F2' },
+  { id: 'msn', label: 'MSN', asphalt: '#0A2A4D', mustard: '#8CC63F' },
 ]
 
 type Props = {

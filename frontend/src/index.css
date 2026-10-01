@@ -239,6 +239,82 @@
   --color-muted: #9997B3;
 }
 
+/* Rosa — fucsia vívido sobre un fondo vino-rosado oscuro. Mismo espíritu
+   que "Bordo" y "Tamagotchi" pero llevado al extremo: acá el rosa es el
+   protagonista, no un detalle. */
+[data-theme='rosa'] {
+  --color-asphalt: #1F0A14;
+  --color-panel: #2B0F1E;
+  --color-panel-light: #3D1527;
+  --color-mustard: #FF4FA3;
+  --color-alert: #E85D6A;
+  --color-available: #6FD9A8;
+  --color-warning: #F2C14E;
+  --color-info: #7CA8E8;
+  --color-cream: #FBEBF2;
+  --color-muted: #A8829A;
+}
+
+/* Inspirado en el look de Zello: carbón ("Outer Space") de fondo y
+   naranja ("Tango") como color de acento. */
+[data-theme='zello'] {
+  --color-asphalt: #1A1F22;
+  --color-panel: #22282C;
+  --color-panel-light: #2E363B;
+  --color-mustard: #EF5E14;
+  --color-alert: #E5484D;
+  --color-available: #3DBD5D;
+  --color-warning: #F2C518;
+  --color-info: #4D8FDB;
+  --color-cream: #F5F5F5;
+  --color-muted: #8C9499;
+}
+
+/* Verde y negro — negro puro con verde neón de terminal como acento.
+   Alto contraste, estética "hacker". */
+[data-theme='verde-negro'] {
+  --color-asphalt: #000000;
+  --color-panel: #0A0A0A;
+  --color-panel-light: #161616;
+  --color-mustard: #39FF14;
+  --color-alert: #FF4136;
+  --color-available: #39FF14;
+  --color-warning: #FFD400;
+  --color-info: #2DE1C2;
+  --color-cream: #E8FCE8;
+  --color-muted: #6E8C6E;
+}
+
+/* Inspirado en el look claro de Facebook: fondos grises claros/blancos
+   y el azul de Facebook como color de acento. */
+[data-theme='facebook'] {
+  --color-asphalt: #F0F2F5;
+  --color-panel: #FFFFFF;
+  --color-panel-light: #E4E6E9;
+  --color-mustard: #1877F2;
+  --color-alert: #E41E3F;
+  --color-available: #31A24C;
+  --color-warning: #F7B928;
+  --color-info: #1877F2;
+  --color-cream: #050505;
+  --color-muted: #65676B;
+}
+
+/* Nostalgia MSN Messenger: azul profundo de la ventana clásica, con el
+   verde de la mariposa como color de acento. */
+[data-theme='msn'] {
+  --color-asphalt: #0A2A4D;
+  --color-panel: #0F3A66;
+  --color-panel-light: #184A7D;
+  --color-mustard: #8CC63F;
+  --color-alert: #E5534B;
+  --color-available: #8CC63F;
+  --color-warning: #F2C94C;
+  --color-info: #6FC6E8;
+  --color-cream: #F0F7FC;
+  --color-muted: #8FAFC9;
+}
+
 body {
   margin: 0;
   background-color: var(--color-asphalt);

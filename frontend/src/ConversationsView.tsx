@@ -1446,9 +1446,13 @@ export default function ConversationsView({
                           {/* Doble check gris: confirmado como entregado — WhatsApp al
                               teléfono del cliente, o RingCentral al operador móvil. */}
                           {m.status === 'delivered' && <CheckCheck size={10} />}
-                          {/* Doble check celeste: el cliente ya lo leyó — mismo color
-                              que usa WhatsApp para esto. */}
-                          {m.status === 'read' && <CheckCheck size={10} className="text-sky-400" />}
+                          {/* Doble check "leído": antes era un celeste fijo (text-sky-400),
+                              que en temas con el mostaza en tonos azules/celestes (Medianoche,
+                              Océano, Facebook, etc.) quedaba casi invisible sobre la burbuja
+                              propia. Ahora usa --color-tick-read, definido aparte en cada tema
+                              para que siempre contraste contra bg-mustard (el color de la
+                              burbuja de los mensajes propios). */}
+                          {m.status === 'read' && <CheckCheck size={10} className="text-tick-read" />}
                         </p>
                       )}
                       {m.from === 'contact' && m.text && (

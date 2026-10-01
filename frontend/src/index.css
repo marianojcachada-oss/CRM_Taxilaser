@@ -7,6 +7,7 @@
   --color-panel: #171512;
   --color-panel-light: #221F1B;
   --color-mustard: #F0BE52;
+  --color-tick-read: #2B6CB0;
   --color-alert: #C4453A;
   --color-available: #6FBF7E;
   --color-warning: #E8C547;
@@ -26,6 +27,7 @@
   --color-panel: #FBF9F5;
   --color-panel-light: #E4DFD3;
   --color-mustard: #C99A2E;
+  --color-tick-read: #2B6CB0;
   --color-alert: #B23A30;
   --color-available: #4F7D5C;
   --color-warning: #A9812A;
@@ -40,6 +42,7 @@
   --color-panel: #131A22;
   --color-panel-light: #1C2530;
   --color-mustard: #4FA8F0;
+  --color-tick-read: #0B1F3A;
   --color-alert: #E0605A;
   --color-available: #6FBF8B;
   --color-warning: #E8C547;
@@ -54,6 +57,7 @@
   --color-panel: #FFFFFF;
   --color-panel-light: #EDE3D3;
   --color-mustard: #D97A22;
+  --color-tick-read: #1D4ED8;
   --color-alert: #B23A30;
   --color-available: #4F7D5C;
   --color-warning: #A9812A;
@@ -68,6 +72,7 @@
   --color-panel: #182219;
   --color-panel-light: #233022;
   --color-mustard: #F2903F;
+  --color-tick-read: #1D4ED8;
   --color-alert: #D1554A;
   --color-available: #7AAE5C;
   --color-warning: #D9A93D;
@@ -82,6 +87,7 @@
   --color-panel: #241318;
   --color-panel-light: #341A20;
   --color-mustard: #E88BA0;
+  --color-tick-read: #1D4ED8;
   --color-alert: #D65C56;
   --color-available: #6FA37E;
   --color-warning: #D3A15A;
@@ -96,6 +102,7 @@
   --color-panel: #1A2226;
   --color-panel-light: #243034;
   --color-mustard: #FF6FB0;
+  --color-tick-read: #0E7490;
   --color-alert: #E85D5D;
   --color-available: #6FD9B8;
   --color-warning: #F2D24E;
@@ -110,6 +117,7 @@
   --color-panel: #FDFCFE;
   --color-panel-light: #EAE0F0;
   --color-mustard: #A971C4;
+  --color-tick-read: #1E3A8A;
   --color-alert: #C2637A;
   --color-available: #5FA087;
   --color-warning: #B08A42;
@@ -124,6 +132,7 @@
   --color-panel: #1E1528;
   --color-panel-light: #2B1E3A;
   --color-mustard: #A87EF0;
+  --color-tick-read: #241244;
   --color-alert: #E0685E;
   --color-available: #6FBF9B;
   --color-warning: #E0C24E;
@@ -139,6 +148,7 @@
   --color-panel: #141414;
   --color-panel-light: #1F1F1F;
   --color-mustard: #F2C518;
+  --color-tick-read: #1D4ED8;
   --color-alert: #E5484D;
   --color-available: #3DBD5D;
   --color-warning: #F2C518;
@@ -155,6 +165,7 @@
   --color-panel: #0A0A0A;
   --color-panel-light: #2E2E2E;
   --color-mustard: #FFD400;
+  --color-tick-read: #0047AB;
   --color-alert: #FF453A;
   --color-available: #32D74B;
   --color-warning: #FFD60A;
@@ -170,6 +181,7 @@
   --color-panel: #0D2735;
   --color-panel-light: #163A4D;
   --color-mustard: #2DD4C8;
+  --color-tick-read: #04202E;
   --color-alert: #FF6B5B;
   --color-available: #4ADE80;
   --color-warning: #FBBF24;
@@ -186,6 +198,7 @@
   --color-panel: #12211A;
   --color-panel-light: #1C3327;
   --color-mustard: #34E89E;
+  --color-tick-read: #1D4ED8;
   --color-alert: #F2545B;
   --color-available: #6EE7B7;
   --color-warning: #FACC15;
@@ -201,6 +214,7 @@
   --color-panel: #111B21;
   --color-panel-light: #202C33;
   --color-mustard: #00A884;
+  --color-tick-read: #53BDEB;
   --color-alert: #F15C6D;
   --color-available: #25D366;
   --color-warning: #FFD279;
@@ -216,6 +230,7 @@
   --color-panel: #FFFFFF;
   --color-panel-light: #EDEFF2;
   --color-mustard: #FF7A00;
+  --color-tick-read: #1D4ED8;
   --color-alert: #D32F2F;
   --color-available: #2E7D32;
   --color-warning: #ED8936;
@@ -231,6 +246,7 @@
   --color-panel: #2B2944;
   --color-panel-light: #363455;
   --color-mustard: #21C685;
+  --color-tick-read: #2B4ACB;
   --color-alert: #E5599C;
   --color-available: #21C685;
   --color-warning: #F5A623;
@@ -247,6 +263,7 @@
   --color-panel: #2B0F1E;
   --color-panel-light: #3D1527;
   --color-mustard: #FF4FA3;
+  --color-tick-read: #0EA5B5;
   --color-alert: #E85D6A;
   --color-available: #6FD9A8;
   --color-warning: #F2C14E;
@@ -262,6 +279,7 @@
   --color-panel: #22282C;
   --color-panel-light: #2E363B;
   --color-mustard: #EF5E14;
+  --color-tick-read: #1D4ED8;
   --color-alert: #E5484D;
   --color-available: #3DBD5D;
   --color-warning: #F2C518;
@@ -277,6 +295,7 @@
   --color-panel: #0A0A0A;
   --color-panel-light: #161616;
   --color-mustard: #39FF14;
+  --color-tick-read: #001B33;
   --color-alert: #FF4136;
   --color-available: #39FF14;
   --color-warning: #FFD400;
@@ -292,6 +311,7 @@
   --color-panel: #FFFFFF;
   --color-panel-light: #E4E6E9;
   --color-mustard: #1877F2;
+  --color-tick-read: #FFC107;
   --color-alert: #E41E3F;
   --color-available: #31A24C;
   --color-warning: #F7B928;
@@ -307,6 +327,7 @@
   --color-panel: #0F3A66;
   --color-panel-light: #184A7D;
   --color-mustard: #8CC63F;
+  --color-tick-read: #0A5BA8;
   --color-alert: #E5534B;
   --color-available: #8CC63F;
   --color-warning: #F2C94C;

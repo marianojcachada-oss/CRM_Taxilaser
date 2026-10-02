@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import { CircleUserRound, ChevronDown, Volume2, VolumeX, FlaskConical, ShieldCheck, LogOut, Check } from 'lucide-react'
-import { themes } from './ThemePicker'
+import { themes, chatPatterns, fonts } from './ThemePicker'
 
 type Props = {
   operatorName: string
   theme: string
   onChangeTheme: (id: string) => void
+  // Patrón de fondo del chat — independiente del tema de colores, cada
+  // operador elige el suyo (ver index.css, clases .chat-pattern-*).
+  chatPattern: string
+  onChangeChatPattern: (id: string) => void
+  // Tipografía — tercer sibling de preferencias (ver ThemePicker.tsx -> fonts).
+  font: string
+  onChangeFont: (id: string) => void
   muted: boolean
   onToggleMuted: () => void
   isAdmin: boolean
@@ -18,6 +25,10 @@ export default function ProfileMenu({
   operatorName,
   theme,
   onChangeTheme,
+  chatPattern,
+  onChangeChatPattern,
+  font,
+  onChangeFont,
   muted,
   onToggleMuted,
   isAdmin,
@@ -43,6 +54,20 @@ export default function ProfileMenu({
           {/* Clickear afuera cierra el menú */}
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-sm border border-panel-light bg-panel p-2 shadow-lg">
+            {/* Vista previa en vivo: combina el tema y el patrón que estén
+                activos en este momento (se actualiza solo al tocar
+                cualquier opción de abajo, sin cerrar el menú). */}
+            <div
+              className={`chat-pattern-${chatPattern} relative mb-2 flex h-16 flex-col justify-end gap-1 overflow-hidden rounded-sm border border-panel-light p-1.5`}
+            >
+              <span className="w-fit max-w-[75%] rounded-sm bg-panel-light px-1.5 py-0.5 text-[9px] text-cream">
+                Hola, ¿cómo va?
+              </span>
+              <span className="w-fit max-w-[75%] self-end rounded-sm bg-mustard px-1.5 py-0.5 text-[9px] text-asphalt">
+                Todo bien, ¡gracias!
+              </span>
+            </div>
+
             <p className="mb-1 px-2 text-[10px] uppercase tracking-wide text-muted">Tema</p>
             {themes.map((t) => (
               <button
@@ -58,6 +83,43 @@ export default function ProfileMenu({
                 </span>
                 {t.label}
                 {theme === t.id && <Check size={12} className="ml-auto" />}
+              </button>
+            ))}
+
+            <div className="my-2 border-t border-panel-light" />
+
+            <p className="mb-1 px-2 text-[10px] uppercase tracking-wide text-muted">Patrón de chat</p>
+            {chatPatterns.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onChangeChatPattern(p.id)}
+                className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors ${
+                  chatPattern === p.id ? 'bg-panel-light text-mustard' : 'text-cream hover:bg-panel-light/60'
+                }`}
+              >
+                <span
+                  className={`chat-pattern-${p.id} h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-panel-light`}
+                />
+                {p.label}
+                {chatPattern === p.id && <Check size={12} className="ml-auto" />}
+              </button>
+            ))}
+
+            <div className="my-2 border-t border-panel-light" />
+
+            <p className="mb-1 px-2 text-[10px] uppercase tracking-wide text-muted">Tipografía</p>
+            {fonts.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => onChangeFont(f.id)}
+                className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors ${
+                  font === f.id ? 'bg-panel-light text-mustard' : 'text-cream hover:bg-panel-light/60'
+                }`}
+              >
+                <span style={{ fontFamily: f.family }} className="truncate">
+                  {f.label}
+                </span>
+                {font === f.id && <Check size={12} className="ml-auto shrink-0" />}
               </button>
             ))}
 

@@ -53,6 +53,14 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
 type Props = {
   theme: string
   onChangeTheme: (id: string) => void
+  // Patrón de fondo del chat — preferencia aparte del tema de colores,
+  // elegida por el operador y guardada en el backend (ver App.tsx).
+  chatPattern: string
+  onChangeChatPattern: (id: string) => void
+  // Tipografía — tercer sibling de preferencias por operador (se aplica
+  // globalmente vía variable CSS, no hace falta pasarla a ConversationsView).
+  font: string
+  onChangeFont: (id: string) => void
   operatorName: string
   operatorId: string | null
   isAdmin: boolean
@@ -71,6 +79,10 @@ type Props = {
 export default function Inbox({
   theme,
   onChangeTheme,
+  chatPattern,
+  onChangeChatPattern,
+  font,
+  onChangeFont,
   operatorName,
   operatorId,
   isAdmin,
@@ -440,6 +452,10 @@ export default function Inbox({
             operatorName={operatorName}
             theme={theme}
             onChangeTheme={onChangeTheme}
+            chatPattern={chatPattern}
+            onChangeChatPattern={onChangeChatPattern}
+            font={font}
+            onChangeFont={onChangeFont}
             muted={muted}
             onToggleMuted={onToggleMuted}
             isAdmin={isAdmin}
@@ -523,6 +539,7 @@ export default function Inbox({
             isAdmin={isAdmin}
             isSuperAdmin={isSuperAdmin}
             theme={theme}
+            chatPattern={chatPattern}
             filter={filter}
             onSelectFilter={(f) => setFilter(f)}
             onRefreshConversations={onRefreshConversations}

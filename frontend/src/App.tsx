@@ -7,6 +7,7 @@ import AdminPanel from './AdminPanel'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
+import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
 
 function playNotificationSound() {
@@ -38,6 +39,12 @@ function AppContent() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<string>('dark')
+  // Patrón de fondo del chat — preferencia aparte del tema de colores,
+  // guardada por operador igual que theme_preference (ver changeTheme).
+  const [chatPattern, setChatPattern] = useState<string>('dots')
+  // Tipografía — mismo mecanismo que tema y patrón, un sibling más de
+  // "configuraciones" por operador (ver ThemePicker.tsx -> fonts).
+  const [font, setFont] = useState<string>('plex')
   const [view, setView] = useState<'inbox' | 'admin'>('inbox')
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -74,7 +81,7 @@ function AppContent() {
 
     supabase
       .from('operators')
-      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference')
+      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference, chat_pattern_preference, font_preference')
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
@@ -89,6 +96,8 @@ function AppContent() {
           setIsSuperAdmin(data.is_superadmin ?? false)
           setOperatorPresence(data.presence ?? 'offline')
           setTheme(data.theme_preference ?? 'dark')
+          setChatPattern(data.chat_pattern_preference ?? 'dots')
+          setFont(data.font_preference ?? 'plex')
         }
       })
   }, [session])
@@ -401,6 +410,15 @@ function AppContent() {
     }
   }, [theme])
 
+  // La tipografía no depende del tema (no hay un "--font-sans" por tema),
+  // así que en vez de un atributo se pisa directo la variable CSS en el
+  // elemento raíz — alcanza con esto para que todo lo que ya usa
+  // var(--font-sans) cambie de fuente al toque.
+  useEffect(() => {
+    const family = fonts.find((f) => f.id === font)?.family
+    if (family) document.documentElement.style.setProperty('--font-sans', family)
+  }, [font])
+
   // --- Auto-logout por inactividad -----------------------------------
   // Pedido puntual: si pasan 10 minutos sin que el operador mande un
   // mensaje (no actividad genérica de mouse/teclado, sino su propia
@@ -443,6 +461,20 @@ function AppContent() {
     setTheme(next)
     if (operatorId) {
       await supabase.from('operators').update({ theme_preference: next }).eq('id', operatorId)
+    }
+  }
+
+  async function changeChatPattern(next: string) {
+    setChatPattern(next)
+    if (operatorId) {
+      await supabase.from('operators').update({ chat_pattern_preference: next }).eq('id', operatorId)
+    }
+  }
+
+  async function changeFont(next: string) {
+    setFont(next)
+    if (operatorId) {
+      await supabase.from('operators').update({ font_preference: next }).eq('id', operatorId)
     }
   }
 
@@ -493,6 +525,10 @@ function AppContent() {
       <Inbox
         theme={theme}
         onChangeTheme={changeTheme}
+        chatPattern={chatPattern}
+        onChangeChatPattern={changeChatPattern}
+        font={font}
+        onChangeFont={changeFont}
         operatorName={operatorName}
         operatorId={operatorId}
         isAdmin={isAdmin}

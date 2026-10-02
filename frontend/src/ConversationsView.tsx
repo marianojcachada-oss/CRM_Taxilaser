@@ -215,6 +215,10 @@ type Props = {
   isAdmin: boolean
   isSuperAdmin: boolean
   theme: string
+  // Patrón de fondo del chat elegido por el operador (ver index.css,
+  // clases .chat-pattern-*) — cada operador puede elegir el suyo,
+  // independiente del tema de colores.
+  chatPattern: string
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
   onRefreshConversations?: () => void
@@ -238,6 +242,7 @@ export default function ConversationsView({
   isAdmin,
   isSuperAdmin,
   theme,
+  chatPattern,
   filter,
   onSelectFilter,
   onRefreshConversations,
@@ -1352,7 +1357,7 @@ export default function ConversationsView({
             <div
               ref={threadContainerRef}
               onScroll={handleThreadScroll}
-              className="chat-pattern h-full overflow-y-auto px-6 py-4"
+              className={`chat-pattern-${chatPattern || 'dots'} relative h-full overflow-y-auto px-6 py-4`}
             >
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date

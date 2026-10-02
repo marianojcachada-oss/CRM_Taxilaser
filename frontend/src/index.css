@@ -1,5 +1,9 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* Tipografías disponibles para elegir por operador (ver ThemePicker.tsx,
+   export "fonts", y App.tsx -> changeFont). IBM Plex Sans sigue siendo
+   la default; las demás son estilos que recuerdan a apps de mensajería
+   conocidas, elegidas por legibilidad en una bandeja tipo CRM. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Work+Sans:wght@400;500;600;700&family=Nunito+Sans:wght@400;600;700&family=Manrope:wght@400;500;600;700&display=swap');
 
 /* Dark (default) — carbón casi negro + dorado vibrante */
 @theme {
@@ -343,18 +347,196 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Patrón de fondo del hilo de mensajes (estilo "doodle" de WhatsApp) —
-   puntitos sutiles, no un color fijo: usa panel-light, que YA está
-   definido en cada uno de los 18 temas, así que convive con todos sin
-   tener que tocarlos uno por uno. color-mix() lo deja bien tenue para
-   no competir con las burbujas de mensaje. */
-.chat-pattern {
+/* Patrones de fondo del hilo de mensajes — cada operador elige el suyo
+   (Perfil → Patrón de chat), se guarda en operators.chat_pattern_preference
+   y ConversationsView aplica la clase chat-pattern-<id> correspondiente.
+   NINGUNO fija un color propio: todos usan panel-light, que YA está
+   definido en cada uno de los 21 temas, así que conviven con todos sin
+   tener que tocar los temas uno por uno. color-mix() los deja tenues
+   para no competir con las burbujas de mensaje. "none" es el único sin
+   imagen de fondo, para quien prefiera el fondo liso de siempre. */
+.chat-pattern-none {
+  background-color: var(--color-asphalt);
+}
+
+.chat-pattern-dots {
   background-color: var(--color-asphalt);
   background-image: radial-gradient(
     color-mix(in srgb, var(--color-panel-light) 70%, transparent) 1px,
     transparent 1px
   );
   background-size: 22px 22px;
+}
+
+.chat-pattern-stripes {
+  background-color: var(--color-asphalt);
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--color-panel-light) 55%, transparent) 0 1px,
+    transparent 1px 13px
+  );
+}
+
+/* Cuadriculado clásico de carrocería de taxi, a baja opacidad. */
+.chat-pattern-checker {
+  background-color: var(--color-asphalt);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--color-panel-light) 55%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--color-panel-light) 55%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--color-panel-light) 55%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--color-panel-light) 55%, transparent) 75%);
+  background-size: 26px 26px;
+  background-position: 0 0, 0 13px, 13px -13px, -13px 0;
+}
+
+/* Doodle de iconitos (auto, volante, pin de mapa, burbuja de chat),
+   estilo WhatsApp. Técnica: la FORMA sale de un mask-image (SVG tileado
+   en data URI), el COLOR sale de background-color normal — por eso
+   funciona con la var() de cualquier tema sin regenerar el SVG. */
+.chat-pattern-doodle {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-doodle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 60%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cg fill='%23000' opacity='0.9'%3E%3Cpath d='M10 20c0-2 2-3 4-3h10c2 0 3 1 4 3l2 5h2c2 0 3 1 3 3v6c0 1-1 2-2 2h-1a4 4 0 0 1-8 0H16a4 4 0 0 1-8 0H7c-1 0-2-1-2-2v-6c0-2 1-3 3-3z'/%3E%3Ccircle cx='60' cy='18' r='9'/%3E%3Cpath d='M56 18h8M60 14v8' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M18 56a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm-2 5l4 4-4 4-4-4z'/%3E%3Cpath d='M66 54c6 0 11 4.5 11 10 0 2-.6 3.8-1.7 5.4L78 74l-5-1.2a11 11 0 0 1-7 2.4c-6 0-11-4.5-11-10s5-10.6 11-10.6z'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cg fill='%23000' opacity='0.9'%3E%3Cpath d='M10 20c0-2 2-3 4-3h10c2 0 3 1 4 3l2 5h2c2 0 3 1 3 3v6c0 1-1 2-2 2h-1a4 4 0 0 1-8 0H16a4 4 0 0 1-8 0H7c-1 0-2-1-2-2v-6c0-2 1-3 3-3z'/%3E%3Ccircle cx='60' cy='18' r='9'/%3E%3Cpath d='M56 18h8M60 14v8' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M18 56a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm-2 5l4 4-4 4-4-4z'/%3E%3Cpath d='M66 54c6 0 11 4.5 11 10 0 2-.6 3.8-1.7 5.4L78 74l-5-1.2a11 11 0 0 1-7 2.4c-6 0-11-4.5-11-10s5-10.6 11-10.6z'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 96px 96px;
+  mask-size: 96px 96px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+.chat-pattern-grid {
+  background-color: var(--color-asphalt);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-panel-light) 60%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-panel-light) 60%, transparent) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.chat-pattern-waves {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-waves::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 55%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20' viewBox='0 0 40 20'%3E%3Cpath d='M0 10c5-8 15-8 20 0s15 8 20 0' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20' viewBox='0 0 40 20'%3E%3Cpath d='M0 10c5-8 15-8 20 0s15 8 20 0' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E");
+  -webkit-mask-size: 40px 20px;
+  mask-size: 40px 20px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Perritos: cabeza+orejas de perro y un huesito, tileados. */
+.chat-pattern-dogs {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-dogs::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 60%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Cellipse cx='17' cy='23' rx='6' ry='10' transform='rotate(-25 17 23)'/%3E%3Cellipse cx='39' cy='23' rx='6' ry='10' transform='rotate(25 39 23)'/%3E%3Ccircle cx='28' cy='32' r='13'/%3E%3Cellipse cx='28' cy='40' rx='3' ry='2'/%3E%3Crect x='78' y='78' width='16' height='5' rx='2.5'/%3E%3Ccircle cx='76' cy='76' r='3.5'/%3E%3Ccircle cx='76' cy='86' r='3.5'/%3E%3Ccircle cx='96' cy='76' r='3.5'/%3E%3Ccircle cx='96' cy='86' r='3.5'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Cellipse cx='17' cy='23' rx='6' ry='10' transform='rotate(-25 17 23)'/%3E%3Cellipse cx='39' cy='23' rx='6' ry='10' transform='rotate(25 39 23)'/%3E%3Ccircle cx='28' cy='32' r='13'/%3E%3Cellipse cx='28' cy='40' rx='3' ry='2'/%3E%3Crect x='78' y='78' width='16' height='5' rx='2.5'/%3E%3Ccircle cx='76' cy='76' r='3.5'/%3E%3Ccircle cx='76' cy='86' r='3.5'/%3E%3Ccircle cx='96' cy='76' r='3.5'/%3E%3Ccircle cx='96' cy='86' r='3.5'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 110px 110px;
+  mask-size: 110px 110px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Gatitos: cabeza+orejas triangulares, bigotes, y una huellita. */
+.chat-pattern-cats {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-cats::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 60%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Cpath d='M16 22l-5-12 11 8z'/%3E%3Cpath d='M40 22l5-12-11 8z'/%3E%3Ccircle cx='28' cy='32' r='12'/%3E%3Cpath d='M8 36h-8M8 39h-7M48 36h8M48 39h7' stroke='%23000' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3Cellipse cx='80' cy='85' rx='6' ry='5'/%3E%3Cellipse cx='72' cy='76' rx='2.5' ry='3.2'/%3E%3Cellipse cx='78' cy='71' rx='2.5' ry='3.2'/%3E%3Cellipse cx='84' cy='71' rx='2.5' ry='3.2'/%3E%3Cellipse cx='90' cy='76' rx='2.5' ry='3.2'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Cpath d='M16 22l-5-12 11 8z'/%3E%3Cpath d='M40 22l5-12-11 8z'/%3E%3Ccircle cx='28' cy='32' r='12'/%3E%3Cpath d='M8 36h-8M8 39h-7M48 36h8M48 39h7' stroke='%23000' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3Cellipse cx='80' cy='85' rx='6' ry='5'/%3E%3Cellipse cx='72' cy='76' rx='2.5' ry='3.2'/%3E%3Cellipse cx='78' cy='71' rx='2.5' ry='3.2'/%3E%3Cellipse cx='84' cy='71' rx='2.5' ry='3.2'/%3E%3Cellipse cx='90' cy='76' rx='2.5' ry='3.2'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 110px 110px;
+  mask-size: 110px 110px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Tamagotchi: el aparatito ovalado en pixel art + un corazón pixelado,
+   construidos con rects (nada de curvas) para que se vea 8-bit/retro. */
+.chat-pattern-tamagotchi {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-tamagotchi::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 60%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Crect x='16' y='8' width='16' height='6'/%3E%3Crect x='10' y='14' width='28' height='6'/%3E%3Crect x='8' y='20' width='32' height='6'/%3E%3Crect x='8' y='26' width='32' height='6'/%3E%3Crect x='10' y='32' width='28' height='6'/%3E%3Crect x='16' y='38' width='16' height='6'/%3E%3Crect x='74' y='64' width='5' height='5'/%3E%3Crect x='84' y='64' width='5' height='5'/%3E%3Crect x='70' y='69' width='24' height='5'/%3E%3Crect x='74' y='74' width='16' height='5'/%3E%3Crect x='78' y='79' width='8' height='5'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='110' viewBox='0 0 110 110'%3E%3Cg fill='%23000'%3E%3Crect x='16' y='8' width='16' height='6'/%3E%3Crect x='10' y='14' width='28' height='6'/%3E%3Crect x='8' y='20' width='32' height='6'/%3E%3Crect x='8' y='26' width='32' height='6'/%3E%3Crect x='10' y='32' width='28' height='6'/%3E%3Crect x='16' y='38' width='16' height='6'/%3E%3Crect x='74' y='64' width='5' height='5'/%3E%3Crect x='84' y='64' width='5' height='5'/%3E%3Crect x='70' y='69' width='24' height='5'/%3E%3Crect x='74' y='74' width='16' height='5'/%3E%3Crect x='78' y='79' width='8' height='5'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 110px 110px;
+  mask-size: 110px 110px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Mensajería clásica, estilo wallpaper de apps de chat: burbuja, corazón,
+   nota musical y cámara — íconos genéricos propios (no el dibujo exacto
+   de WhatsApp), para evocar el mismo espíritu sin calcarlo. */
+.chat-pattern-mensajeria {
+  background-color: var(--color-asphalt);
+}
+.chat-pattern-mensajeria::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--color-panel-light) 55%, transparent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23000'%3E%3Cpath d='M4 6h24a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H18l-7 6v-6H4a4 4 0 0 1-4-4V10a4 4 0 0 1 4-4z'/%3E%3Cpath d='M74 40c-6-5-11-9-11-15a6.5 6.5 0 0 1 12-3.2A6.5 6.5 0 0 1 87 25c0 6-5 10-11 15z'/%3E%3Ccircle cx='98' cy='18' r='4'/%3E%3Crect x='101' y='2' width='2' height='16'/%3E%3Cpath d='M103 2c5 1 7 4 7 7l-7-2z'/%3E%3Crect x='62' y='78' width='22' height='16' rx='3'/%3E%3Crect x='70' y='73' width='8' height='5' rx='1'/%3E%3Ccircle cx='73' cy='86' r='5'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23000'%3E%3Cpath d='M4 6h24a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H18l-7 6v-6H4a4 4 0 0 1-4-4V10a4 4 0 0 1 4-4z'/%3E%3Cpath d='M74 40c-6-5-11-9-11-15a6.5 6.5 0 0 1 12-3.2A6.5 6.5 0 0 1 87 25c0 6-5 10-11 15z'/%3E%3Ccircle cx='98' cy='18' r='4'/%3E%3Crect x='101' y='2' width='2' height='16'/%3E%3Cpath d='M103 2c5 1 7 4 7 7l-7-2z'/%3E%3Crect x='62' y='78' width='22' height='16' rx='3'/%3E%3Crect x='70' y='73' width='8' height='5' rx='1'/%3E%3Ccircle cx='73' cy='86' r='5'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 120px 120px;
+  mask-size: 120px 120px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Estrellitas: capas de puntos de distinto tamaño/espaciado para un
+   efecto de cielo nocturno — nada de SVG, solo gradients (liviano), que
+   le queda bien a un dispatch que trabaja de noche. */
+.chat-pattern-stars {
+  background-color: var(--color-asphalt);
+  background-image:
+    radial-gradient(color-mix(in srgb, var(--color-panel-light) 85%, transparent) 1px, transparent 1px),
+    radial-gradient(color-mix(in srgb, var(--color-panel-light) 60%, transparent) 1.5px, transparent 1.5px),
+    radial-gradient(color-mix(in srgb, var(--color-panel-light) 70%, transparent) 1px, transparent 1px);
+  background-size: 50px 50px, 90px 90px, 130px 130px;
+  background-position: 0 0, 25px 45px, 70px 15px;
+}
+
+/* doodle, waves, dogs, cats, tamagotchi y mensajeria pintan con un
+   ::before (para poder usar mask-image sin pelearse con background-image
+   a la vez) — el contenedor necesita position:relative para que el
+   inset:0 del pseudo-elemento se ajuste a su tamaño, y overflow:hidden
+   para que no se escape del borde redondeado si lo tuviera.
+   ConversationsView ya le agrega "relative" a este contenedor junto con
+   la clase chat-pattern-*. */
+.chat-pattern-doodle,
+.chat-pattern-waves,
+.chat-pattern-dogs,
+.chat-pattern-cats,
+.chat-pattern-tamagotchi,
+.chat-pattern-mensajeria {
+  position: relative;
 }
 
 body,

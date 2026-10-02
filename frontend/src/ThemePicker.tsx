@@ -25,6 +25,39 @@ export const themes = [
   { id: 'msn', label: 'MSN', asphalt: '#0A2A4D', mustard: '#8CC63F' },
 ]
 
+// Patrones de fondo para el hilo de mensajes (ver index.css, clases
+// .chat-pattern-*). Van aparte de los temas de colores: el operador
+// elige cada uno por separado y conviven (el patrón usa los colores del
+// tema activo automáticamente).
+export const chatPatterns = [
+  { id: 'none', label: 'Liso (sin patrón)' },
+  { id: 'dots', label: 'Puntitos' },
+  { id: 'stripes', label: 'Rayas diagonales' },
+  { id: 'checker', label: 'Cuadrille (taxi)' },
+  { id: 'doodle', label: 'Garabatos (auto, timón)' },
+  { id: 'grid', label: 'Cuadrícula' },
+  { id: 'waves', label: 'Ondas' },
+  { id: 'dogs', label: 'Perritos' },
+  { id: 'cats', label: 'Gatitos' },
+  { id: 'tamagotchi', label: 'Tamagotchi' },
+  { id: 'mensajeria', label: 'Mensajería clásica' },
+  { id: 'stars', label: 'Estrellitas' },
+]
+
+// Tipografías elegibles por operador (ver index.css para el @import de
+// Google Fonts y App.tsx -> changeFont, que escribe font_preference).
+// "family" es el valor final de --font-sans, con su fallback.
+// Elegidas por recordar a mensajerías conocidas y por legibilidad en
+// listas largas de conversaciones — nada decorativo ni con ligaduras raras.
+export const fonts = [
+  { id: 'plex', label: 'IBM Plex Sans (actual)', family: '"IBM Plex Sans", sans-serif' },
+  { id: 'inter', label: 'Inter — minimalista (Slack/Notion)', family: '"Inter", sans-serif' },
+  { id: 'roboto', label: 'Roboto — Android / WhatsApp', family: '"Roboto", sans-serif' },
+  { id: 'work-sans', label: 'Work Sans — redondeada (Telegram)', family: '"Work Sans", sans-serif' },
+  { id: 'nunito-sans', label: 'Nunito Sans — amigable (Messenger)', family: '"Nunito Sans", sans-serif' },
+  { id: 'manrope', label: 'Manrope — geométrica (estilo X)', family: '"Manrope", sans-serif' },
+]
+
 type Props = {
   theme: string
   onChangeTheme: (id: string) => void

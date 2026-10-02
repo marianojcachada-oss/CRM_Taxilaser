@@ -144,6 +144,8 @@ export type Conversation = {
   notes?: string | null
   hasActiveRide?: boolean
   activeRideUnit?: string | null
+  activeRideColor?: string | null
+  activeRidePlate?: string | null
   activeRideEtaMinutes?: number | null
   activeRideEtaReceivedAt?: string | null
   activeRideStatus?: string | null
@@ -327,7 +329,15 @@ export default function ConversationsView({
       '{{unidad}}',
       selected?.activeRideUnit || '(sin unidad asignada)',
     )
-    setDraft((prev) => (prev ? `${prev} ${withUnidad}` : withUnidad))
+    // "{{color}}" y "{{placa}}" se completan con lo que mandó
+    // TaxiCaller en el evento "esperando al pasajero" (el mismo que
+    // dispara el SMS automático) — se guardan en el contacto apenas
+    // llega ese evento, y siguen guardándose aunque el SMS automático
+    // esté apagado desde Integrations, así que esto funciona igual con
+    // el automático prendido o apagado.
+    const withColor = withUnidad.replaceAll('{{color}}', selected?.activeRideColor || '(sin color)')
+    const withPlaca = withColor.replaceAll('{{placa}}', selected?.activeRidePlate || '(sin placa)')
+    setDraft((prev) => (prev ? `${prev} ${withPlaca}` : withPlaca))
     setShowTemplates(false)
   }
 

@@ -22,6 +22,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendSms } from "./ringcentral.ts";
 import { sendWhatsappText, sendMetaChannelText } from "./channelSend.ts";
+import { getSettings } from "./settings.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -105,10 +106,36 @@ export async function sendAutomatedMessage(opts: {
     (c: string) => c === "facebook" || c === "instagram",
   );
 
-  const channels: string[] = [
+  let channels: string[] = [
     smsWhatsappChannel ?? "sms", // sin historial todavía -> comportamiento de siempre
     ...metaChannels,
   ];
+
+  // Interruptores por CANAL (Integrations → TaxiCaller): apagan el envío
+  // de estos 3 avisos automáticos (llegó / cancelado / terminado) por
+  // RingCentral o por WhatsApp de forma independiente, sin tocar el
+  // otro — por ejemplo, para cortar el SMS mientras se resuelve el
+  // límite diario de T-Mobile, sin dejar de avisar por WhatsApp a los
+  // clientes que escriben por ahí. Por defecto quedan prendidos (si
+  // nunca se cargó el valor, se tratan como activados).
+  const channelToggles = await getSettings([
+    "AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED",
+    "AUTOMATED_MESSAGES_WHATSAPP_ENABLED",
+  ]);
+  const skipped: string[] = [];
+  if (channelToggles.AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED === "false" && channels.includes("sms")) {
+    skipped.push("sms");
+    channels = channels.filter((c) => c !== "sms");
+  }
+  if (channelToggles.AUTOMATED_MESSAGES_WHATSAPP_ENABLED === "false" && channels.includes("whatsapp")) {
+    skipped.push("whatsapp");
+    channels = channels.filter((c) => c !== "whatsapp");
+  }
+  if (skipped.length) {
+    console.log(
+      `sendAutomatedMessage: canal(es) ${skipped.join(", ")} desactivado(s) desde Integrations — no se manda por ahí (contacto ${contactId}).`,
+    );
+  }
 
   const sentVia: string[] = [];
   const errors: { channel: string; error: string }[] = [];

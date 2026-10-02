@@ -37,6 +37,12 @@
 // Antes el mensaje terminaba agregando el número de RingCentral de la
 // empresa ("... ha llegado / +14045968232") — se sacó a pedido: ya no se
 // expone ningún número de teléfono en este aviso automático.
+//
+// color/placa del contacto (active_ride_color / active_ride_plate, para
+// la plantilla manual de "taxi llegó") NO se guardan acá — se guardan en
+// taxicaller-assigned-webhook (el evento "en camino"), que corre siempre,
+// sin relación con el interruptor TAXICALLER_AUTO_MESSAGE_ENABLED de
+// este webhook. Así esta función queda intacta tal cual estaba.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";

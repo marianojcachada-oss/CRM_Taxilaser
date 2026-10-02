@@ -19,8 +19,24 @@
 //   "passenger_phone": "[job.client.phone]",
 //   "passenger_name": "[job.client.name]",
 //   "vehicle_make": "[vehicle.tags.make]",
+//   "vehicle_color": "[vehicle.tags.color_name]",
+//   "vehicle_plate": "[vehicle.tags.plate]",
 //   "eta_minutes": "[job.route.pickup.eta]"
 // }
+//
+// vehicle_color/vehicle_plate son tags NUEVOS para esta notificación en
+// particular — hay que agregarlos en el panel de TaxiCaller (pestaña de
+// Tags de la notificación de "Servicio en camino"), con esas claves
+// exactas, igual que ya está cargado vehicle_make. Mientras no estén
+// agregados ahí, estos dos campos van a llegar vacíos siempre, sin que
+// afecte nada más de esta función (el resto sigue andando igual).
+//
+// Guardar acá color/placa (en vez de en taxicaller-webhook, el evento
+// de "esperando al pasajero") es a propósito: esta función no depende
+// del interruptor TAXICALLER_AUTO_MESSAGE_ENABLED del SMS automático de
+// "taxi llegó" — así que aunque se apague ese SMS para que los
+// operadores lo manden a mano con una plantilla, estos datos se siguen
+// completando solos, sin cambiar en nada el webhook del SMS automático.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";
@@ -95,6 +111,8 @@ Deno.serve(async (req) => {
   // job.route.pickup.eta puede venir en distintos formatos según cómo lo
   // maneje TaxiCaller — nos quedamos solo con los dígitos, por las dudas.
   const etaMinutes = parseEtaTimeToMinutes(String(body.eta_minutes ?? ""));
+  const vehicleColor = body.vehicle_color || null;
+  const vehiclePlate = body.vehicle_plate || null;
 
   const { data: existingContact } = await supabase
     .from("contacts")
@@ -112,6 +130,8 @@ Deno.serve(async (req) => {
         has_active_ride: true,
         active_ride_status: "active",
         active_ride_unit: body.vehicle_make || null,
+        active_ride_color: vehicleColor,
+        active_ride_plate: vehiclePlate,
         active_ride_eta_minutes: etaMinutes,
         active_ride_eta_received_at: new Date().toISOString(),
         active_ride_fare: null,
@@ -125,6 +145,8 @@ Deno.serve(async (req) => {
       has_active_ride: true,
       active_ride_status: "active",
       active_ride_unit: body.vehicle_make || null,
+      active_ride_color: vehicleColor,
+      active_ride_plate: vehiclePlate,
       active_ride_eta_minutes: etaMinutes,
       active_ride_eta_received_at: new Date().toISOString(),
     });

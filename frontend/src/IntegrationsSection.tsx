@@ -182,6 +182,20 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
     await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
   }
 
+  // Corta/prende el CANAL de los 3 avisos automáticos de TaxiCaller
+  // (esperando pasajero / cancelado / terminado) — independiente de los
+  // switches de arriba, que cortan el AVISO entero. Esto deja, por
+  // ejemplo, apagar solo el SMS (RingCentral) sin tocar WhatsApp.
+  // Default "activado" si nunca se guardó nada (igual que los demás).
+  async function toggleAutomatedMessagesChannel(channel: 'WHATSAPP' | 'RINGCENTRAL') {
+    if (readOnly) return
+    const key = `AUTOMATED_MESSAGES_${channel}_ENABLED`
+    const current = values[key]
+    const next = current === 'false' ? 'true' : 'false'
+    setValues((prev) => ({ ...prev, [key]: next }))
+    await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
+  }
+
   if (loading) return <p className="text-sm text-muted">Cargando...</p>
   if (error) return <p className="text-sm text-alert">Error: {error}</p>
 
@@ -326,6 +340,40 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
                 {values['TAXICALLER_ASSIGNED_TRACKING_ENABLED'] === 'false'
                   ? 'Seguimiento de "Servicio en camino" (ETA, sin SMS): Desactivado'
                   : 'Seguimiento de "Servicio en camino" (ETA, sin SMS): Activado'}
+              </button>
+
+              <p className="mb-2 mt-2 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
+                Estos dos de acá abajo no apagan el aviso en sí — cortan el CANAL por el que sale.
+                Los 3 avisos de arriba se mandan por WhatsApp o por SMS (RingCentral) según cómo te
+                escribió el cliente la última vez; con esto podés cortar uno de los dos canales (por
+                ejemplo el SMS, mientras se resuelve el límite diario de T-Mobile) sin dejar de avisarle
+                a quien te escribe por el otro.
+              </p>
+              <button
+                onClick={() => toggleAutomatedMessagesChannel('WHATSAPP')}
+                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AUTOMATED_MESSAGES_WHATSAPP_ENABLED'] === 'false'
+                    ? 'border-alert/40 text-alert hover:bg-alert/10'
+                    : 'border-available/40 text-available hover:bg-available/10'
+                }`}
+              >
+                <Power size={13} />
+                {values['AUTOMATED_MESSAGES_WHATSAPP_ENABLED'] === 'false'
+                  ? 'Avisos automáticos por WhatsApp: Desactivado'
+                  : 'Avisos automáticos por WhatsApp: Activado'}
+              </button>
+              <button
+                onClick={() => toggleAutomatedMessagesChannel('RINGCENTRAL')}
+                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED'] === 'false'
+                    ? 'border-alert/40 text-alert hover:bg-alert/10'
+                    : 'border-available/40 text-available hover:bg-available/10'
+                }`}
+              >
+                <Power size={13} />
+                {values['AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED'] === 'false'
+                  ? 'Avisos automáticos por RingCentral (SMS): Desactivado'
+                  : 'Avisos automáticos por RingCentral (SMS): Activado'}
               </button>
             </>
           )}

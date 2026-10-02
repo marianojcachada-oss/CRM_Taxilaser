@@ -55,14 +55,49 @@ function byOperatorCode(a: Operator, b: Operator) {
   return numA - numB
 }
 
-function todayLocalISO(): string {
-  const d = new Date()
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  return d.toISOString().slice(0, 10)
+// La empresa opera en Atlanta, así que el día y las 24 horas del panel
+// tienen que ser SIEMPRE las de Atlanta (America/New_York) — sin
+// importar desde qué huso horario lo esté mirando quien lo abre. Todos
+// los husos de EE.UU. están en un offset de horas enteras contra UTC
+// (nunca minutos sueltos), así que no hace falta ninguna librería de
+// fechas: alcanza con preguntarle a Intl el offset vigente para esa
+// fecha (contempla solo, EDT/EST) y sumar/restar horas enteras.
+const ATLANTA_TZ = 'America/New_York'
+
+// Offset de Atlanta contra UTC en un instante dado, en horas (negativo
+// = Atlanta atrasada respecto a UTC — ej: -4 en horario de verano).
+function atlantaOffsetHours(atUtc: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ATLANTA_TZ,
+    timeZoneName: 'shortOffset',
+  }).formatToParts(atUtc)
+  const tzPart = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT-5'
+  const match = tzPart.match(/GMT([+-]\d+)/)
+  return match ? parseInt(match[1], 10) : -5
+}
+
+// Fecha de HOY tal cual la marca el calendario en Atlanta ahora mismo
+// — no la del navegador de quien esté mirando el panel.
+function atlantaTodayISO(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: ATLANTA_TZ }).format(new Date())
+}
+
+// Instante UTC que corresponde a una hora puntual (0-23) de un día
+// calendario de Atlanta (ej: "2026-10-02" hora 14 en Atlanta → el
+// timestamptz real que eso representa, para comparar contra
+// hour_bucket que está guardado en UTC).
+function atlantaHourToUtc(dateStr: string, hour: number): Date {
+  // Usamos el mediodía del día pedido solo para consultar el offset
+  // vigente ese día (evita ambigüedad justo en el instante del cambio
+  // de horario) — el offset encontrado se aplica después a la hora real.
+  const probe = new Date(`${dateStr}T12:00:00Z`)
+  const offset = atlantaOffsetHours(probe)
+  const naiveUtcMs = Date.parse(`${dateStr}T${String(hour).padStart(2, '0')}:00:00Z`)
+  return new Date(naiveUtcMs - offset * 3_600_000)
 }
 
 export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: Props) {
-  const [date, setDate] = useState(todayLocalISO())
+  const [date, setDate] = useState(atlantaTodayISO())
   const [operators, setOperators] = useState<Operator[]>([])
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('all')
   const [metric, setMetric] = useState<Metric>('total')
@@ -78,14 +113,12 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   }, [])
 
   useEffect(() => {
-    // OJO: el día se corta según la hora local del navegador, no la
-    // zona horaria de Atlanta — para el primer corte alcanza, pero si
-    // en algún momento se usa desde otro huso y los números no
-    // cierran con lo esperado, es lo primero que hay que mirar.
+    // El día arranca y termina según la medianoche de ATLANTA, no la de
+    // quien esté mirando el panel — así todos ven exactamente la misma
+    // ventana de datos, sea cual sea su huso horario.
     setLoading(true)
-    const start = new Date(`${date}T00:00:00`)
-    const end = new Date(`${date}T00:00:00`)
-    end.setDate(end.getDate() + 1)
+    const start = atlantaHourToUtc(date, 0)
+    const end = new Date(start.getTime() + 24 * 3_600_000)
 
     Promise.all([
       supabase
@@ -120,7 +153,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   const rowByKey = new Map(operatorRows.map((r) => [`${r.operator_id}|${new Date(r.hour_bucket).toISOString()}`, r]))
 
   const matrixHours = Array.from({ length: 24 }, (_, h) => {
-    const hourIso = new Date(`${date}T${String(h).padStart(2, '0')}:00:00`).toISOString()
+    const hourIso = atlantaHourToUtc(date, h).toISOString()
     const values = operators.map((op) => metricValue(rowByKey.get(`${op.id}|${hourIso}`), metric))
     return { hour: h, values, total: values.reduce((s, v) => s + v, 0) }
   })
@@ -130,7 +163,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   // Vista de un operador puntual: desglose por las 24 horas del día.
   const selectedOperator = operators.find((o) => o.id === selectedOperatorId)
   const hourRows = Array.from({ length: 24 }, (_, h) => {
-    const hourIso = new Date(`${date}T${String(h).padStart(2, '0')}:00:00`).toISOString()
+    const hourIso = atlantaHourToUtc(date, h).toISOString()
     const row = operatorRows.find(
       (r) => r.operator_id === selectedOperatorId && new Date(r.hour_bucket).toISOString() === hourIso,
     )
@@ -175,7 +208,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
       <main className="flex-1 overflow-y-auto p-6">
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">Día</label>
+            <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">Día (hora Atlanta)</label>
             <input
               type="date"
               value={date}
@@ -308,8 +341,8 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
 
         <p className="mt-4 text-[11px] text-muted">
           Esta tabla lee de datos ya calculados hora por hora — no consulta la base en vivo, así que
-          no afecta el rendimiento del CRM operativo. "Llamadas atendidas" queda en 0 hasta que se
-          termine de conectar la Analytics API de RingCentral.
+          no afecta el rendimiento del CRM operativo. Todas las horas y el corte del día son según
+          la hora de Atlanta, sin importar desde dónde se esté mirando este panel.
         </p>
       </main>
     </div>

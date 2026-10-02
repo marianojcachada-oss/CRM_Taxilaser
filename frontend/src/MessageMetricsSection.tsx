@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
+import { atlantaDateISO, atlantaHour, atlantaWeekdayIndex, atlantaDayStartUtcIso } from './atlantaTime'
 
 type Granularity = 'hour' | 'day' | 'week' | 'month'
 
@@ -48,20 +49,27 @@ function toDateInputValue(d: Date) {
   return d.toISOString().slice(0, 10)
 }
 
+// Todos los buckets se arman según el calendario/reloj de ATLANTA, no el
+// del navegador — así el reporte da lo mismo mirado desde cualquier huso.
 function getBucketKey(date: Date, granularity: Granularity): string {
   if (granularity === 'hour') {
-    return String(date.getHours()).padStart(2, '0') + ':00'
+    return String(atlantaHour(date)).padStart(2, '0') + ':00'
   }
   if (granularity === 'day') {
-    return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+    return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/New_York' })
   }
   if (granularity === 'week') {
-    const firstDay = new Date(date)
-    firstDay.setDate(date.getDate() - date.getDay())
-    return `Semana del ${firstDay.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}`
+    const [y, m, d] = atlantaDateISO(date).split('-').map(Number)
+    const dow = atlantaWeekdayIndex(date)
+    // Resta de días en UTC puro — acá es aritmética de calendario (Y-M-D),
+    // no una conversión de huso, así que Date.UTC alcanza sin ambigüedad.
+    const firstDay = new Date(Date.UTC(y, m - 1, d - dow))
+    const dd = String(firstDay.getUTCDate()).padStart(2, '0')
+    const mm = String(firstDay.getUTCMonth() + 1).padStart(2, '0')
+    return `Semana del ${dd}/${mm}`
   }
   // month
-  return date.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' })
+  return date.toLocaleDateString('es-AR', { month: 'short', year: 'numeric', timeZone: 'America/New_York' })
 }
 
 function minutesLabel(minutes: number): string {
@@ -126,12 +134,21 @@ export default function MessageMetricsSection() {
       let page = 0
       let all: Row[] = []
 
+      // Rango de fechas interpretado como días calendario de ATLANTA —
+      // "dateFrom" a "dateTo" son el rango que ve el usuario en los
+      // inputs, pero el corte real se calcula contra la medianoche de
+      // Atlanta, no la del navegador de quien esté mirando el reporte.
+      const fromIso = atlantaDayStartUtcIso(dateFrom)
+      const dayAfterTo = new Date(`${dateTo}T00:00:00Z`)
+      dayAfterTo.setUTCDate(dayAfterTo.getUTCDate() + 1)
+      const toIso = atlantaDayStartUtcIso(dayAfterTo.toISOString().slice(0, 10))
+
       while (true) {
         const { data, error } = await supabase
           .from('messages')
           .select('conversation_id, sender_type, sender_operator_id, sent_via_channel, automation_type, created_at')
-          .gte('created_at', `${dateFrom}T00:00:00`)
-          .lte('created_at', `${dateTo}T23:59:59`)
+          .gte('created_at', fromIso)
+          .lt('created_at', toIso)
           .order('created_at', { ascending: true })
           .range(page * pageSize, page * pageSize + pageSize - 1)
 

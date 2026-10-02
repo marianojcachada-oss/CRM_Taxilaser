@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
-  Search, ChevronDown, Reply,
+  Search, ChevronDown,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -12,6 +12,7 @@ import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import { getFunctionErrorMessage } from './functionsError'
 import { phoneForCopy } from './phone'
+import { atlantaDateISO, formatMessageTime, formatMessageDateTimeShort } from './atlantaTime'
 
 export type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'sms'
 
@@ -144,8 +145,6 @@ export type Conversation = {
   notes?: string | null
   hasActiveRide?: boolean
   activeRideUnit?: string | null
-  activeRideColor?: string | null
-  activeRidePlate?: string | null
   activeRideEtaMinutes?: number | null
   activeRideEtaReceivedAt?: string | null
   activeRideStatus?: string | null
@@ -171,11 +170,6 @@ export type Message = {
   // "sending" ni "failed" se considera simplemente "sent" y no se puede
   // saber más que eso.
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
-  // A qué mensaje responde (cita), si es que responde a alguno — solo
-  // tiene sentido para WhatsApp. La vista previa de lo citado no se pide
-  // aparte a la base: se busca por este id dentro de "thread", que ya
-  // tiene cargada toda la conversación.
-  replyToMessageId?: string
 }
 
 async function translateText(text: string, targetLang: 'es' | 'en'): Promise<string> {
@@ -215,10 +209,6 @@ type Props = {
   isAdmin: boolean
   isSuperAdmin: boolean
   theme: string
-  // Patrón de fondo del chat elegido por el operador (ver index.css,
-  // clases .chat-pattern-*) — cada operador puede elegir el suyo,
-  // independiente del tema de colores.
-  chatPattern: string
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
   onRefreshConversations?: () => void
@@ -242,7 +232,6 @@ export default function ConversationsView({
   isAdmin,
   isSuperAdmin,
   theme,
-  chatPattern,
   filter,
   onSelectFilter,
   onRefreshConversations,
@@ -259,16 +248,7 @@ export default function ConversationsView({
   )
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
-  const threadContainerRef = useRef<HTMLDivElement>(null)
-  // Si el operador está mirando el final del chat ahora mismo — se guarda
-  // en un ref (no en un state) porque se lee desde el efecto de "llegó un
-  // mensaje nuevo" sin que ese efecto tenga que depender de él ni
-  // volver a dispararse cada vez que cambia.
-  const isAtBottomRef = useRef(true)
-  const prevThreadLengthRef = useRef(0)
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [draft, setDraft] = useState('')
-  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showReassignMenu, setShowReassignMenu] = useState(false)
@@ -326,23 +306,7 @@ export default function ConversationsView({
   function insertTemplate(body: string) {
     const myCode = operators.find((o) => o.id === operatorId)?.operator_code
     const withCode = body.replaceAll('{{codigo}}', myCode || '(sin código cargado)')
-    // "{{unidad}}" se completa solo con el dato de vehículo que ya
-    // viene en vivo desde TaxiCaller (indicativo + auto + año, tal
-    // cual lo manda su webhook de "asignado") — no hace falta tocar
-    // nada de TaxiCaller ni de la base para que esto funcione.
-    const withUnidad = withCode.replaceAll(
-      '{{unidad}}',
-      selected?.activeRideUnit || '(sin unidad asignada)',
-    )
-    // "{{color}}" y "{{placa}}" se completan con lo que mandó
-    // TaxiCaller en el evento "esperando al pasajero" (el mismo que
-    // dispara el SMS automático) — se guardan en el contacto apenas
-    // llega ese evento, y siguen guardándose aunque el SMS automático
-    // esté apagado desde Integrations, así que esto funciona igual con
-    // el automático prendido o apagado.
-    const withColor = withUnidad.replaceAll('{{color}}', selected?.activeRideColor || '(sin color)')
-    const withPlaca = withColor.replaceAll('{{placa}}', selected?.activeRidePlate || '(sin placa)')
-    setDraft((prev) => (prev ? `${prev} ${withPlaca}` : withPlaca))
+    setDraft((prev) => (prev ? `${prev} ${withCode}` : withCode))
     setShowTemplates(false)
   }
 
@@ -373,12 +337,13 @@ export default function ConversationsView({
       Date.now() - new Date(selected.lastContactMessageAt).getTime() > 24 * 60 * 60 * 1000)
 
   function dayLabel(isoDate: string): string {
-    const today = new Date()
-    const todayIso = today.toISOString().slice(0, 10)
+    // isoDate ya viene en calendario de Atlanta (ver mapRow) — "hoy" y
+    // "ayer" se comparan contra el mismo calendario, no el del navegador.
+    const todayIso = atlantaDateISO(new Date())
 
-    const yesterday = new Date(today)
+    const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayIso = yesterday.toISOString().slice(0, 10)
+    const yesterdayIso = atlantaDateISO(yesterday)
 
     if (isoDate === todayIso) return 'HOY'
     if (isoDate === yesterdayIso) return 'AYER'
@@ -397,8 +362,8 @@ export default function ConversationsView({
       text: m.content ?? undefined,
       sentViaChannel: m.sent_via_channel ?? null,
       senderOperatorId: m.sender_operator_id ?? undefined,
-      time: new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      date: m.created_at.slice(0, 10), // yyyy-mm-dd, para poder agrupar por día de forma confiable
+      time: formatMessageTime(m.created_at),
+      date: atlantaDateISO(m.created_at), // yyyy-mm-dd en calendario de Atlanta, para agrupar por día de forma confiable
       attachment: m.attachment_url
         ? { url: m.attachment_url, name: m.attachment_name ?? 'archivo', kind: (m.attachment_kind ?? 'file') as AttachmentKind }
         : undefined,
@@ -407,15 +372,10 @@ export default function ConversationsView({
       // real es el que haya quedado en delivery_status ("sent" por
       // default para lo viejo que nunca tuvo este campo).
       status: m.sender_type === 'operator' ? (m.delivery_status ?? 'sent') : undefined,
-      replyToMessageId: m.reply_to_message_id ?? undefined,
     }
   }
 
   useEffect(() => {
-    // Una cita "enganchada" en el composer es del chat que se estaba viendo
-    // — no tiene sentido que sobreviva a cambiar de conversación.
-    setReplyingTo(null)
-
     if (!selectedId) {
       setThread([])
       return
@@ -425,7 +385,7 @@ export default function ConversationsView({
 
     supabase
       .from('messages')
-      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status, reply_to_message_id')
+      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status')
       .eq('conversation_id', selectedId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
@@ -467,47 +427,11 @@ export default function ConversationsView({
     }
   }, [selectedId])
 
-  function scrollThreadToBottom(smooth: boolean) {
-    threadEndRef.current?.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'auto' })
-  }
-
-  function handleThreadScroll() {
-    const el = threadContainerRef.current
-    if (!el) return
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const atBottom = distanceFromBottom < 80 // margen chico, no hace falta estar al píxel exacto
-    isAtBottomRef.current = atBottom
-    setShowJumpToBottom(!atBottom)
-  }
-
-  // Al ABRIR un chat, siempre se arranca viendo el último mensaje — eso no
-  // cambia. Lo que sí cambia: esto ya no depende de thread.length, así que
-  // no vuelve a saltar solo cada vez que llega un mensaje nuevo con el
-  // chat ya abierto (ver el efecto de abajo para eso).
+  // Al abrir un chat, o al llegar un mensaje nuevo, va directo al final
+  // del hilo — no tiene que scrollear a mano para ver el último mensaje.
   useEffect(() => {
-    scrollThreadToBottom(false)
-    isAtBottomRef.current = true
-    setShowJumpToBottom(false)
-  }, [selectedId])
-
-  // Cuando llega un mensaje nuevo (el hilo creció): si lo mandó el propio
-  // operador, siempre se ve (recién lo escribió). Si es del cliente, solo
-  // salta solo cuando ya se estaba mirando el final del chat — si el
-  // operador estaba leyendo mensajes viejos más arriba, no se lo saca de
-  // ahí de golpe; en vez de eso aparece la flechita para bajar cuando
-  // quiera.
-  useEffect(() => {
-    const grew = thread.length > prevThreadLengthRef.current
-    prevThreadLengthRef.current = thread.length
-    if (!grew) return
-
-    const lastMessage = thread[thread.length - 1]
-    if (lastMessage?.from === 'operator' || isAtBottomRef.current) {
-      scrollThreadToBottom(true)
-    } else {
-      setShowJumpToBottom(true)
-    }
-  }, [thread.length])
+    threadEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [selectedId, thread.length])
 
   // El canal de envío arranca en selected.channel (fijo, el que tenía
   // la conversación al crearse), pero como SMS y WhatsApp comparten una
@@ -887,11 +811,6 @@ export default function ConversationsView({
 
     const textToSend = draft.trim()
     const attachmentToSend = pendingAttachment
-    // Solo tiene sentido mandar la cita si el canal de esta respuesta es
-    // WhatsApp — si el cliente venía por SMS y no cambió a WhatsApp, no
-    // hay forma de citar nada aunque hubiera quedado "enganchado" algo
-    // de antes.
-    const replyToMessageIdToSend = sendChannel === 'whatsapp' ? replyingTo?.id : undefined
     const tempId = `temp-${crypto.randomUUID()}`
 
     // El mensaje aparece al toque, con un estado "Enviando..." — no
@@ -906,14 +825,12 @@ export default function ConversationsView({
         attachment: attachmentToSend
           ? { name: attachmentToSend.name, url: attachmentToSend.url, kind: attachmentToSend.kind }
           : undefined,
-        time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+        time: formatMessageTime(new Date().toISOString()),
         status: 'sending',
-        replyToMessageId: replyToMessageIdToSend,
       },
     ])
     setDraft('')
     setPendingAttachment(null)
-    setReplyingTo(null)
     setShowEmoji(false)
     setSendError(null)
     if (isTypingRef.current) {
@@ -945,7 +862,6 @@ export default function ConversationsView({
           attachmentUrl: urlData.publicUrl,
           attachmentName: attachmentToSend.name,
           attachmentKind: attachmentToSend.kind,
-          replyToMessageId: replyToMessageIdToSend,
         },
       })
 
@@ -956,12 +872,9 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
-      // Avisa a App.tsx que el operador acaba de participar (se usa para
-      // el auto-logout por inactividad — 30 min sin mandar un mensaje).
-      window.dispatchEvent(new Event('operator-activity'))
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
-        body: { conversationId: selectedId, channel: sendChannel, text: textToSend, replyToMessageId: replyToMessageIdToSend },
+        body: { conversationId: selectedId, channel: sendChannel, text: textToSend },
       })
 
       if (error || data?.error) {
@@ -971,7 +884,6 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
-      window.dispatchEvent(new Event('operator-activity'))
     }
   }
 
@@ -1282,7 +1194,7 @@ export default function ConversationsView({
                     }`}
                     title={
                       selected.snoozedUntil
-                        ? `Pospuesta hasta ${new Date(selected.snoozedUntil).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        ? `Pospuesta hasta ${formatMessageDateTimeShort(selected.snoozedUntil)}`
                         : 'Posponer conversación'
                     }
                   >
@@ -1353,21 +1265,7 @@ export default function ConversationsView({
               </div>
             </div>
 
-            <div className="relative flex-1 overflow-hidden">
-            <div
-              ref={threadContainerRef}
-              onScroll={handleThreadScroll}
-              className="relative h-full overflow-y-auto"
-            >
-              {/* El patrón va en este wrapper interno, NO en el contenedor
-                  que scrollea — ese de afuera solo mide el alto visible de
-                  la pantalla (h-full), así que un ::before con inset:0 ahí
-                  quedaba fijo del tamaño de la pantalla y pegado arriba de
-                  todo el historial, en vez de cubrir todo lo que hay para
-                  scrollear. Este wrapper, en cambio, crece con el contenido
-                  real (min-h-full nada más pone un piso para charlas
-                  cortas), así que el patrón cubre todo el alto scrolleable. */}
-              <div className={`chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1381,16 +1279,7 @@ export default function ConversationsView({
                         <div className="h-px flex-1 bg-panel-light" />
                       </div>
                     )}
-                    <div className={`group mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
-                      {m.from === 'operator' && sendChannel === 'whatsapp' && (
-                        <button
-                          onClick={() => setReplyingTo(m)}
-                          className="mb-1 shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:text-cream group-hover:opacity-100"
-                          title="Responder a este mensaje"
-                        >
-                          <Reply size={14} />
-                        </button>
-                      )}
+                    <div className={`mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
                       <div
                         className={`max-w-md break-words px-3 py-2 text-sm ${
                           m.from === 'operator'
@@ -1408,22 +1297,6 @@ export default function ConversationsView({
                         🤖 Mensaje enviado automáticamente
                       </p>
                     )}
-                    {m.replyToMessageId && (() => {
-                      const quoted = thread.find((t) => t.id === m.replyToMessageId)
-                      return (
-                        <div
-                          className={`mb-1.5 rounded-sm border-l-2 px-2 py-1 text-xs opacity-80 ${
-                            m.from === 'operator' ? 'border-asphalt/40 bg-black/10' : 'border-mustard/60 bg-black/20'
-                          }`}
-                        >
-                          <p className="truncate">
-                            {quoted
-                              ? quoted.text || (quoted.attachment ? `📎 ${quoted.attachment.name}` : 'Mensaje')
-                              : 'Mensaje citado'}
-                          </p>
-                        </div>
-                      )
-                    })()}
                     {m.text && <p className="break-words">{<Linkify text={m.text} />}</p>}
 
                     {m.attachment && (
@@ -1482,13 +1355,9 @@ export default function ConversationsView({
                           {/* Doble check gris: confirmado como entregado — WhatsApp al
                               teléfono del cliente, o RingCentral al operador móvil. */}
                           {m.status === 'delivered' && <CheckCheck size={10} />}
-                          {/* Doble check "leído": antes era un celeste fijo (text-sky-400),
-                              que en temas con el mostaza en tonos azules/celestes (Medianoche,
-                              Océano, Facebook, etc.) quedaba casi invisible sobre la burbuja
-                              propia. Ahora usa --color-tick-read, definido aparte en cada tema
-                              para que siempre contraste contra bg-mustard (el color de la
-                              burbuja de los mensajes propios). */}
-                          {m.status === 'read' && <CheckCheck size={10} className="text-tick-read" />}
+                          {/* Doble check celeste: el cliente ya lo leyó — mismo color
+                              que usa WhatsApp para esto. */}
+                          {m.status === 'read' && <CheckCheck size={10} className="text-sky-400" />}
                         </p>
                       )}
                       {m.from === 'contact' && m.text && (
@@ -1521,34 +1390,10 @@ export default function ConversationsView({
                       <ChannelIcon channel={m.sentViaChannel} size={11} />
                     </span>
                   )}
-                  {m.from === 'contact' && sendChannel === 'whatsapp' && (
-                    <button
-                      onClick={() => setReplyingTo(m)}
-                      className="mb-1 shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:text-cream group-hover:opacity-100"
-                      title="Responder a este mensaje"
-                    >
-                      <Reply size={14} />
-                    </button>
-                  )}
                 </div>
                   </div>
               )})}
               <div ref={threadEndRef} />
-              </div>
-            </div>
-
-            {showJumpToBottom && (
-              <button
-                onClick={() => {
-                  scrollThreadToBottom(true)
-                  setShowJumpToBottom(false)
-                }}
-                className="absolute bottom-4 right-6 flex h-9 w-9 items-center justify-center rounded-full border border-panel-light bg-panel text-cream shadow-lg transition-opacity hover:opacity-90"
-                title="Ir al último mensaje"
-              >
-                <ChevronDown size={18} />
-              </button>
-            )}
             </div>
 
             {typingOperators.length > 0 && (
@@ -1590,28 +1435,9 @@ export default function ConversationsView({
                 contacto para volver a escribirle.
               </div>
             ) : (
-            <>
-            {replyingTo && (
-              <div className="flex items-center gap-2 border-t border-panel-light bg-panel px-4 pt-2.5">
-                <Reply size={13} className="shrink-0 text-mustard" />
-                <div className="min-w-0 flex-1 border-l-2 border-mustard/60 pl-2">
-                  <p className="text-[10px] font-semibold text-mustard">Respondiendo a</p>
-                  <p className="truncate text-xs text-muted">
-                    {replyingTo.text || (replyingTo.attachment ? `📎 ${replyingTo.attachment.name}` : 'Mensaje')}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setReplyingTo(null)}
-                  className="shrink-0 text-muted hover:text-cream"
-                  title="Cancelar respuesta"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
             <form
               onSubmit={handleSend}
-              className={`relative flex items-center gap-2.5 bg-panel px-4 py-4 ${replyingTo ? 'pt-2.5' : 'border-t border-panel-light'}`}
+              className="relative flex items-center gap-2.5 border-t border-panel-light bg-panel px-4 py-4"
             >
               {showEmoji && (
                 <div className="absolute bottom-full left-4 z-10 mb-2">
@@ -1732,12 +1558,7 @@ export default function ConversationsView({
                 }}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
                 rows={1}
-                // "flex-1 min-w-0": sin esto, en pantallas angostas (o con
-                // zoom/escala de Windows alto) el textarea no cedía el
-                // espacio sobrante a los íconos de al lado — todo quedaba
-                // amontonado contra el cuadro de texto en vez de que el
-                // cuadro se achique y los íconos mantengan su tamaño fijo.
-                className="min-w-0 max-h-40 flex-1 resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
+                className="max-h-40 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
               />
 
               <button
@@ -1757,7 +1578,6 @@ export default function ConversationsView({
                 <Send size={19} />
               </button>
             </form>
-            </>
             )}
           </>
         ) : (

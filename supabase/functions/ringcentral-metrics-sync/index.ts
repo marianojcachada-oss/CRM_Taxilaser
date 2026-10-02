@@ -14,13 +14,22 @@
 //   - operators.ringcentral_extension_id ya cargado (metrics_fase2_extensions.sql)
 //   - RINGCENTRAL_METRICS_SYNC_SECRET cargado en Integrations
 //
-// OJO — esto todavía no está probado contra una respuesta real de la
-// Analytics API: el nombre exacto del campo del contador de "llamadas
-// atendidas" puede no ser "AnsweredCalls" tal cual está acá. Por eso el
-// modo "debug" de abajo: antes de dejarlo corriendo solo por cron, llamalo
-// una vez a mano con { "debug": true } y pasame el "raw" que devuelve —
-// así ajustamos el nombre del campo si hace falta, sin tocar nada en la
-// base todavía.
+// Todo esto se confirmó probando contra la API real (modo debug), no
+// estaba documentado así de memoria:
+//   1. El rango pedido tiene que ser ESTRICTAMENTE más largo que el
+//      intervalo (ANL-305) — pedir exactamente 1 hora con interval=Hour
+//      lo rechaza, así que acá se piden 2 horas y se descarta la que sobra.
+//   2. responseOptions.counters no acepta {sum:[...]} (ANL-202) — es un
+//      set fijo de breakdowns; "callsByResponse" trae
+//      answered/notAnswered/connected/notConnected.
+//   3. Cada registro trae un array "points" (uno por hora dentro del
+//      rango), no un contador plano, y la extensión real está en
+//      record.info.extensionNumber (lo que tenemos guardado en
+//      operators.ringcentral_extension_id) — "key" NO es la extensión.
+//   4. page/perPage van como QUERY PARAM, no en el body (ANL-202 si se
+//      manda "paging" en el body). El máximo de perPage es 20 (ANL-503
+//      si se pide más) — con ~60 operadores hacen falta 3 páginas, así
+//      que se loopea hasta totalPages.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSetting } from "../_shared/settings.ts";
@@ -30,6 +39,9 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
+
+const PER_PAGE = 20;
+const MAX_PAGES = 10; // techo de seguridad — a ~20 operadores por página, cubre hasta 200 operadores
 
 function truncToHour(d: Date): Date {
   const t = new Date(d);
@@ -51,42 +63,76 @@ Deno.serve(async (req) => {
   // para backfill o pruebas puntuales.
   const hourStart = body.hour ? truncToHour(new Date(body.hour)) : truncToHour(new Date(Date.now() - 3_600_000));
   const hourEnd = new Date(hourStart.getTime() + 3_600_000);
+  const hourStartMs = hourStart.getTime();
+
+  // RingCentral rechaza un rango de EXACTAMENTE 1 hora con intervalo
+  // "Hour" (ANL-305) — el intervalo tiene que ser estrictamente más
+  // chico que el rango pedido. Se pide una ventana de 2 horas y después
+  // nos quedamos solo con el punto que arranca en hourStart.
+  const queryFrom = new Date(hourStart.getTime() - 3_600_000);
+  const queryTo = hourEnd;
 
   try {
     const rcServer = (await getSetting("RINGCENTRAL_SERVER_URL")) ?? "https://platform.ringcentral.com";
     const accessToken = await getRingCentralAccessToken();
 
-    const res = await fetch(`${rcServer}/analytics/calls/v1/accounts/~/timeline/fetch`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+    const requestBody = JSON.stringify({
+      grouping: { groupBy: "Users" },
+      timeSettings: {
+        timeZone: "UTC",
+        timeRange: { timeFrom: queryFrom.toISOString(), timeTo: queryTo.toISOString() },
       },
-      body: JSON.stringify({
-        grouping: { groupBy: "Users" },
-        timeSettings: {
-          timeZone: "UTC",
-          timeRange: { timeFrom: hourStart.toISOString(), timeTo: hourEnd.toISOString() },
-          interval: "Hour",
-        },
-        responseOptions: {
-          counters: { sum: ["AnsweredCalls"] },
-        },
-      }),
+      responseOptions: {
+        counters: { callsByResponse: true },
+      },
     });
 
-    const data = await res.json().catch(() => ({}));
+    const allRecords: any[] = [];
+    let page = 1;
+    let totalPages = 1;
+    let lastPaging: any = null;
 
-    if (!res.ok) {
-      throw new Error(`RingCentral Analytics rechazó el pedido: ${JSON.stringify(data)}`);
-    }
+    do {
+      const res = await fetch(
+        `${rcServer}/analytics/calls/v1/accounts/~/timeline/fetch?interval=Hour&page=${page}&perPage=${PER_PAGE}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: requestBody,
+        },
+      );
 
-    // Modo de prueba: devuelve la respuesta cruda de RingCentral sin
-    // escribir nada en la base, para confirmar una sola vez la forma
-    // exacta de la respuesta antes de dejarlo corriendo solo.
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(`RingCentral Analytics rechazó el pedido (página ${page}): ${JSON.stringify(data)}`);
+      }
+
+      lastPaging = data?.paging ?? null;
+      totalPages = data?.paging?.totalPages ?? 1;
+      allRecords.push(...(data?.data?.records ?? []));
+      page++;
+    } while (page <= totalPages && page <= MAX_PAGES);
+
+    // Modo de prueba: devuelve todo lo que se juntó de todas las
+    // páginas, sin escribir nada en la base.
     if (body.debug) {
       return new Response(
-        JSON.stringify({ hourStart: hourStart.toISOString(), hourEnd: hourEnd.toISOString(), raw: data }, null, 2),
+        JSON.stringify(
+          {
+            hourStart: hourStart.toISOString(),
+            hourEnd: hourEnd.toISOString(),
+            totalPages,
+            paginasTraidas: page - 1,
+            lastPaging,
+            records: allRecords,
+          },
+          null,
+          2,
+        ),
         { headers: { "Content-Type": "application/json" } },
       );
     }
@@ -102,22 +148,21 @@ Deno.serve(async (req) => {
         .map((op) => [op.ringcentral_extension_id as string, op.id as string]),
     );
 
-    const records: any[] = data?.records ?? [];
     const updates: { operator_id: string; hour_bucket: string; calls_answered: number; computed_at: string }[] = [];
     const computedAt = new Date().toISOString();
+    let sinMatch = 0;
 
-    for (const record of records) {
-      const extensionId = String(
-        record?.dimensions?.userDetails?.extensionId ?? record?.dimensions?.extensionId ?? "",
-      );
-      const operatorId = extensionToOperator.get(extensionId);
-      if (!operatorId) continue;
+    for (const record of allRecords) {
+      const extensionNumber = String(record?.info?.extensionNumber ?? "");
+      const operatorId = extensionToOperator.get(extensionNumber);
+      if (!operatorId) {
+        sinMatch++;
+        continue;
+      }
 
-      const countersList: any[] = record?.counters ?? [];
-      const answeredEntry = Array.isArray(countersList)
-        ? countersList.find((c) => c?.name === "AnsweredCalls")
-        : null;
-      const answered = Number(answeredEntry?.sum ?? record?.counters?.AnsweredCalls?.sum ?? 0);
+      const points: any[] = record?.points ?? [];
+      const point = points.find((p) => new Date(p?.time).getTime() === hourStartMs);
+      const answered = Number(point?.counters?.callsByResponse?.values?.answered ?? 0);
 
       updates.push({
         operator_id: operatorId,
@@ -135,13 +180,22 @@ Deno.serve(async (req) => {
       if (upsertError) throw new Error(`No se pudo guardar calls_answered: ${upsertError.message}`);
     }
 
+    if (totalPages > MAX_PAGES) {
+      await supabase.from("app_errors").insert({
+        context: "ringcentral-metrics-sync",
+        message: `Atención: la Analytics API devolvió ${totalPages} páginas para la hora ${hourStart.toISOString()} — el techo de seguridad es ${MAX_PAGES}, puede haber operadores sin sincronizar.`,
+      });
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         hourStart: hourStart.toISOString(),
         hourEnd: hourEnd.toISOString(),
-        recordsRecibidos: records.length,
+        recordsRecibidos: allRecords.length,
         operadoresActualizados: updates.length,
+        sinMatchDeExtension: sinMatch,
+        totalPages,
       }),
       { headers: { "Content-Type": "application/json" } },
     );

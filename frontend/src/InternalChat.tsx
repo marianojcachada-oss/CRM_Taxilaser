@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import { formatMessageTime } from './atlantaTime'
 
 type InternalMessage = {
   id: string
@@ -148,7 +149,7 @@ export default function InternalChat({ channelName, operatorId, operatorName }: 
                 )}
                 <p>{m.content}</p>
                 <p className="mt-1 font-mono text-[10px] opacity-60">
-                  {new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                  {formatMessageTime(m.created_at)}
                 </p>
               </div>
             </div>

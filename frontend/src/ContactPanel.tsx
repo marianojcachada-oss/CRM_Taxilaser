@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, Pencil, X, Ban, ShieldCheck, Star, Plus, ChevronDown } from 'lucide-react'
-import type { Conversation, Channel } from './ConversationsView'
+import type { Conversation } from './ConversationsView'
 import { channelLabel, ChannelIcon, statusConfig, channelAvatarColor } from './ConversationsView'
 import { phoneForCopy } from './phone'
 import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import ContactTimeline from './ContactTimeline'
 import { getFunctionErrorMessage } from './functionsError'
+import { formatMessageDate, formatMessageTime, formatMessageDateTimeShort } from './atlantaTime'
 
 // TODO: reemplazar por una llamada real a la API de Claude (vía una Edge
 // Function de Supabase, para no exponer la API key en el frontend). Con el
@@ -268,41 +269,12 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         setPrevious(
           (data ?? []).map((row) => ({
             id: row.id,
-            date: new Date(row.created_at).toLocaleDateString('es-AR'),
+            date: formatMessageDate(row.created_at),
             summary: row.last_message_preview ?? '(sin mensaje)',
           })),
         )
       })
   }, [conversation.contactId, conversation.id])
-
-  // "Canal" de arriba mostraba solo conversation.channel (el que quedó
-  // puesto al CREAR la conversación) — si el cliente después escribió
-  // también por otro canal (por ejemplo empezó por SMS y siguió por
-  // WhatsApp, que comparten el mismo hilo), esa etiqueta se quedaba vieja
-  // y mostraba uno solo. Acá se arma la lista real de canales por los que
-  // escribió, mirando los mensajes del cliente en este hilo.
-  // "sent_via_channel" puede venir como "sms,whatsapp" cuando un aviso
-  // automático salió por los dos a la vez, por eso se separa por coma.
-  const [usedChannels, setUsedChannels] = useState<Channel[]>([conversation.channel])
-
-  useEffect(() => {
-    supabase
-      .from('messages')
-      .select('sent_via_channel')
-      .eq('conversation_id', conversation.id)
-      .eq('sender_type', 'contact')
-      .then(({ data }) => {
-        const known: Channel[] = ['whatsapp', 'facebook', 'instagram', 'sms']
-        const found = new Set<Channel>()
-        for (const row of data ?? []) {
-          for (const part of String(row.sent_via_channel ?? '').split(',')) {
-            const trimmed = part.trim() as Channel
-            if (known.includes(trimmed)) found.add(trimmed)
-          }
-        }
-        setUsedChannels(found.size ? Array.from(found) : [conversation.channel])
-      })
-  }, [conversation.id, conversation.channel])
 
   function startEditing() {
     setEditName(conversation.name)
@@ -434,10 +406,10 @@ export default function ContactPanel({ conversation, onClose }: Props) {
                 {hasName ? conversation.name : 'Contacto nuevo'}
                 {conversation.vip && <Star size={13} className="fill-mustard text-mustard" />}
               </h2>
-              <p className="flex items-center gap-1 font-mono text-sm text-muted">
+              <p className="flex items-center gap-1 font-mono text-xs text-muted">
                 {conversation.phone}
                 <button onClick={copyPhone} className="text-muted transition-colors hover:text-mustard" title="Copiar teléfono">
-                  {copied ? <Check size={14} className="text-available" /> : <Copy size={14} />}
+                  {copied ? <Check size={12} className="text-available" /> : <Copy size={12} />}
                 </button>
               </p>
             </div>
@@ -546,23 +518,13 @@ export default function ContactPanel({ conversation, onClose }: Props) {
             <p className="text-sm font-medium text-warning">
               🚕 Servicio asignado a: {conversation.activeRideUnit || 'unidad sin datos'}
             </p>
-            {(conversation.activeRideColor || conversation.activeRidePlate) && (
-              <p className="mt-0.5 text-xs text-cream">
-                {conversation.activeRideColor && <>Color: {conversation.activeRideColor}</>}
-                {conversation.activeRideColor && conversation.activeRidePlate && ' · '}
-                {conversation.activeRidePlate && <>Placa: {conversation.activeRidePlate}</>}
-              </p>
-            )}
             {etaRemaining !== null && (
               <p className="mt-0.5 text-xs text-cream">Tiempo estimado: ~{etaRemaining} min</p>
             )}
             {conversation.activeRideEtaReceivedAt && conversation.activeRideEtaMinutes != null && (
               <p className="mt-1 text-[11px] text-muted">
                 Se puso en camino a las{' '}
-                {new Date(conversation.activeRideEtaReceivedAt).toLocaleTimeString('es-AR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}{' '}
+                {formatMessageTime(conversation.activeRideEtaReceivedAt)}{' '}
                 (dijo ~{conversation.activeRideEtaMinutes} min en ese momento)
               </p>
             )}
@@ -589,19 +551,10 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         }
       >
         <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">
-            Canal{usedChannels.length > 1 ? 'es' : ''}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {usedChannels.map((ch) => (
-              <span
-                key={ch}
-                className="flex w-fit items-center gap-1.5 rounded-sm border border-mustard/40 px-1.5 py-0.5 font-mono text-[10px] text-mustard"
-              >
-                <ChannelIcon channel={ch} size={12} /> {channelLabel[ch]}
-              </span>
-            ))}
-          </div>
+          <p className="mb-1 text-xs text-muted">Canal</p>
+          <span className="flex w-fit items-center gap-1.5 rounded-sm border border-mustard/40 px-1.5 py-0.5 font-mono text-[10px] text-mustard">
+            <ChannelIcon channel={conversation.channel} size={12} /> {channelLabel[conversation.channel]}
+          </span>
         </div>
 
         <div className="mb-3">
@@ -623,12 +576,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         <div className="mb-3">
           <p className="mb-1 text-xs text-muted">Primer contacto</p>
           <p className="text-xs text-cream">
-            {new Date(conversation.createdAt).toLocaleString('es-AR', {
-              day: '2-digit',
-              month: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {formatMessageDateTimeShort(conversation.createdAt)}
           </p>
         </div>
 

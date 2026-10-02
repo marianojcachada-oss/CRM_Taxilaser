@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
+import { formatMessageTime } from './atlantaTime'
 
 type TimelineEvent = {
   id: string
@@ -70,7 +71,7 @@ export default function ContactTimeline({ contactId }: Props) {
       {events.map((e) => (
         <div key={e.id} className="flex items-start gap-2 text-xs">
           <span className="font-mono text-muted">
-            {new Date(e.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            {formatMessageTime(e.created_at)}
           </span>
           <span>{eventEmoji[e.event_type] ?? '•'}</span>
           <span className="text-cream">{e.description}</span>

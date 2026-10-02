@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, Pencil, X, Ban, ShieldCheck, Star, Plus, ChevronDown } from 'lucide-react'
-import type { Conversation } from './ConversationsView'
+import type { Conversation, Channel } from './ConversationsView'
 import { channelLabel, ChannelIcon, statusConfig, channelAvatarColor } from './ConversationsView'
 import { phoneForCopy } from './phone'
 import { supabase } from './supabaseClient'
@@ -275,6 +275,35 @@ export default function ContactPanel({ conversation, onClose }: Props) {
       })
   }, [conversation.contactId, conversation.id])
 
+  // "Canal" de arriba mostraba solo conversation.channel (el que quedó
+  // puesto al CREAR la conversación) — si el cliente después escribió
+  // también por otro canal (por ejemplo empezó por SMS y siguió por
+  // WhatsApp, que comparten el mismo hilo), esa etiqueta se quedaba vieja
+  // y mostraba uno solo. Acá se arma la lista real de canales por los que
+  // escribió, mirando los mensajes del cliente en este hilo.
+  // "sent_via_channel" puede venir como "sms,whatsapp" cuando un aviso
+  // automático salió por los dos a la vez, por eso se separa por coma.
+  const [usedChannels, setUsedChannels] = useState<Channel[]>([conversation.channel])
+
+  useEffect(() => {
+    supabase
+      .from('messages')
+      .select('sent_via_channel')
+      .eq('conversation_id', conversation.id)
+      .eq('sender_type', 'contact')
+      .then(({ data }) => {
+        const known: Channel[] = ['whatsapp', 'facebook', 'instagram', 'sms']
+        const found = new Set<Channel>()
+        for (const row of data ?? []) {
+          for (const part of String(row.sent_via_channel ?? '').split(',')) {
+            const trimmed = part.trim() as Channel
+            if (known.includes(trimmed)) found.add(trimmed)
+          }
+        }
+        setUsedChannels(found.size ? Array.from(found) : [conversation.channel])
+      })
+  }, [conversation.id, conversation.channel])
+
   function startEditing() {
     setEditName(conversation.name)
     setEditPhone(conversation.phone)
@@ -517,6 +546,13 @@ export default function ContactPanel({ conversation, onClose }: Props) {
             <p className="text-sm font-medium text-warning">
               🚕 Servicio asignado a: {conversation.activeRideUnit || 'unidad sin datos'}
             </p>
+            {(conversation.activeRideColor || conversation.activeRidePlate) && (
+              <p className="mt-0.5 text-xs text-cream">
+                {conversation.activeRideColor && <>Color: {conversation.activeRideColor}</>}
+                {conversation.activeRideColor && conversation.activeRidePlate && ' · '}
+                {conversation.activeRidePlate && <>Placa: {conversation.activeRidePlate}</>}
+              </p>
+            )}
             {etaRemaining !== null && (
               <p className="mt-0.5 text-xs text-cream">Tiempo estimado: ~{etaRemaining} min</p>
             )}
@@ -553,10 +589,19 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         }
       >
         <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Canal</p>
-          <span className="flex w-fit items-center gap-1.5 rounded-sm border border-mustard/40 px-1.5 py-0.5 font-mono text-[10px] text-mustard">
-            <ChannelIcon channel={conversation.channel} size={12} /> {channelLabel[conversation.channel]}
-          </span>
+          <p className="mb-1 text-xs text-muted">
+            Canal{usedChannels.length > 1 ? 'es' : ''}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {usedChannels.map((ch) => (
+              <span
+                key={ch}
+                className="flex w-fit items-center gap-1.5 rounded-sm border border-mustard/40 px-1.5 py-0.5 font-mono text-[10px] text-mustard"
+              >
+                <ChannelIcon channel={ch} size={12} /> {channelLabel[ch]}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="mb-3">

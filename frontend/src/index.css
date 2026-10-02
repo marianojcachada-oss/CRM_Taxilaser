@@ -532,10 +532,15 @@ body {
 /* doodle, waves, dogs, cats, tamagotchi y mensajeria pintan con un
    ::before (para poder usar mask-image sin pelearse con background-image
    a la vez) — el contenedor necesita position:relative para que el
-   inset:0 del pseudo-elemento se ajuste a su tamaño, y overflow:hidden
-   para que no se escape del borde redondeado si lo tuviera.
+   inset:0 del pseudo-elemento se ajuste a su tamaño.
    ConversationsView ya le agrega "relative" a este contenedor junto con
-   la clase chat-pattern-*. */
+   la clase chat-pattern-*.
+   isolation:isolate es lo que hace que el z-index:-1 del ::before (para
+   que quede DETRÁS de los globos de los mensajes, no encima) se mida
+   contra ESTE contenedor y no contra un antepasado mucho más arriba en
+   la pantalla — sin esto, "detrás de todo" terminaba siendo detrás de
+   paneles opacos de más afuera, y el patrón quedaba tapado del todo
+   (invisible) en vez de solamente detrás de los mensajes. */
 .chat-pattern-doodle,
 .chat-pattern-waves,
 .chat-pattern-dogs,
@@ -543,6 +548,7 @@ body {
 .chat-pattern-tamagotchi,
 .chat-pattern-mensajeria {
   position: relative;
+  isolation: isolate;
 }
 
 body,

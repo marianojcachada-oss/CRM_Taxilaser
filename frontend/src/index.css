@@ -343,6 +343,20 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Patrón de fondo del hilo de mensajes (estilo "doodle" de WhatsApp) —
+   puntitos sutiles, no un color fijo: usa panel-light, que YA está
+   definido en cada uno de los 18 temas, así que convive con todos sin
+   tener que tocarlos uno por uno. color-mix() lo deja bien tenue para
+   no competir con las burbujas de mensaje. */
+.chat-pattern {
+  background-color: var(--color-asphalt);
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--color-panel-light) 70%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
 body,
 * {
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;

@@ -1349,7 +1349,11 @@ export default function ConversationsView({
             </div>
 
             <div className="relative flex-1 overflow-hidden">
-            <div ref={threadContainerRef} onScroll={handleThreadScroll} className="h-full overflow-y-auto px-6 py-4">
+            <div
+              ref={threadContainerRef}
+              onScroll={handleThreadScroll}
+              className="chat-pattern h-full overflow-y-auto px-6 py-4"
+            >
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (

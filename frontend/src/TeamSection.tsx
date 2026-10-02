@@ -13,6 +13,10 @@ type Operator = {
   is_admin: boolean
   is_superadmin: boolean
   is_active: boolean
+  // Permiso aparte para entrar al micrositio de métricas (Login →
+  // "Administración") — lo marca el superadmin, no tiene nada que ver
+  // con is_admin/is_superadmin del CRM normal.
+  can_view_metrics: boolean
 }
 
 // Ordena por el número del código (D5 antes que D12), no por texto — un
@@ -44,6 +48,7 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [editCode, setEditCode] = useState('')
   const [editIsAdmin, setEditIsAdmin] = useState(false)
   const [editIsSuperAdmin, setEditIsSuperAdmin] = useState(false)
+  const [editCanViewMetrics, setEditCanViewMetrics] = useState(false)
   const [editMaxCapacity, setEditMaxCapacity] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editPassword, setEditPassword] = useState('')
@@ -66,7 +71,7 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
     setLoading(true)
     supabase
       .from('operators')
-      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_superadmin, is_active')
+      .select('id, full_name, operator_code, presence, max_capacity, current_load, is_admin, is_superadmin, is_active, can_view_metrics')
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setOperators((data ?? []).slice().sort(byOperatorCode))
@@ -103,6 +108,7 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
     setEditCode(op.operator_code ?? '')
     setEditIsAdmin(op.is_admin)
     setEditIsSuperAdmin(op.is_superadmin)
+    setEditCanViewMetrics(op.can_view_metrics)
     setEditMaxCapacity(op.max_capacity?.toString() ?? '')
     setEditEmail('')
     setEditPassword('')
@@ -120,6 +126,9 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
         // igual (hay un trigger que lo protege) — no lo mandamos ni
         // para no confundir.
         ...(isSuperAdmin ? { is_superadmin: editIsSuperAdmin } : {}),
+        // El acceso al micrositio de métricas también lo maneja solo
+        // el superadmin.
+        ...(isSuperAdmin ? { can_view_metrics: editCanViewMetrics } : {}),
         max_capacity: editMaxCapacity.trim() ? Number(editMaxCapacity) : null,
       })
       .eq('id', id)
@@ -493,6 +502,17 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
                         Superadmin
                       </label>
                     )}
+                    {isSuperAdmin && (
+                      <label className="mt-1 flex items-center gap-1.5 text-xs text-cream">
+                        <input
+                          type="checkbox"
+                          checked={editCanViewMetrics}
+                          onChange={(e) => setEditCanViewMetrics(e.target.checked)}
+                          className="h-3.5 w-3.5 accent-info"
+                        />
+                        Métricas
+                      </label>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
@@ -572,17 +592,24 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
                     {op.current_load} / {op.max_capacity ?? '∞'}
                   </td>
                   <td className="px-4 py-2.5">
-                    {op.is_superadmin ? (
-                      <span className="rounded-sm border border-alert/40 px-1.5 py-0.5 text-xs text-alert">
-                        Superadmin
-                      </span>
-                    ) : op.is_admin ? (
-                      <span className="rounded-sm border border-mustard/40 px-1.5 py-0.5 text-xs text-mustard">
-                        Admin
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted">Operador</span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {op.is_superadmin ? (
+                        <span className="rounded-sm border border-alert/40 px-1.5 py-0.5 text-xs text-alert">
+                          Superadmin
+                        </span>
+                      ) : op.is_admin ? (
+                        <span className="rounded-sm border border-mustard/40 px-1.5 py-0.5 text-xs text-mustard">
+                          Admin
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted">Operador</span>
+                      )}
+                      {op.can_view_metrics && (
+                        <span className="rounded-sm border border-info/40 px-1.5 py-0.5 text-xs text-info">
+                          Métricas
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">

@@ -4,6 +4,7 @@ import Login from './Login'
 import ResetPassword from './ResetPassword'
 import Inbox from './Inbox'
 import AdminPanel from './AdminPanel'
+import MetricsPage from './MetricsPage'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
@@ -45,11 +46,17 @@ function AppContent() {
   // Tipografía — mismo mecanismo que tema y patrón, un sibling más de
   // "configuraciones" por operador (ver ThemePicker.tsx -> fonts).
   const [font, setFont] = useState<string>('plex')
-  const [view, setView] = useState<'inbox' | 'admin'>('inbox')
+  const [view, setView] = useState<'inbox' | 'admin' | 'metrics'>('inbox')
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [canViewMetrics, setCanViewMetrics] = useState(false)
+  // Lo que eligió el selector "Mensajería / Administración" en el
+  // Login, ANTES de que termine de resolverse la sesión — así, apenas
+  // tenemos los datos del operador, ya sabemos a dónde mandarlo.
+  const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
+  const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
   const [operatorPresence, setOperatorPresence] = useState<'available' | 'offline' | 'busy'>('offline')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
@@ -81,7 +88,7 @@ function AppContent() {
 
     supabase
       .from('operators')
-      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference, chat_pattern_preference, font_preference')
+      .select('id, full_name, is_admin, is_superadmin, can_view_metrics, presence, theme_preference, chat_pattern_preference, font_preference')
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
@@ -94,13 +101,28 @@ function AppContent() {
           setOperatorName(data.full_name ?? 'Operador')
           setIsAdmin(data.is_admin ?? false)
           setIsSuperAdmin(data.is_superadmin ?? false)
+          setCanViewMetrics(data.can_view_metrics ?? false)
           setOperatorPresence(data.presence ?? 'offline')
           setTheme(data.theme_preference ?? 'dark')
           setChatPattern(data.chat_pattern_preference ?? 'dots')
           setFont(data.font_preference ?? 'plex')
+
+          // Acá se decide a dónde entra, según lo que eligió en el
+          // selector del Login. Si pidió "Administración" pero no
+          // tiene el permiso, lo mandamos igual a la bandeja normal
+          // (la cuenta sigue sirviendo para lo de siempre) y mostramos
+          // un aviso en vez de dejarlo en una pantalla en blanco.
+          if (loginIntent === 'administracion') {
+            if (data.can_view_metrics) {
+              setView('metrics')
+            } else {
+              setMetricsAccessDenied(true)
+              setView('inbox')
+            }
+          }
         }
       })
-  }, [session])
+  }, [session, loginIntent])
 
   // Nombres de operadores para poder resolver "assignedToName" en las
   // actualizaciones en vivo sin tener que volver a pedir la conversación
@@ -502,7 +524,7 @@ function AppContent() {
             Se cerró tu sesión por inactividad (10 minutos sin mandar mensajes). Volvé a iniciar sesión para continuar.
           </div>
         )}
-        <Login />
+        <Login onIntentChange={setLoginIntent} />
       </>
     )
   }
@@ -512,7 +534,13 @@ function AppContent() {
   }
 
   const mainContent =
-    view === 'admin' && isAdmin ? (
+    view === 'metrics' && canViewMetrics ? (
+      <MetricsPage
+        operatorName={operatorName}
+        onSignOut={() => supabase.auth.signOut()}
+        onBackToInbox={() => setView('inbox')}
+      />
+    ) : view === 'admin' && isAdmin ? (
       <AdminPanel
         theme={theme}
         onChangeTheme={changeTheme}
@@ -555,6 +583,17 @@ function AppContent() {
             className="rounded-sm bg-asphalt px-3 py-1 text-xs font-semibold text-mustard"
           >
             Actualizar ahora
+          </button>
+        </div>
+      )}
+      {metricsAccessDenied && (
+        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-alert px-4 py-2 text-center text-sm font-medium text-cream">
+          Tu cuenta no tiene permiso para entrar a Administración — te dejamos en Mensajería.
+          <button
+            onClick={() => setMetricsAccessDenied(false)}
+            className="rounded-sm bg-asphalt/30 px-3 py-1 text-xs font-semibold text-cream hover:bg-asphalt/50"
+          >
+            Entendido
           </button>
         </div>
       )}

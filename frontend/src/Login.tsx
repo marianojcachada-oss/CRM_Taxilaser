@@ -1,15 +1,39 @@
 import { useState } from 'react'
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2, MessageSquare, BarChart3 } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import Logo from './Logo'
 
-export default function Login() {
+type LoginIntent = 'mensajeria' | 'administracion'
+
+type Props = {
+  // Le avisa a App.tsx a dónde quiere entrar — se llama apenas cambia
+  // el selector, no recién al mandar el formulario, así App.tsx ya
+  // sabe la intención antes de que termine de resolverse la sesión.
+  onIntentChange?: (intent: LoginIntent) => void
+}
+
+export default function Login({ onIntentChange }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [intent, setIntent] = useState<LoginIntent>('mensajeria')
+
+  function changeIntent(next: LoginIntent) {
+    setIntent(next)
+    onIntentChange?.(next)
+  }
+
+  // Mensajería = marca de siempre (mostaza). Administración = un acento
+  // distinto (azul "info", ya definido en todos los temas) para que se
+  // note de un vistazo que no es la pantalla operativa de todos los
+  // días. Pisa la variable CSS --color-mustard para TODO lo de acá
+  // abajo, así los mismos botones/bordes que ya usan var(--color-mustard)
+  // cambian solos, sin duplicar estilos.
+  const accentOverride =
+    intent === 'administracion' ? ({ '--color-mustard': 'var(--color-info)' } as React.CSSProperties) : undefined
 
   const [showForgot, setShowForgot] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
@@ -47,11 +71,11 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen bg-asphalt">
+    <div className="flex min-h-screen bg-asphalt transition-colors duration-300" style={accentOverride}>
       {/* Panel de marca — se oculta en pantallas chicas */}
       <div className="relative hidden flex-1 flex-col items-center justify-center overflow-hidden bg-panel md:flex">
         <div
-          className="absolute inset-0 opacity-[0.04]"
+          className="absolute inset-0 opacity-[0.04] transition-colors duration-300"
           style={{
             backgroundImage:
               'repeating-linear-gradient(135deg, var(--color-mustard) 0px, var(--color-mustard) 2px, transparent 2px, transparent 26px)',
@@ -60,7 +84,11 @@ export default function Login() {
         <div className="relative flex flex-col items-center px-10 text-center">
           <Logo size={96} />
           <h1 className="mt-6 text-2xl font-semibold text-cream">Qué tal?</h1>
-          <p className="mt-2 text-sm text-muted">Panel de operadores — mensajería y despacho</p>
+          <p className="mt-2 text-sm text-muted">
+            {intent === 'administracion'
+              ? 'Métricas y reportes — acceso restringido'
+              : 'Panel de operadores — mensajería y despacho'}
+          </p>
         </div>
       </div>
 
@@ -71,10 +99,41 @@ export default function Login() {
             <Logo size={64} />
           </div>
 
+          {!showForgot && (
+            <div className="relative mb-6 flex rounded-full border border-panel-light bg-panel p-1 text-xs font-medium">
+              <div
+                className="absolute inset-y-1 w-[calc(50%-4px)] rounded-full bg-mustard transition-transform duration-200"
+                style={{ transform: intent === 'administracion' ? 'translateX(calc(100% + 8px))' : 'translateX(0)' }}
+              />
+              <button
+                type="button"
+                onClick={() => changeIntent('mensajeria')}
+                className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 transition-colors ${
+                  intent === 'mensajeria' ? 'text-asphalt' : 'text-muted hover:text-cream'
+                }`}
+              >
+                <MessageSquare size={13} /> Mensajería
+              </button>
+              <button
+                type="button"
+                onClick={() => changeIntent('administracion')}
+                className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 transition-colors ${
+                  intent === 'administracion' ? 'text-asphalt' : 'text-muted hover:text-cream'
+                }`}
+              >
+                <BarChart3 size={13} /> Administración
+              </button>
+            </div>
+          )}
+
           {!showForgot ? (
             <>
               <h2 className="mb-1 text-xl font-semibold text-cream">Ingresá a tu cuenta</h2>
-              <p className="mb-8 text-sm text-muted">Usá tu email y contraseña de operador</p>
+              <p className="mb-8 text-sm text-muted">
+                {intent === 'administracion'
+                  ? 'Entrá con la misma cuenta — necesitás permiso de métricas'
+                  : 'Usá tu email y contraseña de operador'}
+              </p>
 
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div>

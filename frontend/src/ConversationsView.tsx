@@ -319,7 +319,15 @@ export default function ConversationsView({
   function insertTemplate(body: string) {
     const myCode = operators.find((o) => o.id === operatorId)?.operator_code
     const withCode = body.replaceAll('{{codigo}}', myCode || '(sin código cargado)')
-    setDraft((prev) => (prev ? `${prev} ${withCode}` : withCode))
+    // "{{unidad}}" se completa solo con el dato de vehículo que ya
+    // viene en vivo desde TaxiCaller (indicativo + auto + año, tal
+    // cual lo manda su webhook de "asignado") — no hace falta tocar
+    // nada de TaxiCaller ni de la base para que esto funcione.
+    const withUnidad = withCode.replaceAll(
+      '{{unidad}}',
+      selected?.activeRideUnit || '(sin unidad asignada)',
+    )
+    setDraft((prev) => (prev ? `${prev} ${withUnidad}` : withUnidad))
     setShowTemplates(false)
   }
 

@@ -8,7 +8,7 @@ import type { Conversation } from './ConversationsView'
 
 export const CONVERSATION_SELECT = `id, channel, status, unread, last_message_preview, last_message_at, created_at, snoozed_until, last_contact_message_at, keep_with_operator, needs_assignment,
    assigned_operator_id, team, contact_id,
-   contacts ( full_name, phone, vip, tags, blocked, total_invertido, servicios_completados, servicios_cancelados, notes, has_active_ride, active_ride_unit, active_ride_eta_minutes, active_ride_eta_received_at, active_ride_status, active_ride_fare, active_ride_completed_at, preferred_channels ),
+   contacts ( full_name, phone, vip, tags, blocked, total_invertido, servicios_completados, servicios_cancelados, notes, has_active_ride, active_ride_unit, active_ride_color, active_ride_plate, active_ride_eta_minutes, active_ride_eta_received_at, active_ride_status, active_ride_fare, active_ride_completed_at, preferred_channels ),
    operators!conversations_assigned_operator_id_fkey ( full_name )`
 
 export function mapConversation(row: any): Conversation {
@@ -30,6 +30,8 @@ export function mapConversation(row: any): Conversation {
     notes: row.contacts?.notes ?? null,
     hasActiveRide: row.contacts?.has_active_ride ?? false,
     activeRideUnit: row.contacts?.active_ride_unit ?? null,
+    activeRideColor: row.contacts?.active_ride_color ?? null,
+    activeRidePlate: row.contacts?.active_ride_plate ?? null,
     activeRideEtaMinutes: row.contacts?.active_ride_eta_minutes ?? null,
     activeRideEtaReceivedAt: row.contacts?.active_ride_eta_received_at ?? null,
     activeRideStatus: row.contacts?.active_ride_status ?? null,

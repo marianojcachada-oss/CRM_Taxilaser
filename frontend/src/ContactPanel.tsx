@@ -518,6 +518,13 @@ export default function ContactPanel({ conversation, onClose }: Props) {
             <p className="text-sm font-medium text-warning">
               🚕 Servicio asignado a: {conversation.activeRideUnit || 'unidad sin datos'}
             </p>
+            {(conversation.activeRideColor || conversation.activeRidePlate) && (
+              <p className="mt-0.5 text-xs text-cream">
+                {conversation.activeRideColor && <>Color: {conversation.activeRideColor}</>}
+                {conversation.activeRideColor && conversation.activeRidePlate && ' · '}
+                {conversation.activeRidePlate && <>Placa: {conversation.activeRidePlate}</>}
+              </p>
+            )}
             {etaRemaining !== null && (
               <p className="mt-0.5 text-xs text-cream">Tiempo estimado: ~{etaRemaining} min</p>
             )}

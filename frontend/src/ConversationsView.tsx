@@ -145,6 +145,8 @@ export type Conversation = {
   notes?: string | null
   hasActiveRide?: boolean
   activeRideUnit?: string | null
+  activeRideColor?: string | null
+  activeRidePlate?: string | null
   activeRideEtaMinutes?: number | null
   activeRideEtaReceivedAt?: string | null
   activeRideStatus?: string | null
@@ -306,7 +308,23 @@ export default function ConversationsView({
   function insertTemplate(body: string) {
     const myCode = operators.find((o) => o.id === operatorId)?.operator_code
     const withCode = body.replaceAll('{{codigo}}', myCode || '(sin código cargado)')
-    setDraft((prev) => (prev ? `${prev} ${withCode}` : withCode))
+    // "{{unidad}}" se completa solo con el dato de vehículo que ya
+    // viene en vivo desde TaxiCaller (indicativo + auto + año, tal
+    // cual lo manda su webhook de "asignado") — no hace falta tocar
+    // nada de TaxiCaller ni de la base para que esto funcione.
+    const withUnidad = withCode.replaceAll(
+      '{{unidad}}',
+      selected?.activeRideUnit || '(sin unidad asignada)',
+    )
+    // "{{color}}" y "{{placa}}" se completan con lo que mandó
+    // TaxiCaller en el evento "esperando al pasajero" (el mismo que
+    // dispara el SMS automático) — se guardan en el contacto apenas
+    // llega ese evento, y siguen guardándose aunque el SMS automático
+    // esté apagado desde Integrations, así que esto funciona igual con
+    // el automático prendido o apagado.
+    const withColor = withUnidad.replaceAll('{{color}}', selected?.activeRideColor || '(sin color)')
+    const withPlaca = withColor.replaceAll('{{placa}}', selected?.activeRidePlate || '(sin placa)')
+    setDraft((prev) => (prev ? `${prev} ${withPlaca}` : withPlaca))
     setShowTemplates(false)
   }
 

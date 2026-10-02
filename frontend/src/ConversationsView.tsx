@@ -1558,7 +1558,12 @@ export default function ConversationsView({
                 }}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
                 rows={1}
-                className="max-h-40 w-full resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
+                // flex-1 + min-w-0: sin esto, en una ventana angosta o con
+                // zoom alto del navegador, los íconos de al lado (todos
+                // shrink-0, nunca se achican) se comen todo el ancho y el
+                // campo de texto queda reducido a casi nada — con esto, es
+                // el textarea el que ocupa siempre el espacio que sobra.
+                className="max-h-40 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl border border-panel-light bg-asphalt px-5 py-3.5 text-base leading-normal text-cream placeholder-muted outline-none focus:border-mustard"
               />
 
               <button

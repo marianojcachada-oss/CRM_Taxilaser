@@ -37,6 +37,11 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
         label: 'Confirmación de entrega de SMS — secreto (elegís vos un valor — se agrega solo como ?secret= en la URL que se registra en RingCentral)',
         secret: true,
       },
+      {
+        key: 'RINGCENTRAL_METRICS_SYNC_SECRET',
+        label: 'Métricas — secreto para ringcentral-metrics-sync (elegís vos un valor — va como header X-Webhook-Secret desde el cron)',
+        secret: true,
+      },
     ],
   },
   {

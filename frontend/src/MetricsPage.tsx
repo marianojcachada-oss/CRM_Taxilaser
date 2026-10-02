@@ -27,6 +27,23 @@ type Props = {
   onBackToInbox?: () => void
 }
 
+type Metric = 'total' | 'whatsapp' | 'ringcentral' | 'calls'
+
+const metricLabel: Record<Metric, string> = {
+  total: 'Mensajes (WhatsApp + RingCentral)',
+  whatsapp: 'Mensajes WhatsApp',
+  ringcentral: 'Mensajes RingCentral',
+  calls: 'Llamadas atendidas',
+}
+
+function metricValue(row: OperatorRow | undefined, metric: Metric): number {
+  if (!row) return 0
+  if (metric === 'whatsapp') return row.messages_whatsapp
+  if (metric === 'ringcentral') return row.messages_ringcentral
+  if (metric === 'calls') return row.calls_answered
+  return row.messages_whatsapp + row.messages_ringcentral
+}
+
 // Ordena por el número del código (D5 antes que D12) — mismo criterio
 // que en Equipo, para que la tabla salga en un orden que tenga sentido.
 function byOperatorCode(a: Operator, b: Operator) {
@@ -48,6 +65,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   const [date, setDate] = useState(todayLocalISO())
   const [operators, setOperators] = useState<Operator[]>([])
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('all')
+  const [metric, setMetric] = useState<Metric>('total')
   const [operatorRows, setOperatorRows] = useState<OperatorRow[]>([])
   const [serviceRows, setServiceRows] = useState<ServiceRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,16 +113,19 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
     { completed: 0, cancelled: 0 },
   )
 
-  // Vista "Todos los operadores": un total por operador para el día.
-  const totalsByOperator = operators.map((op) => {
-    const rows = operatorRows.filter((r) => r.operator_id === op.id)
-    return {
-      operator: op,
-      whatsapp: rows.reduce((s, r) => s + r.messages_whatsapp, 0),
-      ringcentral: rows.reduce((s, r) => s + r.messages_ringcentral, 0),
-      calls: rows.reduce((s, r) => s + r.calls_answered, 0),
-    }
+  // Vista "Todos los operadores": matriz hora × operador, con la
+  // métrica que se haya elegido arriba. Un solo Map de lookup (no un
+  // .find() por celda) para que ande bien aunque haya 50+ operadores ×
+  // 24 horas en pantalla a la vez.
+  const rowByKey = new Map(operatorRows.map((r) => [`${r.operator_id}|${new Date(r.hour_bucket).toISOString()}`, r]))
+
+  const matrixHours = Array.from({ length: 24 }, (_, h) => {
+    const hourIso = new Date(`${date}T${String(h).padStart(2, '0')}:00:00`).toISOString()
+    const values = operators.map((op) => metricValue(rowByKey.get(`${op.id}|${hourIso}`), metric))
+    return { hour: h, values, total: values.reduce((s, v) => s + v, 0) }
   })
+  const columnTotals = operators.map((_, i) => matrixHours.reduce((s, row) => s + row.values[i], 0))
+  const grandTotal = columnTotals.reduce((s, v) => s + v, 0)
 
   // Vista de un operador puntual: desglose por las 24 horas del día.
   const selectedOperator = operators.find((o) => o.id === selectedOperatorId)
@@ -178,6 +199,22 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
               ))}
             </select>
           </div>
+          {selectedOperatorId === 'all' && (
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">Métrica</label>
+              <select
+                value={metric}
+                onChange={(e) => setMetric(e.target.value as Metric)}
+                className="rounded-sm border border-panel-light bg-panel px-2.5 py-1.5 text-xs text-cream outline-none focus:border-mustard"
+              >
+                {(Object.keys(metricLabel) as Metric[]).map((m) => (
+                  <option key={m} value={m}>
+                    {metricLabel[m]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {loading && <Loader2 size={15} className="mb-2 animate-spin text-muted" />}
         </div>
 
@@ -197,27 +234,44 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
 
         {selectedOperatorId === 'all' ? (
           <div className="overflow-x-auto rounded-sm border border-panel-light">
-            <table className="w-full text-left text-xs">
+            <table className="text-left text-xs">
               <thead className="bg-panel text-muted">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Operador</th>
-                  <th className="px-4 py-2.5 font-medium">Mensajes WhatsApp</th>
-                  <th className="px-4 py-2.5 font-medium">Mensajes RingCentral</th>
-                  <th className="px-4 py-2.5 font-medium">Llamadas atendidas</th>
+                  <th className="sticky left-0 z-10 bg-panel px-3 py-2 font-medium">Hora</th>
+                  {operators.map((op) => (
+                    <th key={op.id} title={op.full_name} className="px-3 py-2 text-right font-mono font-medium">
+                      {op.operator_code ?? op.full_name.slice(0, 4)}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-right font-medium text-mustard">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-panel-light">
-                {totalsByOperator.map(({ operator, whatsapp, ringcentral, calls }) => (
-                  <tr key={operator.id} className="bg-asphalt">
-                    <td className="px-4 py-2.5 font-mono text-cream">
-                      {operator.operator_code ?? '—'} <span className="text-muted">{operator.full_name}</span>
+                {matrixHours.map((row) => (
+                  <tr key={row.hour} className="bg-asphalt">
+                    <td className="sticky left-0 z-10 bg-asphalt px-3 py-2 font-mono text-cream">
+                      {String(row.hour).padStart(2, '0')}:00
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-cream">{whatsapp}</td>
-                    <td className="px-4 py-2.5 font-mono text-cream">{ringcentral}</td>
-                    <td className="px-4 py-2.5 font-mono text-cream">{calls}</td>
+                    {row.values.map((v, i) => (
+                      <td key={operators[i].id} className="px-3 py-2 text-right font-mono text-cream">
+                        {v || <span className="text-muted/40">·</span>}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-mustard">{row.total}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="border-t border-panel-light bg-panel">
+                <tr>
+                  <td className="sticky left-0 z-10 bg-panel px-3 py-2 font-mono text-muted">Total</td>
+                  {columnTotals.map((t, i) => (
+                    <td key={operators[i].id} className="px-3 py-2 text-right font-mono text-muted">
+                      {t}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2 text-right font-mono text-mustard">{grandTotal}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         ) : (

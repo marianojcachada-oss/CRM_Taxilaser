@@ -1357,8 +1357,17 @@ export default function ConversationsView({
             <div
               ref={threadContainerRef}
               onScroll={handleThreadScroll}
-              className={`chat-pattern-${chatPattern || 'dots'} relative h-full overflow-y-auto px-6 py-4`}
+              className="relative h-full overflow-y-auto"
             >
+              {/* El patrón va en este wrapper interno, NO en el contenedor
+                  que scrollea — ese de afuera solo mide el alto visible de
+                  la pantalla (h-full), así que un ::before con inset:0 ahí
+                  quedaba fijo del tamaño de la pantalla y pegado arriba de
+                  todo el historial, en vez de cubrir todo lo que hay para
+                  scrollear. Este wrapper, en cambio, crece con el contenido
+                  real (min-h-full nada más pone un piso para charlas
+                  cortas), así que el patrón cubre todo el alto scrolleable. */}
+              <div className={`chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1525,6 +1534,7 @@ export default function ConversationsView({
                   </div>
               )})}
               <div ref={threadEndRef} />
+              </div>
             </div>
 
             {showJumpToBottom && (

@@ -31,32 +31,21 @@ type Props = {
   onBackToInbox?: () => void
 }
 
-type Metric = 'general' | 'total' | 'whatsapp' | 'ringcentral' | 'calls' | 'servicesSent' | 'servicesCancelled'
+// Solo 3 opciones a propósito — sin desglosar mensajes por canal
+// (WhatsApp/RingCentral) ni separar servicios cancelados: el selector
+// es nada más que "qué columna quiero ver en la matriz por hora".
+type Metric = 'total' | 'calls' | 'servicesSent'
 
-// "general" es la carga de trabajo total del operador — todo lo que
-// atendió, sumado: mensajes (de cualquier canal) + llamadas + servicios
-// que mandó. Es la vista por defecto porque es la que responde "quién
-// trabajó más", en vez de tener que sumar a mano las columnas sueltas.
 const metricLabel: Record<Metric, string> = {
-  general: 'Total general (mensajes + llamadas + servicios enviados)',
-  total: 'Mensajes (WhatsApp + RingCentral)',
-  whatsapp: 'Mensajes WhatsApp',
-  ringcentral: 'Mensajes RingCentral',
-  calls: 'Llamadas atendidas',
-  servicesSent: 'Servicios enviados',
-  servicesCancelled: 'Servicios cancelados (enviados por el operador)',
+  total: 'Mensajes',
+  calls: 'Llamadas',
+  servicesSent: 'Servicios',
 }
 
 function metricValue(row: OperatorRow | undefined, metric: Metric): number {
   if (!row) return 0
-  if (metric === 'whatsapp') return row.messages_whatsapp
-  if (metric === 'ringcentral') return row.messages_ringcentral
   if (metric === 'calls') return row.calls_answered
   if (metric === 'servicesSent') return row.services_completed
-  if (metric === 'servicesCancelled') return row.services_cancelled
-  if (metric === 'general') {
-    return row.messages_whatsapp + row.messages_ringcentral + row.calls_answered + row.services_completed
-  }
   return row.messages_whatsapp + row.messages_ringcentral
 }
 
@@ -116,7 +105,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   const [date, setDate] = useState(atlantaTodayISO())
   const [operators, setOperators] = useState<Operator[]>([])
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('all')
-  const [metric, setMetric] = useState<Metric>('general')
+  const [metric, setMetric] = useState<Metric>('total')
   const [operatorRows, setOperatorRows] = useState<OperatorRow[]>([])
   const [serviceRows, setServiceRows] = useState<ServiceRow[]>([])
   const [loading, setLoading] = useState(true)

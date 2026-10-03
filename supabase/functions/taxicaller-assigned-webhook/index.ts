@@ -22,8 +22,21 @@
 //   "vehicle_color": "[vehicle.tags.color_name]",
 //   "vehicle_plate": "[vehicle.tags.plate]",
 //   "eta_minutes": "[job.route.pickup.eta]",
-//   "booked_by": "[job.extra.tags.booked_by]"
+//   "booked_by": "[job.extra.tags.booked_by]",
+//   "job_started_at": "[job.stimes.start]"
 // }
+//
+// "job_started_at" es la hora REAL (de TaxiCaller) en que arrancó el
+// viaje — se usa como created_at de la fila de ride_history en vez de
+// la hora en que nos llega esta notificación, para que el conteo de
+// "servicios enviados por hora" en Métricas sea exacto. No sabíamos de
+// antemano en qué formato manda TaxiCaller este tag (con eta_minutes ya
+// pasó que esperábamos un número y llegó como texto "02:24 AM"), así
+// que parseJobStartedAt() de abajo prueba varios formatos posibles; si
+// ninguno matchea, cae de vuelta a la hora de recepción (el
+// comportamiento de antes) y deja un console.error con el valor crudo
+// para poder ajustar el parser puntual sin que nada se rompa mientras
+// tanto.
 //
 // "booked_by" es el agregado nuevo: el código del operador/dispatcher
 // que mandó el servicio (tal cual lo tiene cargado TaxiCaller en ese
@@ -34,14 +47,23 @@
 // traslada a ride_history recién cuando el viaje termina o se cancela
 // (en los otros dos webhooks), que es donde se calculan las métricas.
 //
-// "vehicle_color" y "vehicle_plate" son los otros dos agregados: antes
-// este webhook solo guardaba vehicle_make (el texto combinado
-// "indicativo + auto + año" que ya manda TaxiCaller armado, ej. "D1112
-// TYT Camry 2026"), así que el panel de contacto y las plantillas de
-// respuesta rápida ({{color}} / {{placa}}) nunca tenían estos datos —
-// quedaban siempre vacíos aunque el panel ya estaba armado para
-// mostrarlos. Ahora se guardan aparte en active_ride_color /
-// active_ride_plate, igual que ya se guarda active_ride_unit.
+// "vehicle_color" y "vehicle_plate" son dos tags NUEVOS para esta
+// notificación en particular — hay que agregarlos en el panel de
+// TaxiCaller (pestaña de Tags de la notificación de "Servicio en
+// camino"), con esas claves exactas, igual que ya está cargado
+// vehicle_make. Mientras no estén agregados ahí, estos dos campos van
+// a llegar vacíos siempre, sin que afecte nada más de esta función (el
+// resto sigue andando igual).
+//
+// Guardar acá color/placa (en vez de en taxicaller-webhook, el evento
+// de "esperando al pasajero") es a propósito: esta función no depende
+// del interruptor TAXICALLER_AUTO_MESSAGE_ENABLED del SMS automático de
+// "taxi llegó" — así que aunque se apague ese SMS para que los
+// operadores lo manden a mano con una plantilla, estos datos se siguen
+// completando solos, sin cambiar en nada el webhook del SMS automático.
+// Se guardan en active_ride_color / active_ride_plate, igual que ya se
+// guarda active_ride_unit — para que el panel de contacto y las
+// plantillas de respuesta rápida ({{color}} / {{placa}}) tengan datos.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";
@@ -77,6 +99,62 @@ function parseEtaTimeToMinutes(etaTimeStr: string): number | null {
   if (diff < -60) diff += 24 * 60; // cruzó medianoche — asumimos que es dentro de las próximas horas
 
   return diff;
+}
+
+// Intenta varios formatos posibles para "job_started_at" y devuelve un
+// ISO timestamp, o null si no pudo interpretarlo (en ese caso el
+// llamador cae de vuelta a la hora de recepción del webhook).
+function parseJobStartedAt(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // 1) Fecha/hora completa en un formato que JS entiende de por sí
+  //    (ISO 8601, "2026-10-03 20:13:00", etc.)
+  const direct = new Date(trimmed);
+  if (!isNaN(direct.getTime())) return direct.toISOString();
+
+  // 2) Timestamp numérico (epoch) — en segundos (10 dígitos) o
+  //    milisegundos (13 dígitos).
+  if (/^\d+$/.test(trimmed)) {
+    const n = Number(trimmed);
+    const ms = trimmed.length > 10 ? n : n * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // 3) Solo la hora, como vino eta_minutes ("08:13 PM") — se arma con
+  //    la fecha de hoy en el huso horario de la empresa. El viaje ya
+  //    arrancó (es un evento pasado, no futuro como el ETA), así que si
+  //    da más de 2 horas en el futuro asumimos que cruzó medianoche y
+  //    en realidad es de ayer.
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match) {
+    let targetHour = parseInt(match[1], 10) % 12;
+    const targetMinute = parseInt(match[2], 10);
+    if (match[3].toUpperCase() === "PM") targetHour += 12;
+
+    const nowParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const get = (type: string) => nowParts.find((p) => p.type === type)!.value;
+
+    const candidate = new Date(
+      `${get("year")}-${get("month")}-${get("day")}T${String(targetHour).padStart(2, "0")}:${String(targetMinute).padStart(2, "0")}:00`,
+    );
+    if (candidate.getTime() - Date.now() > 2 * 60 * 60 * 1000) {
+      candidate.setDate(candidate.getDate() - 1);
+    }
+    if (!isNaN(candidate.getTime())) return candidate.toISOString();
+  }
+
+  console.error("job_started_at en formato desconocido, uso la hora de recepción:", raw);
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -119,12 +197,15 @@ Deno.serve(async (req) => {
   const bookedBy = body.booked_by || null;
   const vehicleColor = body.vehicle_color || null;
   const vehiclePlate = body.vehicle_plate || null;
+  const jobStartedAt = body.job_started_at ? parseJobStartedAt(String(body.job_started_at)) : null;
 
   const { data: existingContact } = await supabase
     .from("contacts")
     .select("id, full_name")
     .eq("phone", phone)
     .maybeSingle();
+
+  let contactId = existingContact?.id;
 
   if (existingContact) {
     await supabase
@@ -146,18 +227,47 @@ Deno.serve(async (req) => {
       })
       .eq("id", existingContact.id);
   } else {
-    await supabase.from("contacts").insert({
-      phone,
-      full_name: passengerName,
-      has_active_ride: true,
-      active_ride_status: "active",
-      active_ride_unit: body.vehicle_make || null,
-      active_ride_color: vehicleColor,
-      active_ride_plate: vehiclePlate,
-      active_ride_eta_minutes: etaMinutes,
-      active_ride_eta_received_at: new Date().toISOString(),
-      active_ride_booked_by: bookedBy,
+    const { data: newContact, error } = await supabase
+      .from("contacts")
+      .insert({
+        phone,
+        full_name: passengerName,
+        has_active_ride: true,
+        active_ride_status: "active",
+        active_ride_unit: body.vehicle_make || null,
+        active_ride_color: vehicleColor,
+        active_ride_plate: vehiclePlate,
+        active_ride_eta_minutes: etaMinutes,
+        active_ride_eta_received_at: new Date().toISOString(),
+        active_ride_booked_by: bookedBy,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    contactId = newContact.id;
+  }
+
+  // Acá nace la fila de ride_history del viaje — no cuando termina o se
+  // cancela. Así "created_at" queda guardado con la hora REAL en que el
+  // operador despachó el móvil, que es la hora correcta para atribuir
+  // "servicios enviados" a un turno/hora puntual (antes se guardaba la
+  // hora de cierre del viaje, que podía caer en otra hora distinta a
+  // cuando el operador lo trabajó). taxicaller-finished-webhook y
+  // taxicaller-cancel-webhook solo ACTUALIZAN esta misma fila (por
+  // job_id) para ponerle el resultado final — nunca tocan created_at.
+  //
+  // upsert_ride_dispatch() (función de Postgres) a propósito NO pisa
+  // event_type si la fila ya existe — cubre el caso rarísimo de que el
+  // webhook de "terminado"/"cancelado" llegue antes que este por algún
+  // desorden de red, para no perder el resultado final ya guardado.
+  if (body.job_id) {
+    const { error: dispatchError } = await supabase.rpc("upsert_ride_dispatch", {
+      p_job_id: String(body.job_id),
+      p_contact_id: contactId,
+      p_booked_by: bookedBy,
+      p_created_at: jobStartedAt,
     });
+    if (dispatchError) console.error("No se pudo guardar el despacho en ride_history:", dispatchError.message);
   }
 
   return new Response("OK", { status: 200 });

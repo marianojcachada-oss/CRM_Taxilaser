@@ -1304,7 +1304,19 @@ export default function ConversationsView({
               </div>
             </div>
 
-            <div className={`chat-pattern-${chatPattern || 'dots'} flex-1 overflow-y-auto px-6 py-4`}>
+            {/* El patrón de fondo va en un wrapper INTERNO (alto natural,
+                según el contenido), no en el contenedor que scrollea —
+                puesto directo en el que tiene overflow-y-auto, el fondo
+                queda "pegado" al visor y no se mueve junto con los
+                mensajes al hacer scroll (es el comportamiento normal de
+                un fondo puesto sobre el propio elemento que scrollea).
+                Con el patrón en este wrapper de adentro, que es
+                contenido normal DENTRO del scroll, se arrastra junto
+                con los mensajes como corresponde. min-h-full además
+                asegura que cubra toda la pantalla visible aunque haya
+                pocos mensajes. */}
+            <div className="flex-1 overflow-y-auto">
+            <div className={`chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1433,6 +1445,7 @@ export default function ConversationsView({
                   </div>
               )})}
               <div ref={threadEndRef} />
+            </div>
             </div>
 
             {typingOperators.length > 0 && (

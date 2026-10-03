@@ -11,6 +11,12 @@ import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
 
+// Los 3 estados que elige el operador son Disponible / No disponible /
+// Apoyo. "No disponible" es el 'offline' de siempre (mismo valor que ya
+// usaba el toggle viejo) — lo único nuevo es 'apoyo'. 'busy' se mantiene
+// solo por compatibilidad con lo que ya hubiera en la base.
+export type Presence = 'available' | 'offline' | 'busy' | 'apoyo'
+
 function playNotificationSound() {
   try {
     const ctx = new AudioContext()
@@ -57,11 +63,14 @@ function AppContent() {
   // tenemos los datos del operador, ya sabemos a dónde mandarlo.
   const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
   const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
-  const [operatorPresence, setOperatorPresence] = useState<'available' | 'offline' | 'busy'>('offline')
+  const [operatorPresence, setOperatorPresence] = useState<Presence>('offline')
+  // Se prende cuando el auto-logout de inactividad lo pasa a "No
+  // disponible" (ya no cierra la sesión, solo lo deja de recibir
+  // mensajes) — se apaga solo cuando vuelve a marcarse Disponible o Apoyo.
+  const [markedOfflineByInactivity, setMarkedOfflineByInactivity] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
-  const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
 
   useEffect(() => {
@@ -117,12 +126,18 @@ function AppContent() {
           }
         }
       })
-  }, [session, loginIntent])
+    // session?.user?.id (no "session" entero) — mismo motivo que en los
+    // demás efectos de más abajo: no hace falta re-traer el operador ni
+    // resetear tema/vista en cada refresh de token en segundo plano.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, loginIntent])
 
-  async function toggleOwnPresence() {
+  // Reemplaza al viejo toggle binario (Disponible/No disponible) — ahora
+  // el operador elige explícitamente entre los 3 estados desde Inbox.
+  async function setOwnPresence(next: 'available' | 'offline' | 'apoyo') {
     if (!operatorId) return
-    const next = operatorPresence === 'available' ? 'offline' : 'available'
     setOperatorPresence(next)
+    if (next !== 'offline') setMarkedOfflineByInactivity(false)
     await supabase.from('operators').update({ presence: next }).eq('id', operatorId)
   }
 
@@ -154,7 +169,16 @@ function AppContent() {
         }
         setConversations((data ?? []).map(mapConversation))
       })
-  }, [session])
+    // OJO: la dependencia es session?.user?.id (string estable), NO el
+    // objeto "session" completo — Supabase crea un objeto session NUEVO
+    // cada vez que refresca el token en segundo plano (pasa solo, sin
+    // que el operador haga nada), aunque sea el mismo usuario. Si esta
+    // función dependiera de "session" entero, cambiaría de referencia
+    // en cada refresh y arrastraría a TODO lo que depende de ella (el
+    // canal de Realtime de abajo) a desarmarse y rearmarse de nuevo sin
+    // necesidad — ver el comentario grande en el useEffect del canal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
 
   // Trae y aplica en memoria SOLO la conversación que cambió, en vez de
   // recargar la lista entera (hasta 1000 filas, con contacto y operador
@@ -211,6 +235,23 @@ function AppContent() {
     // duplicaba el aviso y multiplicaba la cantidad de mensajes de
     // Realtime que consume el proyecto, sin agregar nada que esta de
     // acá abajo no cubra ya.
+    //
+    // OJO #2 — este bug sí llegó a producción: la dependencia de este
+    // efecto tiene que ser session?.user?.id, NUNCA "session" entero.
+    // Supabase emite un evento de auth (y un objeto "session" con una
+    // referencia NUEVA) cada vez que refresca el token en segundo plano
+    // — sin que el operador haga nada, puede pasar varias veces por
+    // sesión, y más seguido si hay varias pestañas abiertas (se
+    // sincronizan entre sí). Con "session" entero como dependencia,
+    // cada uno de esos refreshes desarmaba este canal y armaba uno
+    // nuevo — y como removeChannel() es asíncrono, durante esa ventana
+    // quedaban DOS canales escuchando el mismo evento a la vez. Esto es
+    // justo lo que confirmé en los logs que pasaste: una conversación
+    // con 3 escrituras reales pero 83 lecturas — cada escritura se
+    // procesaba varias veces por canales viejos que no habían terminado
+    // de desuscribirse. Con session?.user?.id (un string, no cambia
+    // aunque el token se refresque) el canal se arma UNA vez por login
+    // real y listo.
     const channel = supabase
       .channel('conversations-list')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
@@ -228,7 +269,8 @@ function AppContent() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [session, loadConversations, patchConversation])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, loadConversations, patchConversation])
 
   // Sonido + notificación del navegador cuando llega un mensaje nuevo de un cliente
   useEffect(() => {
@@ -285,7 +327,10 @@ function AppContent() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [session, muted, operatorId])
+    // session?.user?.id, no "session" entero — mismo fix que en el canal
+    // de conversations-list de más arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, muted, operatorId])
 
   useEffect(() => {
     // Sin sesión (login, o recién cerraste sesión) siempre va en oscuro,
@@ -296,7 +341,8 @@ function AppContent() {
       setTheme('dark')
       return
     }
-  }, [session])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -340,28 +386,47 @@ function AppContent() {
     }
   }, [])
 
-  // Arranca el contador limpio en cada sesión nueva (login).
+  // Arranca el contador limpio en cada sesión nueva (login) — session?.user?.id
+  // y no "session" entero: si no, un refresh de token en segundo plano
+  // (mismo usuario, objeto nuevo) reseteaba el contador de actividad sin
+  // que el operador hiciera nada, lo cual iba en contra de la idea de
+  // "solo por inactividad real".
   useEffect(() => {
     if (session) {
       lastActivityRef.current = Date.now()
-      setLoggedOutForInactivity(false)
+      setMarkedOfflineByInactivity(false)
     }
-  }, [session])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || !operatorId) return
 
     const INACTIVITY_LIMIT_MS = 10 * 60 * 1000 // 10 minutos
 
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
-        setLoggedOutForInactivity(true)
-        supabase.auth.signOut()
+        // Antes esto cerraba la sesión (supabase.auth.signOut()). Ahora,
+        // por el nuevo esquema de presencia, si el operador se olvidó de
+        // marcarse como no disponible (quedó en "Disponible" o "Apoyo")
+        // lo pasamos a "No disponible" — sigue logueado, pero deja de
+        // recibir mensajes nuevos hasta que vuelva a tocar la pantalla.
+        // Si ya estaba offline/busy no hace nada, para no generar un
+        // update de más cada 30s mientras sigue inactivo.
+        setOperatorPresence((current) => {
+          if (current === 'available' || current === 'apoyo') {
+            supabase.from('operators').update({ presence: 'offline' }).eq('id', operatorId)
+            setMarkedOfflineByInactivity(true)
+            return 'offline'
+          }
+          return current
+        })
       }
     }, 30_000) // chequear cada 30s alcanza, no hace falta más seguido
 
     return () => clearInterval(interval)
-  }, [session])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, operatorId])
 
   async function changeTheme(next: string) {
     setTheme(next)
@@ -401,16 +466,7 @@ function AppContent() {
   }
 
   if (!session) {
-    return (
-      <>
-        {loggedOutForInactivity && (
-          <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-            Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.
-          </div>
-        )}
-        <Login onIntentChange={setLoginIntent} />
-      </>
-    )
+    return <Login onIntentChange={setLoginIntent} />
   }
 
   if (passwordRecovery) {
@@ -453,6 +509,17 @@ function AppContent() {
           </button>
         </div>
       )}
+      {markedOfflineByInactivity && (
+        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
+          Te marcamos como No disponible por 10 minutos sin actividad — dejaste de recibir mensajes nuevos.
+          <button
+            onClick={() => setOwnPresence('available')}
+            className="rounded-sm bg-asphalt/15 px-3 py-1 text-xs font-semibold text-asphalt hover:bg-asphalt/25"
+          >
+            Volver a Disponible
+          </button>
+        </div>
+      )}
       <Inbox
         theme={theme}
         onChangeTheme={changeTheme}
@@ -471,7 +538,7 @@ function AppContent() {
         muted={muted}
         onToggleMuted={toggleMuted}
         operatorPresence={operatorPresence}
-        onTogglePresence={toggleOwnPresence}
+        onSetPresence={setOwnPresence}
       />
     </>
   )

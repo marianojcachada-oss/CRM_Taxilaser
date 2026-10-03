@@ -11,6 +11,7 @@ import {
   History,
   Inbox as InboxIcon,
   List,
+  HeartHandshake,
 } from 'lucide-react'
 import type { Conversation, Channel, Operator } from './ConversationsView'
 
@@ -19,6 +20,10 @@ export type FilterValue =
   | { kind: 'new'; channel?: Channel }
   | { kind: 'pending'; channel?: Channel }
   | { kind: 'mine'; channel?: Channel }
+  // Conversaciones de OTROS operadores donde yo "apoyé" (respondí estando
+  // en modo Apoyo) — se queda asignada al dueño de siempre, esto es solo
+  // mi forma de volver a encontrarlas rápido.
+  | { kind: 'support'; channel?: Channel }
   | { kind: 'unassigned'; channel?: Channel }
   | { kind: 'snoozed'; channel?: Channel }
   | { kind: 'my_history'; channel?: Channel }
@@ -52,6 +57,9 @@ type Props = {
   onSelectContacts: () => void
   onSelectTeamChat: (team: string) => void
   onSelectMissedCalls: () => void
+  // Precalculado en Inbox.tsx (no se puede sacar de "conversations" +
+  // operatorId solo, hace falta cruzar con conversation_support).
+  supportCount: number
 }
 
 function GroupHeader({ label }: { label: string }) {
@@ -72,6 +80,7 @@ export default function Sidebar({
   onSelectContacts,
   onSelectTeamChat,
   onSelectMissedCalls,
+  supportCount,
 }: Props) {
   const newCount = conversations.filter((c) => c.unread).length
   const pendingCount = conversations.filter((c) => !c.unread && pendingStatuses.includes(c.status)).length
@@ -208,6 +217,13 @@ export default function Sidebar({
           onClick={() => onSelectFilter({ kind: 'mine' })}
         />
         <NavButton
+          icon={<HeartHandshake size={17} />}
+          label="Apoyo"
+          count={supportCount}
+          active={view === 'inbox' && filter.kind === 'support'}
+          onClick={() => onSelectFilter({ kind: 'support' })}
+        />
+        <NavButton
           icon={<CircleDashed size={17} />}
           label="Sin asignar"
           count={unassignedCount}
@@ -307,6 +323,14 @@ export default function Sidebar({
           active={view === 'inbox' && filter.kind === 'mine'}
           alwaysColor
           onClick={() => onSelectFilter({ kind: 'mine' })}
+        />
+        <NavButton
+          icon={<HeartHandshake size={15} />}
+          label="Apoyo"
+          count={supportCount}
+          active={view === 'inbox' && filter.kind === 'support'}
+          alwaysColor
+          onClick={() => onSelectFilter({ kind: 'support' })}
         />
         <NavButton
           icon={<CircleDashed size={15} />}

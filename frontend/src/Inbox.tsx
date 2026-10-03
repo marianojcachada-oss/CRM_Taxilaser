@@ -51,6 +51,8 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
       return isSnoozed(c)
     case 'my_history':
       return true // se resuelve con su propia consulta, no por esta función
+    case 'support':
+      return true // ídem — se resuelve cruzando con supportIds, no acá
     case 'operator':
       return c.assignedOperatorId === filter.operatorId
   }
@@ -77,8 +79,8 @@ type Props = {
   onRefreshConversations: () => void
   muted: boolean
   onToggleMuted: () => void
-  operatorPresence: 'available' | 'offline' | 'busy'
-  onTogglePresence: () => void
+  operatorPresence: 'available' | 'offline' | 'busy' | 'apoyo'
+  onSetPresence: (next: 'available' | 'offline' | 'apoyo') => void
 }
 
 export default function Inbox({
@@ -99,7 +101,7 @@ export default function Inbox({
   muted,
   onToggleMuted,
   operatorPresence,
-  onTogglePresence,
+  onSetPresence,
 }: Props) {
   const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
   const [missedCallsCount, setMissedCallsCount] = useState(0)
@@ -110,6 +112,10 @@ export default function Inbox({
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [allHistoryResults, setAllHistoryResults] = useState<Conversation[] | null>(null)
   const [myHistoryResults, setMyHistoryResults] = useState<Conversation[] | null>(null)
+  // IDs de conversaciones (de OTROS operadores) donde yo apoyé — se carga
+  // siempre que haya operatorId (no solo al entrar a la pestaña "Apoyo"),
+  // para que el contador del sidebar esté siempre al día.
+  const [supportIds, setSupportIds] = useState<Set<string>>(new Set())
   const [allHistoryLoading, setAllHistoryLoading] = useState(false)
   const [operators, setOperators] = useState<Operator[]>([])
   const [showSimulator, setShowSimulator] = useState(false)
@@ -363,6 +369,55 @@ export default function Inbox({
       })
   }, [filter.kind, operatorId])
 
+  // Bandeja "Apoyo": arranca con lo que ya esté activo en conversation_support
+  // y se mantiene al día con un canal de Realtime filtrado por mi propio
+  // operator_id (bajo volumen a propósito, nada que ver con el canal
+  // global de conversations — no reintroduce el problema que arreglamos ahí).
+  useEffect(() => {
+    if (!operatorId) {
+      setSupportIds(new Set())
+      return
+    }
+
+    supabase
+      .from('conversation_support')
+      .select('conversation_id')
+      .eq('operator_id', operatorId)
+      .eq('active', true)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('No se pudo cargar la bandeja de Apoyo:', error.message)
+          return
+        }
+        setSupportIds(new Set((data ?? []).map((r) => r.conversation_id)))
+      })
+
+    const channel = supabase
+      .channel(`conversation-support-${operatorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_support', filter: `operator_id=eq.${operatorId}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as { conversation_id?: string; active?: boolean } | null
+          if (!row?.conversation_id) return
+          setSupportIds((prev) => {
+            const next = new Set(prev)
+            if (payload.eventType === 'DELETE' || row.active === false) {
+              next.delete(row.conversation_id!)
+            } else {
+              next.add(row.conversation_id!)
+            }
+            return next
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [operatorId])
+
   const unreadTotal = conversations.filter((c) => c.unread).length
 
   const visibleConversations = useMemo(() => {
@@ -375,10 +430,17 @@ export default function Inbox({
     if (filter.kind === 'my_history') {
       return myHistoryResults ?? []
     }
+    if (filter.kind === 'support') {
+      return conversations.filter((c) => supportIds.has(c.id))
+    }
     return conversations
       .filter((c) => (filter.kind === 'snoozed' ? true : !isSnoozed(c)))
       .filter((c) => matchesFilter(c, filter, operatorId))
-  }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, operatorId])
+  }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, supportIds, operatorId])
+
+  // Para el contador del sidebar — mismo criterio que la lista de arriba,
+  // pero siempre calculado (no solo cuando esa pestaña está activa).
+  const supportCount = conversations.filter((c) => supportIds.has(c.id)).length
 
   // Actualiza tanto la lista principal como los resultados de búsqueda a
   // la vez — así una acción sobre un resultado de búsqueda (que puede no
@@ -463,18 +525,52 @@ export default function Inbox({
             <MessageSquarePlus size={14} /> <span className="hidden sm:inline">Nuevo SMS</span>
           </button>
 
-          <button
-            onClick={onTogglePresence}
-            className={`hidden items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors sm:flex ${
+          {/* Disponible / No disponible / Apoyo — reemplaza al viejo
+              toggle binario. "No disponible" también puede llegar sola
+              (sin que el operador la elija) por el auto-logout de 10 min
+              de inactividad — acá solo se refleja el estado actual. */}
+          <div
+            className={`hidden items-center gap-1 rounded-full border px-1 py-1 text-xs font-medium sm:flex ${
               operatorPresence === 'available'
-                ? 'border-available/40 text-available hover:bg-available/10'
-                : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                ? 'border-available/40'
+                : operatorPresence === 'apoyo'
+                  ? 'border-mustard/40'
+                  : 'border-panel-light'
             }`}
-            title={operatorPresence === 'available' ? 'Marcarme como no disponible' : 'Marcarme como disponible'}
           >
-            <span className={`h-2 w-2 rounded-full ${operatorPresence === 'available' ? 'bg-available' : 'bg-muted'}`} />
-            {operatorPresence === 'available' ? 'Disponible' : 'No disponible'}
-          </button>
+            <button
+              onClick={() => onSetPresence('available')}
+              title="Recibir mensajes nuevos por round robin"
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
+                operatorPresence === 'available' ? 'bg-available/15 text-available' : 'text-muted hover:text-cream'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${operatorPresence === 'available' ? 'bg-available' : 'bg-muted'}`} />
+              Disponible
+            </button>
+            <button
+              onClick={() => onSetPresence('offline')}
+              title="No recibir mensajes nuevos"
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
+                operatorPresence === 'offline' || operatorPresence === 'busy'
+                  ? 'bg-panel-light text-cream'
+                  : 'text-muted hover:text-cream'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+              No disponible
+            </button>
+            <button
+              onClick={() => onSetPresence('apoyo')}
+              title="Ayudar con conversaciones de otros operadores sin que te asignen las tuyas"
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
+                operatorPresence === 'apoyo' ? 'bg-mustard/15 text-mustard' : 'text-muted hover:text-cream'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${operatorPresence === 'apoyo' ? 'bg-mustard' : 'bg-muted'}`} />
+              Apoyo
+            </button>
+          </div>
 
           {isAdmin && (
             <button
@@ -558,6 +654,7 @@ export default function Inbox({
             internalChannel={internalChannel}
             missedCallsCount={missedCallsCount}
             totalConversationsCount={totalConversationsCount}
+            supportCount={supportCount}
             onSelectContacts={() => {
               setView('contacts')
               setShowMobileSidebar(false)

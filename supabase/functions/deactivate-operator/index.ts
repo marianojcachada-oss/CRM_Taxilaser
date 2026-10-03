@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
   // historial de auditoría con su nombre real, no un actor desconocido)
   const { error: updateError } = await serviceClient
     .from("operators")
-    .update({ is_active: false, presence: "unavailable" })
+    .update({ is_active: false, presence: "offline" })
     .eq("id", operator_id);
   if (updateError) {
     return new Response(JSON.stringify({ error: updateError.message }), {

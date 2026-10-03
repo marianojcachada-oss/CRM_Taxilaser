@@ -66,7 +66,7 @@ export type Operator = {
   id: string
   full_name: string
   operator_code?: string | null
-  presence?: 'available' | 'offline' | 'busy'
+  presence?: 'available' | 'offline' | 'busy' | 'apoyo'
 }
 
 const urlPattern = /(https?:\/\/[^\s]+)/g

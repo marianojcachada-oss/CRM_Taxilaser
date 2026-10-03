@@ -141,6 +141,13 @@ export type Conversation = {
   serviciosCancelados?: number | null
   snoozedUntil?: string | null
   lastContactMessageAt?: string | null
+  // Crudo (ISO), sin formatear — a diferencia de `time`. Se usa para
+  // detectar en App.tsx si un UPDATE de Realtime trae un mensaje nuevo
+  // (de cliente u operador/automático) y por lo tanto conviene volver a
+  // pedir la fila completa con sus joins, en vez de pisar solo los
+  // campos propios de `conversations`. Ver applyConversationPatch en
+  // conversationsData.ts.
+  lastMessageAtRaw?: string | null
   keepWithOperator?: boolean
   notes?: string | null
   hasActiveRide?: boolean

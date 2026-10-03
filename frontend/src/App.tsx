@@ -7,7 +7,7 @@ import AdminPanel from './AdminPanel'
 import MetricsPage from './MetricsPage'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
-import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
+import { CONVERSATION_SELECT, mapConversation, applyConversationPatch } from './conversationsData'
 import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
 
@@ -69,6 +69,17 @@ function AppContent() {
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
   const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
+
+  // Espejo del estado `conversations` en un ref — se usa SOLO para
+  // decidir, de forma sincrónica y sin side-effects dentro de un
+  // actualizador de setState, si hace falta pedirle a la base la fila
+  // completa (con joins) o si alcanza con pisar en el array local los
+  // campos que ya vienen en el propio evento de Realtime. Ver el
+  // handler de 'UPDATE' del canal 'conversations-list' más abajo.
+  const conversationsRef = useRef<Conversation[]>([])
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -217,6 +228,33 @@ function AppContent() {
       })
   }, [])
 
+  // Aplica un UPDATE de "conversations" SIN pedirle nada a la base,
+  // cuando es seguro hacerlo — ver el comentario grande de
+  // applyConversationPatch en conversationsData.ts. Si la conversación
+  // todavía no está en el estado local (no debería pasar en un UPDATE,
+  // pero por las dudas), si cambió a quién está asignada, o si cambió
+  // `last_message_at` (CUALQUIER mensaje nuevo — de cliente, de
+  // operador, o automático, como el aviso de "unidad asignada" de
+  // TaxiCaller), cae al camino de siempre (patchConversation, con su
+  // propio fetch) para traer los datos del join actualizados.
+  const applyOrPatchConversation = useCallback(
+    (row: any) => {
+      const existing = conversationsRef.current.find((c) => c.id === row.id)
+      if (!existing) {
+        patchConversation(row.id)
+        return
+      }
+      const assignedChanged = existing.assignedOperatorId !== (row.assigned_operator_id ?? null)
+      const hasNewMessage = (existing.lastMessageAtRaw ?? null) !== (row.last_message_at ?? null)
+      if (assignedChanged || hasNewMessage) {
+        patchConversation(row.id)
+        return
+      }
+      setConversations((prev) => prev.map((c) => (c.id === row.id ? applyConversationPatch(c, row) : c)))
+    },
+    [patchConversation],
+  )
+
   // Carga inicial + se mantiene al día en vivo (conversaciones nuevas,
   // reasignadas, cerradas, o con mensajes nuevos de cualquier canal).
   useEffect(() => {
@@ -248,13 +286,27 @@ function AppContent() {
     // de desuscribirse. Con session?.user?.id (un string, no cambia
     // aunque el token se refresque) el canal se arma UNA vez por login
     // real y listo.
+    //
+    // OJO #3 — nuevo (oct/2026): un UPDATE de "conversations" no
+    // siempre necesita volver a pedirle nada a la base. La mayoría de
+    // los UPDATE son de bookkeeping (marcar como visto, cerrar/reabrir,
+    // pinear, posponer) — no tocan ni a quién está asignada la
+    // conversación ni `last_message_at`, así que no pueden haber
+    // cambiado los datos de los joins (contacto, operador asignado).
+    // Para esos, applyOrPatchConversation pisa el array local con los
+    // campos que ya vienen en el propio evento, sin fetch. Para una
+    // reasignación o cualquier mensaje nuevo (del cliente, de un
+    // operador, o automático — como el aviso de "unidad asignada" de
+    // TaxiCaller), sigue pidiendo la fila completa como siempre — ahí sí
+    // puede haber cambiado el nombre del operador o los datos de viaje
+    // activo del contacto.
     const channel = supabase
       .channel('conversations-list')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
         patchConversation((payload.new as { id: string }).id)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
-        patchConversation((payload.new as { id: string }).id)
+        applyOrPatchConversation(payload.new as any)
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
         const oldRow = payload.old as { id: string }
@@ -266,7 +318,7 @@ function AppContent() {
       supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id, loadConversations, patchConversation])
+  }, [session?.user?.id, loadConversations, patchConversation, applyOrPatchConversation])
 
   // Sonido + notificación del navegador cuando llega un mensaje nuevo de un cliente
   useEffect(() => {

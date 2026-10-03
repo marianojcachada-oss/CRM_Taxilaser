@@ -24,6 +24,7 @@ export function mapConversation(row: any): Conversation {
     createdAt: row.created_at,
     snoozedUntil: row.snoozed_until ?? null,
     lastContactMessageAt: row.last_contact_message_at ?? null,
+    lastMessageAtRaw: row.last_message_at ?? null,
     keepWithOperator: row.keep_with_operator ?? false,
     needsAssignment: row.needs_assignment ?? true,
     notes: row.contacts?.notes ?? null,
@@ -48,5 +49,47 @@ export function mapConversation(row: any): Conversation {
     totalInvertido: row.contacts?.total_invertido ?? null,
     serviciosCompletados: row.contacts?.servicios_completados ?? null,
     serviciosCancelados: row.contacts?.servicios_cancelados ?? null,
+  }
+}
+
+// Aplica, SIN volver a pedirle nada a la base, los campos "propios" de
+// `conversations` que ya vienen completos en el payload de Realtime
+// (payload.new de un evento postgres_changes) — lo que falta ahí es
+// únicamente lo que sale de los joins (contacts, operators), que esta
+// función deliberadamente NO toca: deja esos campos tal cual estaban en
+// el estado local.
+//
+// Solo es seguro usarla cuando YA se confirmó (en App.tsx, comparando
+// contra el estado local antes de llamar acá) que ni
+// `assigned_operator_id` ni `last_message_at` cambiaron en este evento
+// — porque esos dos son justo las dos señales de "puede haber datos del
+// join desactualizados": una reasignación cambia el nombre del
+// operador, y CUALQUIER mensaje nuevo (del cliente, de un operador, o
+// automático — por ejemplo el aviso de "unidad asignada" que manda
+// TaxiCaller) puede traer de la mano un cambio en los datos de viaje
+// activo del contacto. OJO: a propósito se usa `last_message_at` (TODO
+// mensaje) y no `last_contact_message_at` (SOLO mensajes del cliente) —
+// un aviso automático no lo escribe el cliente, así que con
+// `last_contact_message_at` solo este caso se pasaba por alto y la
+// unidad/color/patente se quedaban desactualizados en pantalla hasta el
+// próximo mensaje real del cliente. Si cambió cualquiera de los dos
+// campos, el llamador tiene que pedir la fila completa
+// (patchConversation) en vez de usar esta función.
+export function applyConversationPatch(existing: Conversation, row: any): Conversation {
+  return {
+    ...existing,
+    channel: row.channel ?? existing.channel,
+    lastMessage: row.last_message_preview ?? '',
+    time: formatMessageTime(row.last_message_at),
+    createdAt: row.created_at ?? existing.createdAt,
+    snoozedUntil: row.snoozed_until ?? null,
+    lastContactMessageAt: row.last_contact_message_at ?? null,
+    lastMessageAtRaw: row.last_message_at ?? null,
+    keepWithOperator: row.keep_with_operator ?? false,
+    needsAssignment: row.needs_assignment ?? true,
+    unread: row.unread,
+    status: row.status,
+    team: row.team,
+    assignedOperatorId: row.assigned_operator_id,
   }
 }

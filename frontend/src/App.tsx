@@ -64,13 +64,10 @@ function AppContent() {
   const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
   const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
   const [operatorPresence, setOperatorPresence] = useState<Presence>('offline')
-  // Se prende cuando el auto-logout de inactividad lo pasa a "No
-  // disponible" (ya no cierra la sesión, solo lo deja de recibir
-  // mensajes) — se apaga solo cuando vuelve a marcarse Disponible o Apoyo.
-  const [markedOfflineByInactivity, setMarkedOfflineByInactivity] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
+  const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
 
   useEffect(() => {
@@ -137,7 +134,6 @@ function AppContent() {
   async function setOwnPresence(next: 'available' | 'offline' | 'apoyo') {
     if (!operatorId) return
     setOperatorPresence(next)
-    if (next !== 'offline') setMarkedOfflineByInactivity(false)
     await supabase.from('operators').update({ presence: next }).eq('id', operatorId)
   }
 
@@ -394,39 +390,52 @@ function AppContent() {
   useEffect(() => {
     if (session) {
       lastActivityRef.current = Date.now()
-      setMarkedOfflineByInactivity(false)
+      setLoggedOutForInactivity(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
 
+  // operatorId/operatorPresence como refs (no como dependencia del efecto
+  // de abajo) para no desarmar y rearmar el setInterval cada vez que
+  // cambian — mismo motivo que session?.user?.id en los demás efectos de
+  // este archivo: evitar churn innecesario.
+  const operatorIdRef = useRef<string | null>(null)
+  const operatorPresenceRef = useRef<Presence>('offline')
   useEffect(() => {
-    if (!session || !operatorId) return
+    operatorIdRef.current = operatorId
+  }, [operatorId])
+  useEffect(() => {
+    operatorPresenceRef.current = operatorPresence
+  }, [operatorPresence])
+
+  useEffect(() => {
+    if (!session) return
 
     const INACTIVITY_LIMIT_MS = 10 * 60 * 1000 // 10 minutos
 
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
-        // Antes esto cerraba la sesión (supabase.auth.signOut()). Ahora,
-        // por el nuevo esquema de presencia, si el operador se olvidó de
-        // marcarse como no disponible (quedó en "Disponible" o "Apoyo")
-        // lo pasamos a "No disponible" — sigue logueado, pero deja de
-        // recibir mensajes nuevos hasta que vuelva a tocar la pantalla.
-        // Si ya estaba offline/busy no hace nada, para no generar un
-        // update de más cada 30s mientras sigue inactivo.
-        setOperatorPresence((current) => {
-          if (current === 'available' || current === 'apoyo') {
-            supabase.from('operators').update({ presence: 'offline' }).eq('id', operatorId)
-            setMarkedOfflineByInactivity(true)
-            return 'offline'
-          }
-          return current
-        })
+        // Cierra la sesión de verdad (no alcanza con solo cambiar el
+        // estado — dejar la sesión abierta e inactiva es justamente lo
+        // que generaba la sobrecarga de conexiones/consultas a Supabase
+        // que veníamos corrigiendo). Antes de cerrarla, si el operador
+        // se había olvidado de marcarse como no disponible (quedó en
+        // "Disponible" o "Apoyo"), lo dejamos como "No disponible" en la
+        // base — si no, quedaría "pegado" como disponible para el round
+        // robin hasta que alguien lo note, aunque ya no esté conectado.
+        const currentOperatorId = operatorIdRef.current
+        const currentPresence = operatorPresenceRef.current
+        if (currentOperatorId && (currentPresence === 'available' || currentPresence === 'apoyo')) {
+          supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
+        }
+        setLoggedOutForInactivity(true)
+        supabase.auth.signOut()
       }
     }, 30_000) // chequear cada 30s alcanza, no hace falta más seguido
 
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id, operatorId])
+  }, [session?.user?.id])
 
   async function changeTheme(next: string) {
     setTheme(next)
@@ -466,7 +475,16 @@ function AppContent() {
   }
 
   if (!session) {
-    return <Login onIntentChange={setLoginIntent} />
+    return (
+      <>
+        {loggedOutForInactivity && (
+          <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
+            Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.
+          </div>
+        )}
+        <Login onIntentChange={setLoginIntent} />
+      </>
+    )
   }
 
   if (passwordRecovery) {
@@ -506,17 +524,6 @@ function AppContent() {
             className="rounded-sm bg-asphalt/30 px-3 py-1 text-xs font-semibold text-cream hover:bg-asphalt/50"
           >
             Entendido
-          </button>
-        </div>
-      )}
-      {markedOfflineByInactivity && (
-        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-          Te marcamos como No disponible por 10 minutos sin actividad — dejaste de recibir mensajes nuevos.
-          <button
-            onClick={() => setOwnPresence('available')}
-            className="rounded-sm bg-asphalt/15 px-3 py-1 text-xs font-semibold text-asphalt hover:bg-asphalt/25"
-          >
-            Volver a Disponible
           </button>
         </div>
       )}

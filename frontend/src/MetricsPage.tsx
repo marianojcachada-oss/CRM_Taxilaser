@@ -31,9 +31,14 @@ type Props = {
   onBackToInbox?: () => void
 }
 
-type Metric = 'total' | 'whatsapp' | 'ringcentral' | 'calls' | 'servicesSent' | 'servicesCancelled'
+type Metric = 'general' | 'total' | 'whatsapp' | 'ringcentral' | 'calls' | 'servicesSent' | 'servicesCancelled'
 
+// "general" es la carga de trabajo total del operador — todo lo que
+// atendió, sumado: mensajes (de cualquier canal) + llamadas + servicios
+// que mandó. Es la vista por defecto porque es la que responde "quién
+// trabajó más", en vez de tener que sumar a mano las columnas sueltas.
 const metricLabel: Record<Metric, string> = {
+  general: 'Total general (mensajes + llamadas + servicios enviados)',
   total: 'Mensajes (WhatsApp + RingCentral)',
   whatsapp: 'Mensajes WhatsApp',
   ringcentral: 'Mensajes RingCentral',
@@ -49,6 +54,9 @@ function metricValue(row: OperatorRow | undefined, metric: Metric): number {
   if (metric === 'calls') return row.calls_answered
   if (metric === 'servicesSent') return row.services_completed
   if (metric === 'servicesCancelled') return row.services_cancelled
+  if (metric === 'general') {
+    return row.messages_whatsapp + row.messages_ringcentral + row.calls_answered + row.services_completed
+  }
   return row.messages_whatsapp + row.messages_ringcentral
 }
 
@@ -108,7 +116,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   const [date, setDate] = useState(atlantaTodayISO())
   const [operators, setOperators] = useState<Operator[]>([])
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('all')
-  const [metric, setMetric] = useState<Metric>('total')
+  const [metric, setMetric] = useState<Metric>('general')
   const [operatorRows, setOperatorRows] = useState<OperatorRow[]>([])
   const [serviceRows, setServiceRows] = useState<ServiceRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -184,6 +192,11 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
       calls: row?.calls_answered ?? 0,
       servicesSent: row?.services_completed ?? 0,
       servicesCancelled: row?.services_cancelled ?? 0,
+      general:
+        (row?.messages_whatsapp ?? 0) +
+        (row?.messages_ringcentral ?? 0) +
+        (row?.calls_answered ?? 0) +
+        (row?.services_completed ?? 0),
     }
   })
 
@@ -191,6 +204,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
   // la tabla de detalle, al lado de la fecha, para no tener que sumar
   // las 24 filas a mano.
   const selectedOperatorServicesSent = hourRows.reduce((s, r) => s + r.servicesSent, 0)
+  const selectedOperatorGeneral = hourRows.reduce((s, r) => s + r.general, 0)
 
   return (
     <div className="flex min-h-screen flex-col bg-asphalt" style={{ '--color-mustard': 'var(--color-info)' } as React.CSSProperties}>
@@ -332,10 +346,11 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
               <thead className="bg-panel text-muted">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Hora</th>
+                  <th className="px-4 py-2.5 font-medium text-mustard">Total general</th>
                   <th className="px-4 py-2.5 font-medium">Mensajes WhatsApp</th>
                   <th className="px-4 py-2.5 font-medium">Mensajes RingCentral</th>
                   <th className="px-4 py-2.5 font-medium">Llamadas atendidas</th>
-                  <th className="px-4 py-2.5 font-medium text-mustard">Servicios enviados</th>
+                  <th className="px-4 py-2.5 font-medium">Servicios enviados</th>
                   <th className="px-4 py-2.5 font-medium">Servicios cancelados</th>
                 </tr>
               </thead>
@@ -345,10 +360,11 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
                     <td className="px-4 py-2.5 font-mono text-cream">
                       {String(r.hour).padStart(2, '0')}:00
                     </td>
+                    <td className="px-4 py-2.5 font-mono font-semibold text-mustard">{r.general}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.whatsapp}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.ringcentral}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.calls}</td>
-                    <td className="px-4 py-2.5 font-mono font-semibold text-mustard">{r.servicesSent}</td>
+                    <td className="px-4 py-2.5 font-mono text-cream">{r.servicesSent}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.servicesCancelled}</td>
                   </tr>
                 ))}
@@ -356,6 +372,9 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
               <tfoot className="border-t border-panel-light bg-panel">
                 <tr>
                   <td className="px-4 py-2.5 font-mono text-muted">Total</td>
+                  <td className="px-4 py-2.5 font-mono font-semibold text-mustard">
+                    {selectedOperatorGeneral}
+                  </td>
                   <td className="px-4 py-2.5 font-mono text-muted">
                     {hourRows.reduce((s, r) => s + r.whatsapp, 0)}
                   </td>
@@ -365,7 +384,7 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
                   <td className="px-4 py-2.5 font-mono text-muted">
                     {hourRows.reduce((s, r) => s + r.calls, 0)}
                   </td>
-                  <td className="px-4 py-2.5 font-mono font-semibold text-mustard">
+                  <td className="px-4 py-2.5 font-mono text-muted">
                     {selectedOperatorServicesSent}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-muted">

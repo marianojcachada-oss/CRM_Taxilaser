@@ -767,6 +767,32 @@ export default function ConversationsView({
     e.target.value = ''
   }
 
+  // Ctrl+V (o Cmd+V) con una imagen copiada (de una captura de pantalla,
+  // de otra conversación, de donde sea) la carga como adjunto, igual que
+  // si se hubiera elegido con el clip — queda la misma miniatura de abajo
+  // para confirmar antes de mandar. El texto pegado normal (copiar y
+  // pegar palabras) sigue andando como siempre: esto no le toca nada si
+  // no hay una imagen en el portapapeles.
+  function handlePasteImage(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (pendingAttachment) return // ya hay un adjunto cargado, no se puede pegar otro encima
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (!file) continue
+        e.preventDefault()
+        setPendingAttachment({
+          name: file.name || `imagen-pegada-${Date.now()}.png`,
+          url: URL.createObjectURL(file),
+          kind: 'image',
+          blob: file,
+        })
+        return
+      }
+    }
+  }
+
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -1675,6 +1701,7 @@ export default function ConversationsView({
                     handleSend(e)
                   }
                 }}
+                onPaste={handlePasteImage}
                 placeholder={recording ? 'Grabando audio...' : 'Escribir un mensaje...'}
                 rows={1}
                 // flex-1 + min-w-0: sin esto, en una ventana angosta o con

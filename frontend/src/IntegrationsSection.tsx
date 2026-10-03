@@ -295,6 +295,35 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
                 Este último todavía no hace nada — queda preparado para cuando se conecte el modo
                 automático (Etapa 2). Por ahora, prenderlo o apagarlo no cambia nada en la práctica.
               </p>
+
+              <label className="mb-1 block text-xs text-muted">
+                Personalidad y reglas de la IA — qué SÍ y qué NO puede hacer
+              </label>
+              <p className="mb-2 text-[11px] text-muted">
+                Esto es lo que le "explica" a la IA cómo comportarse, en texto simple, como si se lo
+                estuvieras escribiendo a un empleado nuevo: quién es, en qué tono responde, y sobre todo
+                qué cosas tiene PROHIBIDO hacer (ej: cancelar un viaje, inventar una tarifa). Editalo las
+                veces que quieras — se aplica al toque, sin redesplegar nada. Si lo dejás vacío, la IA usa
+                un texto por defecto conservador (nunca cancela, nunca cotiza, deriva todo lo que no sepa).
+              </p>
+              <textarea
+                value={values['AI_SYSTEM_PROMPT'] ?? ''}
+                onChange={(e) => setValues((prev) => ({ ...prev, AI_SYSTEM_PROMPT: e.target.value }))}
+                rows={14}
+                className="mb-2 w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 font-mono text-xs text-cream outline-none focus:border-mustard"
+              />
+              <button
+                onClick={() => saveValue('AI_SYSTEM_PROMPT')}
+                disabled={savingKey === 'AI_SYSTEM_PROMPT'}
+                className="mb-4 flex items-center gap-1 rounded-sm border border-panel-light px-2 py-1.5 text-xs text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-50"
+              >
+                {savedKey === 'AI_SYSTEM_PROMPT' ? (
+                  <Check size={12} className="text-available" />
+                ) : (
+                  <Save size={12} />
+                )}
+                {savingKey === 'AI_SYSTEM_PROMPT' ? 'Guardando...' : 'Guardar'}
+              </button>
             </>
           )}
 

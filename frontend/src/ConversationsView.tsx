@@ -830,6 +830,25 @@ export default function ConversationsView({
     setThread((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...patch } : m)))
   }
 
+  // Cuando el envío termina bien, la burbuja optimista (con el id
+  // temporal) pasa a tener el id real del mensaje — pero el canal de
+  // Realtime de arriba (suscripción a INSERT en "messages") es un
+  // camino totalmente aparte, y puede llegar ANTES de que esta llamada
+  // HTTP termine. Si eso pasa, cuando llega acá ya existe una fila con
+  // el id real en el thread (la que agregó Realtime), y convertir
+  // también la burbuja temporal a ese mismo id dejaba las DOS — el
+  // duplicado que reportó el operador. Acá se chequea primero: si el
+  // id real ya está en el thread, se saca la burbuja temporal en vez
+  // de duplicarla.
+  function reconcileSentMessage(tempId: string, finalId: string | undefined, patch: Partial<Message>) {
+    setThread((prev) => {
+      if (finalId && prev.some((m) => m.id === finalId && m.id !== tempId)) {
+        return prev.filter((m) => m.id !== tempId)
+      }
+      return prev.map((m) => (m.id === tempId ? { ...m, ...patch, id: finalId ?? tempId } : m))
+    })
+  }
+
   function retryMessage(m: Message) {
     setThread((prev) => prev.filter((msg) => msg.id !== m.id))
     setDraft(m.text ?? '')
@@ -906,7 +925,7 @@ export default function ConversationsView({
         return
       }
 
-      markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      reconcileSentMessage(tempId, data.messageId, { status: 'sent' })
       // Avisa a App.tsx que el operador acaba de participar (se usa para
       // el auto-logout por inactividad — 10 min sin mandar un mensaje).
       window.dispatchEvent(new Event('operator-activity'))
@@ -921,7 +940,7 @@ export default function ConversationsView({
         return
       }
 
-      markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      reconcileSentMessage(tempId, data.messageId, { status: 'sent' })
       window.dispatchEvent(new Event('operator-activity'))
     }
   }

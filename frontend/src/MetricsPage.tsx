@@ -11,6 +11,10 @@ type OperatorRow = {
   messages_whatsapp: number
   messages_ringcentral: number
   calls_answered: number
+  // Servicios atribuidos a este operador (booked_by de TaxiCaller
+  // matcheado contra operators.operator_code) — ver metrics_fase2_booked_by.sql.
+  services_completed: number
+  services_cancelled: number
 }
 
 type ServiceRow = {
@@ -27,13 +31,15 @@ type Props = {
   onBackToInbox?: () => void
 }
 
-type Metric = 'total' | 'whatsapp' | 'ringcentral' | 'calls'
+type Metric = 'total' | 'whatsapp' | 'ringcentral' | 'calls' | 'servicesSent' | 'servicesCancelled'
 
 const metricLabel: Record<Metric, string> = {
   total: 'Mensajes (WhatsApp + RingCentral)',
   whatsapp: 'Mensajes WhatsApp',
   ringcentral: 'Mensajes RingCentral',
   calls: 'Llamadas atendidas',
+  servicesSent: 'Servicios enviados',
+  servicesCancelled: 'Servicios cancelados (enviados por el operador)',
 }
 
 function metricValue(row: OperatorRow | undefined, metric: Metric): number {
@@ -41,6 +47,8 @@ function metricValue(row: OperatorRow | undefined, metric: Metric): number {
   if (metric === 'whatsapp') return row.messages_whatsapp
   if (metric === 'ringcentral') return row.messages_ringcentral
   if (metric === 'calls') return row.calls_answered
+  if (metric === 'servicesSent') return row.services_completed
+  if (metric === 'servicesCancelled') return row.services_cancelled
   return row.messages_whatsapp + row.messages_ringcentral
 }
 
@@ -123,7 +131,9 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
     Promise.all([
       supabase
         .from('hourly_operator_metrics')
-        .select('operator_id, hour_bucket, messages_whatsapp, messages_ringcentral, calls_answered')
+        .select(
+          'operator_id, hour_bucket, messages_whatsapp, messages_ringcentral, calls_answered, services_completed, services_cancelled',
+        )
         .gte('hour_bucket', start.toISOString())
         .lt('hour_bucket', end.toISOString()),
       supabase
@@ -172,8 +182,15 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
       whatsapp: row?.messages_whatsapp ?? 0,
       ringcentral: row?.messages_ringcentral ?? 0,
       calls: row?.calls_answered ?? 0,
+      servicesSent: row?.services_completed ?? 0,
+      servicesCancelled: row?.services_cancelled ?? 0,
     }
   })
+
+  // Total del día para el operador seleccionado — se muestra arriba de
+  // la tabla de detalle, al lado de la fecha, para no tener que sumar
+  // las 24 filas a mano.
+  const selectedOperatorServicesSent = hourRows.reduce((s, r) => s + r.servicesSent, 0)
 
   return (
     <div className="flex min-h-screen flex-col bg-asphalt" style={{ '--color-mustard': 'var(--color-info)' } as React.CSSProperties}>
@@ -251,9 +268,11 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
           {loading && <Loader2 size={15} className="mb-2 animate-spin text-muted" />}
         </div>
 
-        {/* Servicios del día — global, no por operador (ver nota en el
-            SQL de Fase 1: TaxiCaller todavía no nos dice quién creó
-            cada servicio). */}
+        {/* Servicios del día — total de la empresa. El desglose POR
+            operador (quién lo envió) está en la métrica "Servicios
+            enviados" del selector de arriba y en la tabla de detalle
+            de cada operador — depende de que TaxiCaller mande el tag
+            booked_by (ver metrics_fase2_booked_by.sql). */}
         <div className="mb-6 flex gap-4">
           <div className="rounded-sm border border-panel-light bg-panel px-4 py-3">
             <p className="text-[10px] uppercase tracking-wide text-muted">Servicios completados</p>
@@ -316,6 +335,8 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
                   <th className="px-4 py-2.5 font-medium">Mensajes WhatsApp</th>
                   <th className="px-4 py-2.5 font-medium">Mensajes RingCentral</th>
                   <th className="px-4 py-2.5 font-medium">Llamadas atendidas</th>
+                  <th className="px-4 py-2.5 font-medium text-mustard">Servicios enviados</th>
+                  <th className="px-4 py-2.5 font-medium">Servicios cancelados</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-panel-light">
@@ -327,9 +348,31 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
                     <td className="px-4 py-2.5 font-mono text-cream">{r.whatsapp}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.ringcentral}</td>
                     <td className="px-4 py-2.5 font-mono text-cream">{r.calls}</td>
+                    <td className="px-4 py-2.5 font-mono font-semibold text-mustard">{r.servicesSent}</td>
+                    <td className="px-4 py-2.5 font-mono text-cream">{r.servicesCancelled}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="border-t border-panel-light bg-panel">
+                <tr>
+                  <td className="px-4 py-2.5 font-mono text-muted">Total</td>
+                  <td className="px-4 py-2.5 font-mono text-muted">
+                    {hourRows.reduce((s, r) => s + r.whatsapp, 0)}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-muted">
+                    {hourRows.reduce((s, r) => s + r.ringcentral, 0)}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-muted">
+                    {hourRows.reduce((s, r) => s + r.calls, 0)}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono font-semibold text-mustard">
+                    {selectedOperatorServicesSent}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-muted">
+                    {hourRows.reduce((s, r) => s + r.servicesCancelled, 0)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
             {selectedOperator && (
               <p className="border-t border-panel-light px-4 py-2 text-[11px] text-muted">

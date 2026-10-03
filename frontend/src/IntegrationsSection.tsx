@@ -70,6 +70,12 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     keys: [],
   },
   {
+    title: 'Claude (IA)',
+    keys: [
+      { key: 'CLAUDE_API_KEY', label: 'API Key de Anthropic (console.anthropic.com)', secret: true },
+    ],
+  },
+  {
     title: 'Traducción',
     keys: [
       {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
-  Search, ChevronDown,
+  Search, ChevronDown, Sparkles,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -263,6 +263,10 @@ export default function ConversationsView({
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null)
   const [recording, setRecording] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // Botón "Responder con IA" — Etapa 1, testing controlado por
+  // superadmin (ver ia-configurable-clientes.md en el proyecto).
+  const [aiResponding, setAiResponding] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
   const [translations, setTranslations] = useState<Record<string, string>>({})
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const [translatingDraft, setTranslatingDraft] = useState(false)
@@ -945,6 +949,29 @@ export default function ConversationsView({
     }
   }
 
+  // "Responder con IA" — manda la respuesta de la IA de verdad al cliente
+  // (no es un borrador): ai-respond hace todo el trabajo (genera el texto,
+  // lo envía por el canal que corresponda y lo guarda en el historial).
+  // Acá solo se llama a la función y se muestra el resultado/error — el
+  // mensaje nuevo llega solo por la suscripción de Realtime de siempre.
+  async function handleAiRespond() {
+    if (!selectedId || aiResponding) return
+    setAiError(null)
+    setAiResponding(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-respond', {
+        body: { conversationId: selectedId },
+      })
+      if (error || data?.error) {
+        setAiError(await getFunctionErrorMessage(error, data))
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAiResponding(false)
+    }
+  }
+
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Columna: lista de conversaciones (ya filtrada desde arriba) */}
@@ -1498,6 +1525,27 @@ export default function ConversationsView({
                 ⚠️ Pasaron más de 24hs desde el último mensaje del cliente por WhatsApp — Meta va a rechazar
                 texto libre. Hace falta un template aprobado para reabrir la conversación.
               </p>
+            )}
+
+            {aiError && (
+              <p className="border-t border-panel-light bg-panel px-4 pt-2 text-xs text-alert">IA: {aiError}</p>
+            )}
+
+            {/* Etapa 1 de la IA configurable — testing controlado, solo
+                vos lo ves. Manda la respuesta de verdad al cliente (no es
+                un borrador) — ver ia-configurable-clientes.md. */}
+            {isSuperAdmin && !selected.blocked && (
+              <div className="flex items-center justify-end border-t border-panel-light bg-panel px-4 pt-2">
+                <button
+                  onClick={handleAiRespond}
+                  disabled={aiResponding}
+                  title="Genera y manda una respuesta de la IA en esta conversación (solo vos la ves — etapa de prueba)"
+                  className="flex items-center gap-1.5 rounded-full border border-mustard/40 px-3 py-1.5 text-[11px] font-medium text-mustard transition-colors hover:bg-mustard/10 disabled:opacity-50"
+                >
+                  {aiResponding ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {aiResponding ? 'Respondiendo...' : 'Responder con IA'}
+                </button>
+              </div>
             )}
 
             {selected.blocked ? (

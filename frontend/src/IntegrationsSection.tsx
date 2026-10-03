@@ -73,6 +73,7 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
     title: 'Claude (IA)',
     keys: [
       { key: 'CLAUDE_API_KEY', label: 'API Key de Anthropic (console.anthropic.com)', secret: true },
+      { key: 'CLAUDE_MODEL', label: 'Modelo (ej: claude-haiku-4-5 — para probar uno más grande sin tocar código)' },
     ],
   },
   {
@@ -184,6 +185,28 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
     })
   }
 
+  // Llave maestra de la IA — mientras esté apagada, el botón "Responder
+  // con IA" del superadmin ni siquiera llega a llamar a la API de
+  // Claude (ai-respond corta de entrada). Default "apagada".
+  async function toggleAiEnabled() {
+    if (readOnly) return
+    const current = values['AI_ENABLED']
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, AI_ENABLED: next }))
+    await supabase.from('integration_settings').upsert({ key: 'AI_ENABLED', value: next, updated_at: new Date().toISOString() })
+  }
+
+  // Todavía no está conectado a nada (ver ia-configurable-clientes.md) —
+  // queda preparado para cuando se conecte el modo automático en los
+  // webhooks de entrada. Prenderlo hoy no cambia nada en la práctica.
+  async function toggleAiAutoReplyAll() {
+    if (readOnly) return
+    const current = values['AI_AUTO_REPLY_ALL']
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, AI_AUTO_REPLY_ALL: next }))
+    await supabase.from('integration_settings').upsert({ key: 'AI_AUTO_REPLY_ALL', value: next, updated_at: new Date().toISOString() })
+  }
+
   async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
     if (readOnly) return
     const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
@@ -237,6 +260,42 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
             <div className="mb-4">
               <MetaStatusCard />
             </div>
+          )}
+
+          {group.title === 'Claude (IA)' && (
+            <>
+              <p className="mb-3 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
+                Etapa 1: el botón "Responder con IA" lo ve y lo usa solo el superadmin, dentro de cada
+                conversación — nunca manda nada sola. Mientras "IA activada" esté apagado, ese botón ni
+                siquiera llega a llamar a la API de Claude.
+              </p>
+              <button
+                onClick={toggleAiEnabled}
+                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AI_ENABLED'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                IA activada: {values['AI_ENABLED'] === 'true' ? 'Activado' : 'Desactivado'}
+              </button>
+              <button
+                onClick={toggleAiAutoReplyAll}
+                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AI_AUTO_REPLY_ALL'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                IA responde sola en todos los chats: {values['AI_AUTO_REPLY_ALL'] === 'true' ? 'Activado' : 'Desactivado'}
+              </button>
+              <p className="mb-4 text-[11px] text-muted">
+                Este último todavía no hace nada — queda preparado para cuando se conecte el modo
+                automático (Etapa 2). Por ahora, prenderlo o apagarlo no cambia nada en la práctica.
+              </p>
+            </>
           )}
 
           {group.title === 'Horario de atención' && (

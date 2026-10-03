@@ -164,12 +164,36 @@ export default function Inbox({
   // "Todos" es el histórico completo de verdad — a diferencia de la
   // lista principal (que a propósito solo trae lo activo, para que la
   // bandeja cargue rápido), esto consulta sin importar el estado.
+  //
+  // OJO — esto antes dependía de [conversations] (el estado local), que
+  // cambia con CADA mensaje nuevo, cada asignación, cada cambio de
+  // estado — no solo cuando se crea o se borra una conversación. Eso
+  // disparaba esta consulta decenas de miles de veces por hora en cada
+  // pestaña abierta (confirmado en los logs de Supabase: ~4 requests
+  // por segundo por operador conectado), inflando un montón el consumo
+  // de Log Query y de Realtime Messages del proyecto sin necesidad.
+  // El total de conversaciones SOLO cambia cuando se crea o se borra
+  // una — así que ahora se recalcula nada más en esos dos eventos,
+  // igual que ya hace missedCallsCount arriba.
   useEffect(() => {
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .then(({ count }) => setTotalConversationsCount(count ?? 0))
-  }, [conversations])
+    function loadTotalConversationsCount() {
+      supabase
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .then(({ count }) => setTotalConversationsCount(count ?? 0))
+    }
+    loadTotalConversationsCount()
+
+    const channel = supabase
+      .channel('total-conversations-count')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   useEffect(() => {
     if (filter.kind !== 'all') {

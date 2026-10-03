@@ -4,11 +4,9 @@ import Login from './Login'
 import ResetPassword from './ResetPassword'
 import Inbox from './Inbox'
 import AdminPanel from './AdminPanel'
-import MetricsPage from './MetricsPage'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
-import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
 
 function playNotificationSound() {
@@ -40,34 +38,17 @@ function AppContent() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<string>('dark')
-  // Patrón de fondo del chat — preferencia aparte del tema de colores,
-  // guardada por operador igual que theme_preference (ver changeTheme).
-  const [chatPattern, setChatPattern] = useState<string>('dots')
-  // Tipografía — mismo mecanismo que tema y patrón, un sibling más de
-  // "configuraciones" por operador (ver ThemePicker.tsx -> fonts).
-  const [font, setFont] = useState<string>('plex')
-  const [view, setView] = useState<'inbox' | 'admin' | 'metrics'>('inbox')
+  const [view, setView] = useState<'inbox' | 'admin'>('inbox')
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
-  const [canViewMetrics, setCanViewMetrics] = useState(false)
-  // Lo que eligió el selector "Mensajería / Administración" en el
-  // Login, ANTES de que termine de resolverse la sesión — así, apenas
-  // tenemos los datos del operador, ya sabemos a dónde mandarlo.
-  const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
-  const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
   const [operatorPresence, setOperatorPresence] = useState<'available' | 'offline' | 'busy'>('offline')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
   const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
-  const [operatorNames, setOperatorNames] = useState<Map<string, string>>(new Map())
-  const operatorNamesRef = useRef<Map<string, string>>(new Map())
-  const [updateAvailable, setUpdateAvailable] = useState(false)
-  const [totalConversationsCount, setTotalConversationsCount] = useState(0)
-  const inFlightFetchRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -88,7 +69,7 @@ function AppContent() {
 
     supabase
       .from('operators')
-      .select('id, full_name, is_admin, is_superadmin, can_view_metrics, presence, theme_preference, chat_pattern_preference, font_preference')
+      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference')
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
@@ -101,84 +82,11 @@ function AppContent() {
           setOperatorName(data.full_name ?? 'Operador')
           setIsAdmin(data.is_admin ?? false)
           setIsSuperAdmin(data.is_superadmin ?? false)
-          setCanViewMetrics(data.can_view_metrics ?? false)
           setOperatorPresence(data.presence ?? 'offline')
           setTheme(data.theme_preference ?? 'dark')
-          setChatPattern(data.chat_pattern_preference ?? 'dots')
-          setFont(data.font_preference ?? 'plex')
-
-          // Acá se decide a dónde entra, según lo que eligió en el
-          // selector del Login. Si pidió "Administración" pero no
-          // tiene el permiso, lo mandamos igual a la bandeja normal
-          // (la cuenta sigue sirviendo para lo de siempre) y mostramos
-          // un aviso en vez de dejarlo en una pantalla en blanco.
-          if (loginIntent === 'administracion') {
-            if (data.can_view_metrics) {
-              setView('metrics')
-            } else {
-              setMetricsAccessDenied(true)
-              setView('inbox')
-            }
-          }
         }
-      })
-  }, [session, loginIntent])
-
-  // Nombres de operadores para poder resolver "assignedToName" en las
-  // actualizaciones en vivo sin tener que volver a pedir la conversación
-  // entera con el join — es una tabla chica que casi no cambia.
-  useEffect(() => {
-    if (!session) return
-    supabase
-      .from('operators')
-      .select('id, full_name')
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('No se pudieron cargar los nombres de operadores:', error.message)
-          return
-        }
-        const map = new Map<string, string>()
-        for (const o of data ?? []) map.set(o.id, o.full_name ?? '')
-        setOperatorNames(map)
       })
   }, [session])
-
-  useEffect(() => {
-    operatorNamesRef.current = operatorNames
-  }, [operatorNames])
-
-  // Detecta cuando hay una versión nueva del sitio ya deployada — así no
-  // dependemos de que cada operador se acuerde de recargar la pestaña
-  // después de cada deploy. Es justo lo que pasó hoy: arreglamos varios
-  // bugs de Realtime del lado del código, pero varios operadores
-  // siguieron corriendo el bundle viejo en su pestaña (ya abierta desde
-  // antes) hasta que recargaron a mano, y mientras tanto los logs
-  // seguían mostrando el patrón viejo. Cada build de Vite genera un
-  // archivo con un hash distinto en el nombre (ej. index-ab12cd.js) —
-  // si el hash que está usando esta pestaña no coincide con el que trae
-  // el index.html más fresco del servidor, es que hay una versión nueva.
-  useEffect(() => {
-    const currentScriptSrc = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src
-    if (!currentScriptSrc) return
-
-    async function checkForUpdate() {
-      try {
-        const res = await fetch(`/?_=${Date.now()}`, { cache: 'no-store' })
-        const html = await res.text()
-        const match = html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/)
-        const latestSrc = match?.[1]
-        if (latestSrc && currentScriptSrc && !currentScriptSrc.endsWith(latestSrc)) {
-          setUpdateAvailable(true)
-        }
-      } catch {
-        // Sin conexión momentánea o falló el fetch — no pasa nada, se
-        // vuelve a intentar en el próximo chequeo.
-      }
-    }
-
-    const interval = setInterval(checkForUpdate, 5 * 60 * 1000) // cada 5 minutos
-    return () => clearInterval(interval)
-  }, [])
 
   async function toggleOwnPresence() {
     if (!operatorId) return
@@ -217,76 +125,6 @@ function AppContent() {
       })
   }, [session])
 
-  // Aplica un UPDATE de "conversations" en vivo a la conversación que ya
-  // tenemos en memoria, sin volver a pedir las 1000 filas con sus joins.
-  // Solo toca las columnas propias de "conversations" — nombre, teléfono,
-  // tags, notas, etc. vienen de "contacts" y no cambian acá, así que se
-  // conservan tal cual ya los teníamos.
-  function applyConversationPatch(
-    prev: Conversation,
-    row: Record<string, any>,
-    names: Map<string, string>,
-  ): Conversation {
-    return {
-      ...prev,
-      channel: row.channel,
-      lastMessage: row.last_message_preview ?? '',
-      time: row.last_message_at
-        ? new Date(row.last_message_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-        : '',
-      createdAt: row.created_at,
-      snoozedUntil: row.snoozed_until ?? null,
-      lastContactMessageAt: row.last_contact_message_at ?? null,
-      keepWithOperator: row.keep_with_operator ?? false,
-      needsAssignment: row.needs_assignment ?? true,
-      unread: row.unread,
-      status: row.status,
-      assignedOperatorId: row.assigned_operator_id,
-      assignedToName: row.assigned_operator_id ? names.get(row.assigned_operator_id) ?? prev.assignedToName : null,
-      team: row.team,
-    }
-  }
-
-  // Trae una sola conversación completa (con sus joins) y la agrega a la
-  // lista si todavía no está — para cuando llega una realmente nueva, o
-  // se reabre una que no teníamos cargada.
-  //
-  // "inFlightFetchRef" evita pedir la misma conversación dos veces si
-  // llegan dos eventos casi juntos para el mismo id (por ejemplo, se
-  // crea y al toque se actualiza) antes de que el primer pedido termine
-  // y la agregue a la lista — sin esto, el segundo evento todavía la ve
-  // como "no la tengo" y dispara otro pedido igual.
-  function fetchAndAddConversation(id: string) {
-    if (inFlightFetchRef.current.has(id)) return
-    inFlightFetchRef.current.add(id)
-    supabase
-      .from('conversations')
-      .select(CONVERSATION_SELECT)
-      .eq('id', id)
-      .single()
-      .then(({ data, error }) => {
-        inFlightFetchRef.current.delete(id)
-        if (error || !data) return
-        const mapped = mapConversation(data)
-        setConversations((prev) => (prev.some((c) => c.id === mapped.id) ? prev : [mapped, ...prev]))
-      })
-  }
-
-  // Contador total de conversaciones (para "Todos"), movido acá desde
-  // Inbox.tsx: antes tenía su PROPIA suscripción de Realtime a toda la
-  // tabla "conversations", separada de esta — eso significa que cada
-  // INSERT/DELETE se entregaba DOS VECES (una por cada canal suscripto).
-  // Ahora se calcula una sola vez al entrar y se ajusta con los mismos
-  // eventos INSERT/DELETE que ya está escuchando el canal de abajo, sin
-  // sumar una suscripción nueva.
-  useEffect(() => {
-    if (!session) return
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .then(({ count }) => setTotalConversationsCount(count ?? 0))
-  }, [session])
-
   // Carga inicial + se mantiene al día en vivo (conversaciones nuevas,
   // reasignadas, cerradas, o con mensajes nuevos de cualquier canal).
   useEffect(() => {
@@ -301,54 +139,9 @@ function AppContent() {
     // duplicaba el aviso y multiplicaba la cantidad de mensajes de
     // Realtime que consume el proyecto, sin agregar nada que esta de
     // acá abajo no cubra ya.
-    //
-    // ANTES: cualquier cambio en CUALQUIER conversación de la empresa
-    // (de cualquier operador) volvía a pedir las 1000 conversaciones
-    // ENTERAS, con los joins de contacts/operators, a TODOS los
-    // operadores conectados a la vez. Con varios operadores y mensajes
-    // entrando todo el día, esto multiplicaba muchísimo la cantidad de
-    // requests — es la causa más probable de los picos de Realtime/uso
-    // de API que estábamos viendo.
-    //
-    // AHORA: cada evento se aplica en memoria (sin ir a la base) salvo
-    // en los dos casos en que realmente hace falta traer datos que no
-    // tenemos: una conversación nueva, o una que se reabre y no
-    // estábamos mostrando — ahí se trae SOLO esa fila, no las 1000.
     const channel = supabase
       .channel('conversations-list')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
-        const row = payload.new as Record<string, any>
-        setTotalConversationsCount((n) => n + 1)
-        if (row.status === 'cerrada') return
-        fetchAndAddConversation(row.id)
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
-        const row = payload.new as Record<string, any>
-
-        if (row.status === 'cerrada') {
-          // La lista activa nunca incluye cerradas.
-          setConversations((prev) => prev.filter((c) => c.id !== row.id))
-          return
-        }
-
-        setConversations((prev) => {
-          const idx = prev.findIndex((c) => c.id === row.id)
-          if (idx === -1) {
-            // No la teníamos (se acaba de reabrir, o había quedado
-            // afuera del límite de 1000) — recién acá hace falta traerla.
-            fetchAndAddConversation(row.id)
-            return prev
-          }
-          const next = [...prev]
-          next[idx] = applyConversationPatch(next[idx], row, operatorNamesRef.current)
-          return next
-        })
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
-        const oldRow = payload.old as Record<string, any>
-        setTotalConversationsCount((n) => Math.max(0, n - 1))
-        setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, loadConversations)
       .subscribe()
 
     return () => {
@@ -432,28 +225,29 @@ function AppContent() {
     }
   }, [theme])
 
-  // La tipografía no depende del tema (no hay un "--font-sans" por tema),
-  // así que en vez de un atributo se pisa directo la variable CSS en el
-  // elemento raíz — alcanza con esto para que todo lo que ya usa
-  // var(--font-sans) cambie de fuente al toque.
-  useEffect(() => {
-    const family = fonts.find((f) => f.id === font)?.family
-    if (family) document.documentElement.style.setProperty('--font-sans', family)
-  }, [font])
-
   // --- Auto-logout por inactividad -----------------------------------
-  // Pedido puntual: si pasan 10 minutos sin que el operador mande un
-  // mensaje (no actividad genérica de mouse/teclado, sino su propia
-  // participación en la mensajería), se cierra la sesión sola y se
-  // avisa en pantalla. Esto también ayuda a bajar la cantidad de
-  // conexiones de Realtime abiertas de operadores que quedaron
-  // logueados pero inactivos.
+  // Si pasan 10 minutos sin ninguna actividad del operador, se cierra
+  // la sesión sola y se avisa en pantalla. Esto también ayuda a bajar
+  // la cantidad de conexiones de Realtime abiertas de operadores que
+  // quedaron logueados pero inactivos.
+  //
+  // Ojo: "actividad" tiene que ser cualquier uso real de la pantalla
+  // (mouse, teclado, clicks, scroll, touch) — antes solo contaba el
+  // evento 'operator-activity' (mandar un mensaje), así que a alguien
+  // que estaba activo mirando/organizando conversaciones pero sin
+  // mandar un mensaje nuevo cada 10 minutos se lo desconectaba igual,
+  // aunque estuviera usando la pantalla sin parar.
   useEffect(() => {
     function markActivity() {
       lastActivityRef.current = Date.now()
     }
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
+    activityEvents.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }))
     window.addEventListener('operator-activity', markActivity)
-    return () => window.removeEventListener('operator-activity', markActivity)
+    return () => {
+      activityEvents.forEach((evt) => window.removeEventListener(evt, markActivity))
+      window.removeEventListener('operator-activity', markActivity)
+    }
   }, [])
 
   // Arranca el contador limpio en cada sesión nueva (login).
@@ -486,20 +280,6 @@ function AppContent() {
     }
   }
 
-  async function changeChatPattern(next: string) {
-    setChatPattern(next)
-    if (operatorId) {
-      await supabase.from('operators').update({ chat_pattern_preference: next }).eq('id', operatorId)
-    }
-  }
-
-  async function changeFont(next: string) {
-    setFont(next)
-    if (operatorId) {
-      await supabase.from('operators').update({ font_preference: next }).eq('id', operatorId)
-    }
-  }
-
   function toggleMuted() {
     setMuted((m) => {
       const next = !m
@@ -521,10 +301,10 @@ function AppContent() {
       <>
         {loggedOutForInactivity && (
           <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-            Se cerró tu sesión por inactividad (10 minutos sin mandar mensajes). Volvé a iniciar sesión para continuar.
+            Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.
           </div>
         )}
-        <Login onIntentChange={setLoginIntent} />
+        <Login />
       </>
     )
   }
@@ -533,14 +313,8 @@ function AppContent() {
     return <ResetPassword onDone={() => setPasswordRecovery(false)} />
   }
 
-  const mainContent =
-    view === 'metrics' && canViewMetrics ? (
-      <MetricsPage
-        operatorName={operatorName}
-        onSignOut={() => supabase.auth.signOut()}
-        onBackToInbox={() => setView('inbox')}
-      />
-    ) : view === 'admin' && isAdmin ? (
+  if (view === 'admin' && isAdmin) {
+    return (
       <AdminPanel
         theme={theme}
         onChangeTheme={changeTheme}
@@ -549,55 +323,25 @@ function AppContent() {
         onBack={() => setView('inbox')}
         conversations={conversations}
       />
-    ) : (
-      <Inbox
-        theme={theme}
-        onChangeTheme={changeTheme}
-        chatPattern={chatPattern}
-        onChangeChatPattern={changeChatPattern}
-        font={font}
-        onChangeFont={changeFont}
-        operatorName={operatorName}
-        operatorId={operatorId}
-        isAdmin={isAdmin}
-        isSuperAdmin={isSuperAdmin}
-        onOpenAdmin={() => setView('admin')}
-        conversations={conversations}
-        setConversations={setConversations}
-        onRefreshConversations={loadConversations}
-        totalConversationsCount={totalConversationsCount}
-        muted={muted}
-        onToggleMuted={toggleMuted}
-        operatorPresence={operatorPresence}
-        onTogglePresence={toggleOwnPresence}
-      />
     )
+  }
 
   return (
-    <>
-      {updateAvailable && (
-        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-          Hay una versión nueva del sistema — actualizá para evitar errores.
-          <button
-            onClick={() => window.location.reload()}
-            className="rounded-sm bg-asphalt px-3 py-1 text-xs font-semibold text-mustard"
-          >
-            Actualizar ahora
-          </button>
-        </div>
-      )}
-      {metricsAccessDenied && (
-        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-alert px-4 py-2 text-center text-sm font-medium text-cream">
-          Tu cuenta no tiene permiso para entrar a Administración — te dejamos en Mensajería.
-          <button
-            onClick={() => setMetricsAccessDenied(false)}
-            className="rounded-sm bg-asphalt/30 px-3 py-1 text-xs font-semibold text-cream hover:bg-asphalt/50"
-          >
-            Entendido
-          </button>
-        </div>
-      )}
-      {mainContent}
-    </>
+    <Inbox
+      theme={theme}
+      onChangeTheme={changeTheme}
+      operatorName={operatorName}
+      operatorId={operatorId}
+      isAdmin={isAdmin}
+      isSuperAdmin={isSuperAdmin}
+      onOpenAdmin={() => setView('admin')}
+      conversations={conversations}
+      setConversations={setConversations}
+      onRefreshConversations={loadConversations}
+      muted={muted}
+      onToggleMuted={toggleMuted}
+      operatorPresence={operatorPresence}
+      onTogglePresence={toggleOwnPresence}
+    />
   )
 }

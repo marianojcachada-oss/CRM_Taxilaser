@@ -11,7 +11,13 @@ import MissedCallsView from './MissedCallsView'
 import ProfileMenu from './ProfileMenu'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 
-const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo']
+// 'cancelacion' entra acá como red de seguridad: aunque arreglamos la
+// causa de raíz (un mensaje automático podía apagar el unread y hacer
+// que la conversación se perdiera), si por cualquier otro motivo
+// unread llega a estar en false, una posible cancelación tiene que
+// seguir siendo visible en "Pendientes" — nunca puede quedar afuera de
+// las dos pestañas.
+const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo', 'cancelacion']
 
 // Ordena por el número del código (D5 antes que D12), no por texto — un
 // orden alfabético pondría "D12" antes que "D5". Los que no tengan código
@@ -53,14 +59,6 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
 type Props = {
   theme: string
   onChangeTheme: (id: string) => void
-  // Patrón de fondo del chat — preferencia aparte del tema de colores,
-  // elegida por el operador y guardada en el backend (ver App.tsx).
-  chatPattern: string
-  onChangeChatPattern: (id: string) => void
-  // Tipografía — tercer sibling de preferencias por operador (se aplica
-  // globalmente vía variable CSS, no hace falta pasarla a ConversationsView).
-  font: string
-  onChangeFont: (id: string) => void
   operatorName: string
   operatorId: string | null
   isAdmin: boolean
@@ -69,7 +67,6 @@ type Props = {
   conversations: Conversation[]
   setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
   onRefreshConversations: () => void
-  totalConversationsCount: number
   muted: boolean
   onToggleMuted: () => void
   operatorPresence: 'available' | 'offline' | 'busy'
@@ -79,10 +76,6 @@ type Props = {
 export default function Inbox({
   theme,
   onChangeTheme,
-  chatPattern,
-  onChangeChatPattern,
-  font,
-  onChangeFont,
   operatorName,
   operatorId,
   isAdmin,
@@ -91,7 +84,6 @@ export default function Inbox({
   conversations,
   setConversations,
   onRefreshConversations,
-  totalConversationsCount,
   muted,
   onToggleMuted,
   operatorPresence,
@@ -99,6 +91,7 @@ export default function Inbox({
 }: Props) {
   const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
   const [missedCallsCount, setMissedCallsCount] = useState(0)
+  const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [internalChannel, setInternalChannel] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
@@ -126,42 +119,9 @@ export default function Inbox({
     // Se mantiene al día en vivo — es lo que permite que el filtro "Ver
     // bandeja de..." solo ofrezca operadores que están disponibles EN
     // ESTE MOMENTO, no una foto vieja de cuando se abrió la pestaña.
-    //
-    // OJO: esto volvía a pedir TODOS los operadores cada vez que se
-    // actualizaba CUALQUIER columna de "operators" — y el round robin
-    // actualiza "last_assigned_at" en cada asignación (no solo cuando
-    // cambia la presencia), así que cada asignación de conversación
-    // disparaba una recarga completa de operadores en cada pestaña
-    // conectada. El payload de Realtime ya trae la fila entera
-    // actualizada, así que alcanza con parchear en memoria el operador
-    // que cambió — sin volver a pedir nada a la base.
     const channel = supabase
       .channel('operators-presence')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, (payload) => {
-        const row = payload.new as {
-          id: string
-          full_name: string | null
-          operator_code: string | null
-          presence: 'available' | 'offline' | 'busy' | null
-        }
-        setOperators((prev) => {
-          const idx = prev.findIndex((o) => o.id === row.id)
-          if (idx === -1) return prev
-          const next = [...prev]
-          next[idx] = {
-            ...next[idx],
-            full_name: row.full_name ?? next[idx].full_name,
-            operator_code: row.operator_code ?? next[idx].operator_code,
-            presence: row.presence ?? next[idx].presence,
-          }
-          return next.sort(byOperatorCode)
-        })
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'operators' }, loadOperators)
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'operators' }, (payload) => {
-        const oldRow = payload.old as { id: string }
-        setOperators((prev) => prev.filter((o) => o.id !== oldRow.id))
-      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, loadOperators)
       .subscribe()
 
     return () => {
@@ -189,11 +149,15 @@ export default function Inbox({
     }
   }, [])
 
-  // Contador total de conversaciones (para "Todos"): ahora se calcula una
-  // sola vez y se mantiene al día en App.tsx (que ya tiene abierto el
-  // canal realtime de "conversations"), y llega acá como prop
-  // "totalConversationsCount" — así se evita un segundo canal realtime
-  // suscripto a la misma tabla (que antes duplicaba los eventos recibidos).
+  // "Todos" es el histórico completo de verdad — a diferencia de la
+  // lista principal (que a propósito solo trae lo activo, para que la
+  // bandeja cargue rápido), esto consulta sin importar el estado.
+  useEffect(() => {
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .then(({ count }) => setTotalConversationsCount(count ?? 0))
+  }, [conversations])
 
   useEffect(() => {
     if (filter.kind !== 'all') {
@@ -284,10 +248,21 @@ export default function Inbox({
     return () => clearTimeout(timeout)
   }, [searchQuery])
 
-  // (Antes había acá un segundo efecto que pedía exactamente lo mismo
-  // que el de arriba — misma consulta, mismo disparador — así que cada
-  // vez que alguien abría "Todos" se pedían las 300 conversaciones DOS
-  // veces. Se saca; el efecto de arriba ya cubre esto.)
+  // "Todos" trae de verdad todo, incluidas las cerradas — la consulta
+  // base de arranque las excluye a propósito (por rendimiento), así que
+  // esta pestaña necesita su propia consulta aparte.
+  useEffect(() => {
+    if (filter.kind !== 'all') {
+      setAllHistoryResults(null)
+      return
+    }
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(300)
+      .then(({ data }) => setAllHistoryResults((data ?? []).map(mapConversation)))
+  }, [filter.kind])
 
   // "Mis respuestas": conversaciones donde YO mandé al menos un mensaje
   // alguna vez, más allá de que hoy estén asignadas a otro operador,
@@ -452,10 +427,6 @@ export default function Inbox({
             operatorName={operatorName}
             theme={theme}
             onChangeTheme={onChangeTheme}
-            chatPattern={chatPattern}
-            onChangeChatPattern={onChangeChatPattern}
-            font={font}
-            onChangeFont={onChangeFont}
             muted={muted}
             onToggleMuted={onToggleMuted}
             isAdmin={isAdmin}
@@ -539,7 +510,6 @@ export default function Inbox({
             isAdmin={isAdmin}
             isSuperAdmin={isSuperAdmin}
             theme={theme}
-            chatPattern={chatPattern}
             filter={filter}
             onSelectFilter={(f) => setFilter(f)}
             onRefreshConversations={onRefreshConversations}

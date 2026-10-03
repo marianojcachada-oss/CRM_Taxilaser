@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
   // su ID para saber por qué canal(es) prefiere recibir avisos.
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, full_name, servicios_completados")
+    .select("id, full_name, servicios_completados, active_ride_booked_by")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -109,19 +109,26 @@ Deno.serve(async (req) => {
         active_ride_completed_at: new Date().toISOString(),
         active_ride_eta_minutes: null,
         active_ride_eta_received_at: null,
+        // Se limpia acá — ya se usó abajo para la fila de ride_history,
+        // que es donde queda guardado de forma permanente.
+        active_ride_booked_by: null,
       })
       .eq("id", contactId);
   }
 
   const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
 
-  // Historial real, de acá en adelante — una fila por viaje
+  // Historial real, de acá en adelante — una fila por viaje. booked_by
+  // viene de lo que guardó taxicaller-assigned-webhook cuando se armó
+  // este viaje — null si ese webhook no llegó a mandarlo (plantilla
+  // vieja en TaxiCaller, o el viaje nunca pasó por "en camino").
   await supabase.from("ride_history").insert({
     contact_id: contactId,
     job_id: body.job_id ?? null,
     event_type: "completed",
     vehicle_unit: make || null,
     fare: fareTotal || null,
+    booked_by: existingContact?.active_ride_booked_by ?? null,
   });
 
   // Conversación de SMS/WhatsApp (se reabre si estaba cerrada), de forma

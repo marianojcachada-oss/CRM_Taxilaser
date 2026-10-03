@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
   const settings = await getSettings([
     "TAXICALLER_WEBHOOK_SECRET",
     "TAXICALLER_CANCEL_MESSAGE_ENABLED",
+    "RINGCENTRAL_FROM_NUMBER",
   ]);
 
   const expectedSecret = settings.TAXICALLER_WEBHOOK_SECRET;
@@ -68,17 +69,17 @@ Deno.serve(async (req) => {
 
   const phone = normalizePhone(rawPhone);
   const passengerName = body.passenger_name || null;
+  const dispatchNumber = settings.RINGCENTRAL_FROM_NUMBER ?? "";
 
-  // Antes terminaba en "... llame o envíe un SMS al {número de la
-  // empresa}" — se sacó el número a pedido: ya no se expone ningún
-  // teléfono en este aviso automático.
-  const text = `Su servicio ha sido cancelado. Para solicitarlo nuevamente por favor llame o envíe un SMS.`;
+  const text =
+    `Su servicio ha sido cancelado. Para solicitarlo nuevamente por favor llame o envíe un SMS` +
+    (dispatchNumber ? ` al ${dispatchNumber}` : "");
 
   // Buscar o crear el contacto ANTES de mandar el mensaje — hace falta
   // su ID para saber por qué canal(es) prefiere recibir avisos.
   const { data: existingContact } = await supabase
     .from("contacts")
-    .select("id, full_name, servicios_cancelados")
+    .select("id, full_name, servicios_cancelados, active_ride_booked_by")
     .eq("phone", phone)
     .maybeSingle();
 
@@ -112,17 +113,22 @@ Deno.serve(async (req) => {
         active_ride_completed_at: new Date().toISOString(),
         active_ride_eta_minutes: null,
         active_ride_eta_received_at: null,
+        // Se limpia acá — ya se usó abajo para la fila de ride_history.
+        active_ride_booked_by: null,
       })
       .eq("id", contactId);
   }
 
   const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
 
-  // Historial real, de acá en adelante — una fila por viaje
+  // Historial real, de acá en adelante — una fila por viaje. booked_by
+  // viene de lo que guardó taxicaller-assigned-webhook cuando se armó
+  // este viaje — null si ese webhook no llegó a mandarlo.
   await supabase.from("ride_history").insert({
     contact_id: contactId,
     job_id: body.job_id ?? null,
     event_type: "cancelled",
+    booked_by: existingContact?.active_ride_booked_by ?? null,
   });
 
   // Conversación de SMS/WhatsApp (se reabre si estaba cerrada), de forma

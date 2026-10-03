@@ -156,6 +156,47 @@ function AppContent() {
       })
   }, [session])
 
+  // Trae y aplica en memoria SOLO la conversación que cambió, en vez de
+  // recargar la lista entera (hasta 1000 filas, con contacto y operador
+  // asignado adentro) por cada evento.
+  //
+  // OJO — esto era el consumo más grande de los dos que encontramos en
+  // los logs de Supabase (confirmado con export de logs reales): la
+  // suscripción de abajo llamaba a loadConversations() COMPLETO en cada
+  // insert/update/delete de "conversations" — y esa fila cambia con
+  // CADA mensaje nuevo, cada asignación de round robin, cada vez que se
+  // marca como leída. Con varios operadores conectados a la vez, eso
+  // eran cientos de recargas completas por minuto, cada una trayendo de
+  // vuelta hasta 1000 filas con join a contactos — la causa principal
+  // de la suba descontrolada en Log Query y Realtime Messages. Acá se
+  // pide solo la fila puntual que cambió (un id, no toda la tabla) y se
+  // actualiza/inserta/saca del arreglo local a mano.
+  const patchConversation = useCallback((id: string) => {
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .eq('id', id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('No se pudo refrescar la conversación:', error.message)
+          return
+        }
+        setConversations((prev) => {
+          // Se cerró (o ya no existe): afuera de la bandeja activa si estaba.
+          if (!data || data.status === 'cerrada') {
+            return prev.some((c) => c.id === id) ? prev.filter((c) => c.id !== id) : prev
+          }
+          const patched = mapConversation(data)
+          const idx = prev.findIndex((c) => c.id === id)
+          if (idx === -1) return [patched, ...prev]
+          const next = [...prev]
+          next[idx] = patched
+          return next
+        })
+      })
+  }, [])
+
   // Carga inicial + se mantiene al día en vivo (conversaciones nuevas,
   // reasignadas, cerradas, o con mensajes nuevos de cualquier canal).
   useEffect(() => {
@@ -172,13 +213,22 @@ function AppContent() {
     // acá abajo no cubra ya.
     const channel = supabase
       .channel('conversations-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, loadConversations)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
+        patchConversation((payload.new as { id: string }).id)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
+        patchConversation((payload.new as { id: string }).id)
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
+        const oldRow = payload.old as { id: string }
+        setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
+      })
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [session, loadConversations])
+  }, [session, loadConversations, patchConversation])
 
   // Sonido + notificación del navegador cuando llega un mensaje nuevo de un cliente
   useEffect(() => {

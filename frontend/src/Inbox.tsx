@@ -131,9 +131,44 @@ export default function Inbox({
     // Se mantiene al día en vivo — es lo que permite que el filtro "Ver
     // bandeja de..." solo ofrezca operadores que están disponibles EN
     // ESTE MOMENTO, no una foto vieja de cuando se abrió la pestaña.
+    //
+    // OJO: esto volvía a pedir TODOS los operadores (loadOperators()
+    // completo) cada vez que se actualizaba CUALQUIER columna de
+    // "operators" — y esa fila cambia todo el tiempo: el round robin
+    // actualiza last_assigned_at en CADA asignación (no solo cuando
+    // cambia la presencia), y cada operador que cambia su tema, patrón
+    // de chat o tipografía también dispara un UPDATE ahí. Confirmado en
+    // los logs de Supabase: esto era de los dos consumos más grandes de
+    // todo el proyecto. El payload de Realtime ya trae la fila entera
+    // actualizada — alcanza con parchear en memoria el operador que
+    // cambió, sin volver a pedir nada a la base.
     const channel = supabase
       .channel('operators-presence')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, loadOperators)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, (payload) => {
+        const row = payload.new as {
+          id: string
+          full_name: string | null
+          operator_code: string | null
+          presence: 'available' | 'offline' | 'busy' | null
+        }
+        setOperators((prev) => {
+          const idx = prev.findIndex((o) => o.id === row.id)
+          if (idx === -1) return prev
+          const next = [...prev]
+          next[idx] = {
+            ...next[idx],
+            full_name: row.full_name ?? next[idx].full_name,
+            operator_code: row.operator_code ?? next[idx].operator_code,
+            presence: row.presence ?? next[idx].presence,
+          }
+          return next.sort(byOperatorCode)
+        })
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'operators' }, loadOperators)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'operators' }, (payload) => {
+        const oldRow = payload.old as { id: string }
+        setOperators((prev) => prev.filter((o) => o.id !== oldRow.id))
+      })
       .subscribe()
 
     return () => {

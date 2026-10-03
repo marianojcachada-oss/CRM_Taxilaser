@@ -211,6 +211,9 @@ type Props = {
   isAdmin: boolean
   isSuperAdmin: boolean
   theme: string
+  // Patrón de fondo del chat — preferencia aparte del tema de colores
+  // (ver index.css, clases .chat-pattern-*, y ThemePicker.tsx).
+  chatPattern: string
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
   onRefreshConversations?: () => void
@@ -234,6 +237,7 @@ export default function ConversationsView({
   isAdmin,
   isSuperAdmin,
   theme,
+  chatPattern,
   filter,
   onSelectFilter,
   onRefreshConversations,
@@ -663,6 +667,19 @@ export default function ConversationsView({
       .from('conversations')
       .update(closing ? { status: newStatus, unread: false } : { status: newStatus })
       .eq('id', selectedId)
+
+    // Cerrar una conversación la saca del inbox activo (App.tsx solo
+    // trae las que NO están cerradas) — si era la única que había en la
+    // pestaña/filtro donde estaba el operador, la pantalla se queda sin
+    // nada que mostrar ("No hay conversaciones para mostrar"), de
+    // golpe. Antes eso no tenía ningún aviso — el reporte de un
+    // operador fue justo este: "se actualiza y queda en blanco", como
+    // si se hubiera roto algo. No es un error, pero sin este aviso no
+    // había forma de saber que fue justamente SU acción de cerrar la
+    // que vació la pantalla.
+    if (closing) {
+      toast.success('Conversación cerrada.')
+    }
   }
 
   async function handleDelete() {
@@ -890,6 +907,9 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      // Avisa a App.tsx que el operador acaba de participar (se usa para
+      // el auto-logout por inactividad — 10 min sin mandar un mensaje).
+      window.dispatchEvent(new Event('operator-activity'))
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
         body: { conversationId: selectedId, channel: sendChannel, text: textToSend },
@@ -902,6 +922,7 @@ export default function ConversationsView({
       }
 
       markThreadStatus(tempId, { id: data.messageId ?? tempId, status: 'sent' })
+      window.dispatchEvent(new Event('operator-activity'))
     }
   }
 
@@ -1283,7 +1304,7 @@ export default function ConversationsView({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className={`chat-pattern-${chatPattern || 'dots'} flex-1 overflow-y-auto px-6 py-4`}>
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1604,8 +1625,9 @@ export default function ConversationsView({
             )}
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted">
-            No hay conversaciones para mostrar
+          <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-muted">
+            <p>No hay conversaciones para mostrar acá</p>
+            <p className="text-xs">Probá con otra pestaña (arriba a la izquierda) o esperá a que entre una nueva.</p>
           </div>
         )}
       </main>

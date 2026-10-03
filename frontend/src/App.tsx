@@ -4,9 +4,11 @@ import Login from './Login'
 import ResetPassword from './ResetPassword'
 import Inbox from './Inbox'
 import AdminPanel from './AdminPanel'
+import MetricsPage from './MetricsPage'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
+import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
 
 function playNotificationSound() {
@@ -38,11 +40,23 @@ function AppContent() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<string>('dark')
-  const [view, setView] = useState<'inbox' | 'admin'>('inbox')
+  // Patrón de fondo del chat — preferencia aparte del tema de colores,
+  // guardada por operador igual que theme_preference (ver changeTheme).
+  const [chatPattern, setChatPattern] = useState<string>('dots')
+  // Tipografía — mismo mecanismo que tema y patrón, un sibling más de
+  // "configuraciones" por operador (ver ThemePicker.tsx -> fonts).
+  const [font, setFont] = useState<string>('plex')
+  const [view, setView] = useState<'inbox' | 'admin' | 'metrics'>('inbox')
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [canViewMetrics, setCanViewMetrics] = useState(false)
+  // Lo que eligió el selector "Mensajería / Administración" en el
+  // Login, ANTES de que termine de resolverse la sesión — así, apenas
+  // tenemos los datos del operador, ya sabemos a dónde mandarlo.
+  const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
+  const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
   const [operatorPresence, setOperatorPresence] = useState<'available' | 'offline' | 'busy'>('offline')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
@@ -69,7 +83,7 @@ function AppContent() {
 
     supabase
       .from('operators')
-      .select('id, full_name, is_admin, is_superadmin, presence, theme_preference')
+      .select('id, full_name, is_admin, is_superadmin, can_view_metrics, presence, theme_preference, chat_pattern_preference, font_preference')
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
@@ -82,11 +96,28 @@ function AppContent() {
           setOperatorName(data.full_name ?? 'Operador')
           setIsAdmin(data.is_admin ?? false)
           setIsSuperAdmin(data.is_superadmin ?? false)
+          setCanViewMetrics(data.can_view_metrics ?? false)
           setOperatorPresence(data.presence ?? 'offline')
           setTheme(data.theme_preference ?? 'dark')
+          setChatPattern(data.chat_pattern_preference ?? 'dots')
+          setFont(data.font_preference ?? 'plex')
+
+          // Acá se decide a dónde entra, según lo que eligió en el
+          // selector del Login. Si pidió "Administración" pero no
+          // tiene el permiso, lo mandamos igual a la bandeja normal
+          // (la cuenta sigue sirviendo para lo de siempre) y mostramos
+          // un aviso en vez de dejarlo en una pantalla en blanco.
+          if (loginIntent === 'administracion') {
+            if (data.can_view_metrics) {
+              setView('metrics')
+            } else {
+              setMetricsAccessDenied(true)
+              setView('inbox')
+            }
+          }
         }
       })
-  }, [session])
+  }, [session, loginIntent])
 
   async function toggleOwnPresence() {
     if (!operatorId) return
@@ -225,6 +256,15 @@ function AppContent() {
     }
   }, [theme])
 
+  // La tipografía no depende del tema (no hay un "--font-sans" por tema),
+  // así que en vez de un atributo se pisa directo la variable CSS en el
+  // elemento raíz — alcanza con esto para que todo lo que ya usa
+  // var(--font-sans) cambie de fuente al toque.
+  useEffect(() => {
+    const family = fonts.find((f) => f.id === font)?.family
+    if (family) document.documentElement.style.setProperty('--font-sans', family)
+  }, [font])
+
   // --- Auto-logout por inactividad -----------------------------------
   // Si pasan 10 minutos sin ninguna actividad del operador, se cierra
   // la sesión sola y se avisa en pantalla. Esto también ayuda a bajar
@@ -280,6 +320,20 @@ function AppContent() {
     }
   }
 
+  async function changeChatPattern(next: string) {
+    setChatPattern(next)
+    if (operatorId) {
+      await supabase.from('operators').update({ chat_pattern_preference: next }).eq('id', operatorId)
+    }
+  }
+
+  async function changeFont(next: string) {
+    setFont(next)
+    if (operatorId) {
+      await supabase.from('operators').update({ font_preference: next }).eq('id', operatorId)
+    }
+  }
+
   function toggleMuted() {
     setMuted((m) => {
       const next = !m
@@ -304,13 +358,23 @@ function AppContent() {
             Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.
           </div>
         )}
-        <Login />
+        <Login onIntentChange={setLoginIntent} />
       </>
     )
   }
 
   if (passwordRecovery) {
     return <ResetPassword onDone={() => setPasswordRecovery(false)} />
+  }
+
+  if (view === 'metrics' && canViewMetrics) {
+    return (
+      <MetricsPage
+        operatorName={operatorName}
+        onSignOut={() => supabase.auth.signOut()}
+        onBackToInbox={() => setView('inbox')}
+      />
+    )
   }
 
   if (view === 'admin' && isAdmin) {
@@ -327,21 +391,38 @@ function AppContent() {
   }
 
   return (
-    <Inbox
-      theme={theme}
-      onChangeTheme={changeTheme}
-      operatorName={operatorName}
-      operatorId={operatorId}
-      isAdmin={isAdmin}
-      isSuperAdmin={isSuperAdmin}
-      onOpenAdmin={() => setView('admin')}
-      conversations={conversations}
-      setConversations={setConversations}
-      onRefreshConversations={loadConversations}
-      muted={muted}
-      onToggleMuted={toggleMuted}
-      operatorPresence={operatorPresence}
-      onTogglePresence={toggleOwnPresence}
-    />
+    <>
+      {metricsAccessDenied && (
+        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-alert px-4 py-2 text-center text-sm font-medium text-cream">
+          Tu cuenta no tiene permiso para entrar a Administración — te dejamos en Mensajería.
+          <button
+            onClick={() => setMetricsAccessDenied(false)}
+            className="rounded-sm bg-asphalt/30 px-3 py-1 text-xs font-semibold text-cream hover:bg-asphalt/50"
+          >
+            Entendido
+          </button>
+        </div>
+      )}
+      <Inbox
+        theme={theme}
+        onChangeTheme={changeTheme}
+        chatPattern={chatPattern}
+        onChangeChatPattern={changeChatPattern}
+        font={font}
+        onChangeFont={changeFont}
+        operatorName={operatorName}
+        operatorId={operatorId}
+        isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
+        onOpenAdmin={() => setView('admin')}
+        conversations={conversations}
+        setConversations={setConversations}
+        onRefreshConversations={loadConversations}
+        muted={muted}
+        onToggleMuted={toggleMuted}
+        operatorPresence={operatorPresence}
+        onTogglePresence={toggleOwnPresence}
+      />
+    </>
   )
 }

@@ -415,21 +415,38 @@ function AppContent() {
   // la cantidad de conexiones de Realtime abiertas de operadores que
   // quedaron logueados pero inactivos.
   //
-  // Ojo: "actividad" tiene que ser cualquier uso real de la pantalla
-  // (mouse, teclado, clicks, scroll, touch) — antes solo contaba el
-  // evento 'operator-activity' (mandar un mensaje), así que a alguien
-  // que estaba activo mirando/organizando conversaciones pero sin
-  // mandar un mensaje nuevo cada 10 minutos se lo desconectaba igual,
-  // aunque estuviera usando la pantalla sin parar.
+  // AJUSTADO (03/10/2026): "actividad" ya NO es cualquier uso de la
+  // pantalla (mover el mouse, hacer scroll leyendo, etc.) — eso contaba
+  // como actividad a alguien que solo tenía la pantalla abierta sin
+  // estar realmente trabajando. Ahora solo cuenta:
+  //   1) escribir en un input/textarea/campo editable (cualquiera de la
+  //      app, no solo el de responder un chat), y
+  //   2) el evento 'operator-activity' — que YA se dispara al mandar un
+  //      mensaje, y que ahora el handler de "cambiar de conversación"
+  //      seleccionada tiene que disparar también (ver nota más abajo,
+  //      no está en este archivo).
   useEffect(() => {
     function markActivity() {
       lastActivityRef.current = Date.now()
     }
-    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
-    activityEvents.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }))
+    // keydown + input cubren entre los dos: tipeo normal (keydown) y
+    // texto que entra sin tecleo letra por letra -- pegar con el mouse,
+    // autocompletar, teclados de celular con IME (input) -- en cualquier
+    // input/textarea/campo editable de la app.
+    function markActivityIfTyping(e: Event) {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+      const tag = target.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+        markActivity()
+      }
+    }
+    window.addEventListener('keydown', markActivityIfTyping)
+    window.addEventListener('input', markActivityIfTyping, { passive: true })
     window.addEventListener('operator-activity', markActivity)
     return () => {
-      activityEvents.forEach((evt) => window.removeEventListener(evt, markActivity))
+      window.removeEventListener('keydown', markActivityIfTyping)
+      window.removeEventListener('input', markActivityIfTyping)
       window.removeEventListener('operator-activity', markActivity)
     }
   }, [])

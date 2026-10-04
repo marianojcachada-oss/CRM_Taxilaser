@@ -132,13 +132,24 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
           'operator_id, hour_bucket, messages_whatsapp, messages_ringcentral, calls_answered, services_completed, services_cancelled',
         )
         .gte('hour_bucket', start.toISOString())
-        .lt('hour_bucket', end.toISOString()),
+        .lt('hour_bucket', end.toISOString())
+        .order('hour_bucket', { ascending: true })
+        // Sin .limit() explícito, el cliente de Supabase corta en 1000 filas
+        // por defecto y lo hace en SILENCIO (no tira error) — por eso después
+        // de cierta hora el panel se quedaba sin datos aunque en la base
+        // estuvieran completos. 5000 cubre con margen cualquier combinación
+        // de operadores x 24 horas.
+        .limit(5000),
       supabase
         .from('hourly_service_metrics')
         .select('hour_bucket, services_completed, services_cancelled')
         .gte('hour_bucket', start.toISOString())
-        .lt('hour_bucket', end.toISOString()),
+        .lt('hour_bucket', end.toISOString())
+        .order('hour_bucket', { ascending: true })
+        .limit(5000),
     ]).then(([op, svc]) => {
+      if (op.error) console.error('Error cargando hourly_operator_metrics:', op.error)
+      if (svc.error) console.error('Error cargando hourly_service_metrics:', svc.error)
       setOperatorRows(op.data ?? [])
       setServiceRows(svc.data ?? [])
       setLoading(false)

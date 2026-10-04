@@ -207,6 +207,28 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
     await supabase.from('integration_settings').upsert({ key: 'AI_AUTO_REPLY_ALL', value: next, updated_at: new Date().toISOString() })
   }
 
+  // Etapa 3 (crear/cancelar viajes en TaxiCaller) — TODAVÍA NO EXISTE
+  // ninguna Edge Function que cree ni cancele nada, así que estos dos
+  // switches, por ahora, no tienen ningún efecto: quedan guardados en
+  // integration_settings, listos para el día que se arme esa etapa, en
+  // vez de agregarlos recién en ese momento. Default "apagado" en los
+  // dos — ninguno habilita nada solo por tildarlo hoy.
+  async function toggleAiCanCreateRides() {
+    if (readOnly) return
+    const current = values['AI_CAN_CREATE_RIDES']
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, AI_CAN_CREATE_RIDES: next }))
+    await supabase.from('integration_settings').upsert({ key: 'AI_CAN_CREATE_RIDES', value: next, updated_at: new Date().toISOString() })
+  }
+
+  async function toggleAiCanCancelRides() {
+    if (readOnly) return
+    const current = values['AI_CAN_CANCEL_RIDES']
+    const next = current === 'true' ? 'false' : 'true'
+    setValues((prev) => ({ ...prev, AI_CAN_CANCEL_RIDES: next }))
+    await supabase.from('integration_settings').upsert({ key: 'AI_CAN_CANCEL_RIDES', value: next, updated_at: new Date().toISOString() })
+  }
+
   async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
     if (readOnly) return
     const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
@@ -294,6 +316,35 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
               <p className="mb-4 text-[11px] text-muted">
                 Este último todavía no hace nada — queda preparado para cuando se conecte el modo
                 automático (Etapa 2). Por ahora, prenderlo o apagarlo no cambia nada en la práctica.
+              </p>
+
+              <button
+                onClick={toggleAiCanCreateRides}
+                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AI_CAN_CREATE_RIDES'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                Permitir a la IA crear servicios: {values['AI_CAN_CREATE_RIDES'] === 'true' ? 'Activado' : 'Desactivado'}
+              </button>
+              <button
+                onClick={toggleAiCanCancelRides}
+                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['AI_CAN_CANCEL_RIDES'] === 'true'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                Permitir a la IA cancelar servicios: {values['AI_CAN_CANCEL_RIDES'] === 'true' ? 'Activado' : 'Desactivado'}
+              </button>
+              <p className="mb-4 text-[11px] text-muted">
+                Estos dos todavía no hacen nada — todavía no existe el código que crea ni cancela viajes en
+                TaxiCaller (Etapa 3, sin empezar). Quedan preparados para cuando se arme esa parte, para no
+                tener que volver a este panel a agregarlos en ese momento. Mientras tanto, tildarlos o no da
+                exactamente lo mismo.
               </p>
 
               <label className="mb-1 block text-xs text-muted">

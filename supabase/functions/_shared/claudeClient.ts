@@ -27,6 +27,19 @@ export type ClaudeTool = {
   input_schema: Record<string, unknown>;
 };
 
+// Tool de SERVIDOR (ej. búsqueda web) -- Anthropic la ejecuta de su lado,
+// no tiene input_schema propio porque no la llamamos nosotros con datos;
+// Claude la invoca sola cuando la necesita. Requiere que "Permitir
+// búsqueda web" esté habilitado en platform.claude.com -> Capabilities
+// (confirmado prendido para esta cuenta el 4/10/2026).
+export type ClaudeServerTool = {
+  type: string; // ej. "web_search_20250305"
+  name: string; // ej. "web_search"
+  max_uses?: number;
+  allowed_domains?: string[];
+  blocked_domains?: string[];
+};
+
 export type ClaudeToolUse = { name: string; input: unknown };
 
 export type AskClaudeResult = {
@@ -42,8 +55,8 @@ export async function askClaude(opts: {
   systemPrompt: string;
   messages: ClaudeMessage[];
   maxTokens?: number;
-  /** Tool-use opcional (extracción estructurada). Si se pasa un solo tool, se fuerza su uso con tool_choice. */
-  tools?: ClaudeTool[];
+  /** Tool-use opcional (extracción estructurada, y/o tools de servidor como web_search). Si se pasa un solo tool, se fuerza su uso con tool_choice. */
+  tools?: Array<ClaudeTool | ClaudeServerTool>;
   toolChoice?: { type: "auto" } | { type: "any" } | { type: "tool"; name: string };
 }): Promise<AskClaudeResult> {
   const settings = await getSettings(["CLAUDE_API_KEY", "CLAUDE_MODEL"]);

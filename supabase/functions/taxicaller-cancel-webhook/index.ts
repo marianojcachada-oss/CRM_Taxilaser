@@ -121,15 +121,25 @@ Deno.serve(async (req) => {
 
   const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
 
-  // Historial real, de acá en adelante — una fila por viaje. booked_by
-  // viene de lo que guardó taxicaller-assigned-webhook cuando se armó
-  // este viaje — null si ese webhook no llegó a mandarlo.
-  await supabase.from("ride_history").insert({
-    contact_id: contactId,
-    job_id: body.job_id ?? null,
-    event_type: "cancelled",
-    booked_by: existingContact?.active_ride_booked_by ?? null,
-  });
+  // La fila de este viaje en ride_history YA existe desde que
+  // taxicaller-assigned-webhook la despachó (upsert_ride_dispatch crea
+  // la fila con event_type="dispatched" apenas sale el móvil) — acá
+  // solo la ACTUALIZAMOS con el resultado final, por job_id. Antes esto
+  // era un INSERT plano, que chocaba siempre que la fila de despacho ya
+  // existía (prácticamente siempre, en el flujo normal) -- 4/10/2026,
+  // cambiado a upsert por el mismo motivo.
+  //
+  // booked_by viene de lo que guardó taxicaller-assigned-webhook cuando
+  // se armó este viaje — null si ese webhook no llegó a mandarlo.
+  await supabase.from("ride_history").upsert(
+    {
+      contact_id: contactId,
+      job_id: body.job_id ?? null,
+      event_type: "cancelled",
+      booked_by: existingContact?.active_ride_booked_by ?? null,
+    },
+    { onConflict: "job_id" },
+  );
 
   // Conversación de SMS/WhatsApp (se reabre si estaba cerrada), de forma
   // atómica — a prueba de dos llamadas simultáneas.

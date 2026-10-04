@@ -164,19 +164,19 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
     { completed: 0, cancelled: 0 },
   )
 
-  // Vista "Todos los operadores": matriz hora × operador, con la
-  // métrica que se haya elegido arriba. Un solo Map de lookup (no un
-  // .find() por celda) para que ande bien aunque haya 50+ operadores ×
-  // 24 horas en pantalla a la vez.
+  // Vista "Todos los operadores": matriz operador × hora (filas =
+  // operadores, columnas = horas), con la métrica que se haya elegido
+  // arriba. Un solo Map de lookup (no un .find() por celda) para que
+  // ande bien aunque haya 50+ operadores × 24 horas en pantalla a la vez.
   const rowByKey = new Map(operatorRows.map((r) => [`${r.operator_id}|${new Date(r.hour_bucket).toISOString()}`, r]))
 
-  const matrixHours = Array.from({ length: 24 }, (_, h) => {
-    const hourIso = atlantaHourToUtc(date, h).toISOString()
-    const values = operators.map((op) => metricValue(rowByKey.get(`${op.id}|${hourIso}`), metric))
-    return { hour: h, values, total: values.reduce((s, v) => s + v, 0) }
+  const hourIsos = Array.from({ length: 24 }, (_, h) => atlantaHourToUtc(date, h).toISOString())
+  const matrixOperators = operators.map((op) => {
+    const values = hourIsos.map((hourIso) => metricValue(rowByKey.get(`${op.id}|${hourIso}`), metric))
+    return { operator: op, values, total: values.reduce((s, v) => s + v, 0) }
   })
-  const columnTotals = operators.map((_, i) => matrixHours.reduce((s, row) => s + row.values[i], 0))
-  const grandTotal = columnTotals.reduce((s, v) => s + v, 0)
+  const hourTotals = hourIsos.map((_, h) => matrixOperators.reduce((s, row) => s + row.values[h], 0))
+  const grandTotal = hourTotals.reduce((s, v) => s + v, 0)
 
   // Vista de un operador puntual: desglose por las 24 horas del día.
   const selectedOperator = operators.find((o) => o.id === selectedOperatorId)
@@ -303,23 +303,26 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
             <table className="text-left text-xs">
               <thead className="bg-panel text-muted">
                 <tr>
-                  <th className="sticky left-0 z-10 bg-panel px-3 py-2 font-medium">Hora</th>
-                  {operators.map((op) => (
-                    <th key={op.id} title={op.full_name} className="px-3 py-2 text-right font-mono font-medium">
-                      {op.operator_code ?? op.full_name.slice(0, 4)}
+                  <th className="sticky left-0 z-10 bg-panel px-3 py-2 font-medium">Operador</th>
+                  {hourIsos.map((_, h) => (
+                    <th key={h} className="px-3 py-2 text-right font-mono font-medium">
+                      {String(h).padStart(2, '0')}:00
                     </th>
                   ))}
                   <th className="px-3 py-2 text-right font-medium text-mustard">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-panel-light">
-                {matrixHours.map((row) => (
-                  <tr key={row.hour} className="bg-asphalt">
-                    <td className="sticky left-0 z-10 bg-asphalt px-3 py-2 font-mono text-cream">
-                      {String(row.hour).padStart(2, '0')}:00
+                {matrixOperators.map((row) => (
+                  <tr key={row.operator.id} className="bg-asphalt">
+                    <td
+                      title={row.operator.full_name}
+                      className="sticky left-0 z-10 bg-asphalt px-3 py-2 font-mono text-cream"
+                    >
+                      {row.operator.operator_code ?? row.operator.full_name.slice(0, 4)}
                     </td>
-                    {row.values.map((v, i) => (
-                      <td key={operators[i].id} className="px-3 py-2 text-right font-mono text-cream">
+                    {row.values.map((v, h) => (
+                      <td key={h} className="px-3 py-2 text-right font-mono text-cream">
                         {v || <span className="text-muted/40">·</span>}
                       </td>
                     ))}
@@ -330,8 +333,8 @@ export default function MetricsPage({ operatorName, onSignOut, onBackToInbox }: 
               <tfoot className="border-t border-panel-light bg-panel">
                 <tr>
                   <td className="sticky left-0 z-10 bg-panel px-3 py-2 font-mono text-muted">Total</td>
-                  {columnTotals.map((t, i) => (
-                    <td key={operators[i].id} className="px-3 py-2 text-right font-mono text-muted">
+                  {hourTotals.map((t, h) => (
+                    <td key={h} className="px-3 py-2 text-right font-mono text-muted">
                       {t}
                     </td>
                   ))}

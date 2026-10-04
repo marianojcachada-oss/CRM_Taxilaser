@@ -44,7 +44,17 @@ function matchesFilter(c: Conversation, filter: FilterValue, operatorId: string 
     case 'pending':
       return !c.unread && pendingStatuses.includes(c.status)
     case 'mine':
-      return c.assignedOperatorId === operatorId
+      // OJO: tiene que ser EXACTAMENTE el mismo criterio que mineCount en
+      // Sidebar.tsx. Antes esto era solo "assignedOperatorId === operatorId",
+      // sin mirar el status — así que una conversación cerrada (con o sin
+      // mensajes nuevos) se quedaba para siempre en "Mías · round robin",
+      // grisada, hasta que un F5 volvía a traer la lista desde cero (la
+      // consulta base en App.tsx sí excluye 'cerrada' con .neq(), pero el
+      // estado local solo PATCHEA el status en el array en memoria, nunca
+      // saca la fila). El "|| c.unread" es a propósito: si vuelve a entrar
+      // un mensaje nuevo en una conversación ya cerrada (antes de que el
+      // backend la reabra), sigue mostrándose para que no se pierda.
+      return c.assignedOperatorId === operatorId && (c.unread || c.status !== 'cerrada')
     case 'unassigned':
       return c.assignedOperatorId === null && c.needsAssignment
     case 'snoozed':

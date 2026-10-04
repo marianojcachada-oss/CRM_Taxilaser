@@ -341,6 +341,21 @@ export default function ConversationsView({
     const withPlaca = withColor.replaceAll('{{placa}}', selected?.activeRidePlate || '(sin placa)')
     setDraft((prev) => (prev ? `${prev} ${withPlaca}` : withPlaca))
     setShowTemplates(false)
+    // Al elegir una plantilla el click queda en el panel de plantillas,
+    // no en el textarea — así, si el operador aprieta Enter de una,
+    // onKeyDown del textarea (que es donde vive el atajo de enviar) no
+    // lo recibe y no pasa nada hasta que vuelva a clickear el chat. Se
+    // devuelve el foco al textarea acá, después del próximo render (el
+    // panel de plantillas recién se termina de desmontar en ese
+    // momento), y el cursor se deja al final del texto para seguir
+    // escribiendo o mandar directo con Enter.
+    requestAnimationFrame(() => {
+      const el = draftInputRef.current
+      if (!el) return
+      el.focus()
+      const end = el.value.length
+      el.setSelectionRange(end, end)
+    })
   }
 
   useEffect(() => {

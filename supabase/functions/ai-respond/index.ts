@@ -2,22 +2,32 @@
 //
 // Etapa 1 de la IA configurable: el botón "Responder con IA" (visible
 // solo para el superadmin, desde ConversationsView.tsx) llama a esta
-// función. Genera una respuesta con la API de Claude, la manda de
-// verdad al cliente (por el canal que corresponda, reusando
-// sendAutomatedMessage — mismo mecanismo que los avisos automáticos de
-// TaxiCaller) y la deja guardada en el historial como mensaje
-// automático (automation_type: "ai_response").
+// función. Genera una respuesta y la manda de verdad al cliente (por el
+// canal que corresponda, reusando sendAutomatedMessage — mismo mecanismo
+// que los avisos automáticos de TaxiCaller) y la deja guardada en el
+// historial como mensaje automático (automation_type: "ai_response").
 //
-// Tres llaves en Integrations controlan esto:
+// Dos llaves en Integrations controlan esto:
 //  - AI_ENABLED: llave maestra. Si está en "false", esta función corta
 //    de entrada y no llama a Claude ni manda nada.
-//  - AI_SYSTEM_PROMPT: la personalidad y las reglas de la IA, en texto
-//    plano, editable desde el panel sin tocar código ni redesplegar
-//    nada. Si se deja vacío, se usa DEFAULT_SYSTEM_PROMPT de más abajo.
 //  - AI_AUTO_REPLY_ALL: todavía NO está conectada a nada acá — queda
 //    guardada en integration_settings lista para cuando se conecte el
 //    modo automático en los webhooks de entrada (Etapa 2). Prenderla
 //    hoy no tiene ningún efecto.
+//
+// AGREGADO (port del Rule Engine, 03/10/2026): una tercera llave,
+// AI_RULE_ENGINE_ENABLED, elige el pipeline:
+//  - "false" (default): el comportamiento ORIGINAL de Etapa 1 -- un
+//    único llamado a Claude con el SYSTEM_PROMPT de texto libre de abajo.
+//  - "true": el pipeline nuevo -- Claude SOLO extrae intents/entidades
+//    (tool-use estructurado), el Rule Engine decide qué regla de negocio
+//    aplica (de las 16 convertidas desde AI_SYSTEM_PROMPT v4), y la
+//    respuesta sale de esa regla. Las acciones reales (tomar un pedido,
+//    etc.) se ejecutan a través de providers reales (ver
+//    _shared/rule-engine-adapters/), nunca inventadas por Claude.
+// Las dos conviven a propósito: mientras AI_RULE_ENGINE_ENABLED siga en
+// "false" en producción, este archivo se comporta exactamente igual que
+// antes del port -- recién se prende cuando se haya probado a mano.
 //
 // Solo el superadmin puede llamar a esta función — se verifica ACÁ
 // ADENTRO, no alcanza con que el botón esté escondido en el frontend,
@@ -27,6 +37,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";
 import { askClaude, type ClaudeMessage } from "../_shared/claudeClient.ts";
 import { sendAutomatedMessage } from "../_shared/automatedMessage.ts";
+import { resolvePickupAddress } from "../_shared/addressResolver.ts";
+
+import { AIAgent } from "../_shared/rule-engine/agent/AIAgent.ts";
+import { StaticRuleRepository } from "../_shared/rule-engine-adapters/staticRuleRepository.ts";
+import { ClaudeIntentDetector } from "../_shared/rule-engine-adapters/claudeIntentDetector.ts";
+import { SupabaseConversationStateStore } from "../_shared/rule-engine-adapters/supabaseConversationStateStore.ts";
+import { TaxiLaserReservationProvider } from "../_shared/rule-engine-adapters/taxiLaserReservationProvider.ts";
+import { TaxiLaserMessagingProvider } from "../_shared/rule-engine-adapters/taxiLaserMessagingProvider.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -40,10 +58,16 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-// Red de seguridad, no lo que vos editás día a día: si AI_SYSTEM_PROMPT
-// queda vacío en Integrations (por ejemplo, recién instalado esto), la
-// IA igual arranca con reglas conservadoras en vez de quedar sin ninguna.
-// Lo normal es ir ajustando el texto desde el panel, no este archivo.
+// Etapa 1 a propósito es conservadora: la IA todavía no cotiza ni crea
+// viajes (falta la API de mapas y la documentación de "Place Order" de
+// TaxiCaller — ver ia-configurable-clientes.md) y JAMÁS cancela un
+// viaje ella sola. Todo lo que requiere acción real se deriva a un
+// operador humano.
+//
+// Usado SOLO cuando AI_RULE_ENGINE_ENABLED = "false" (pipeline original),
+// y SOLO como red de seguridad si AI_SYSTEM_PROMPT está vacío en
+// Integrations. El texto real que se usa día a día es el que vos cargás
+// en el panel — este es el fallback si ese campo queda en blanco.
 const DEFAULT_SYSTEM_PROMPT = `Sos el asistente de atención al cliente de Taxi Laser, una empresa de taxis en Atlanta. Respondés por WhatsApp a nombre de la empresa.
 
 Reglas que NUNCA podés romper:
@@ -84,11 +108,11 @@ Deno.serve(async (req) => {
   // la IA está prendida, y la conversación con su contacto.
   const [userResult, settings, conversationResult] = await Promise.all([
     callerClient.auth.getUser(),
-    getSettings(["AI_ENABLED", "CLAUDE_MODEL", "AI_SYSTEM_PROMPT"]),
+    getSettings(["AI_ENABLED", "CLAUDE_MODEL", "AI_RULE_ENGINE_ENABLED", "AI_SYSTEM_PROMPT"]),
     serviceClient
       .from("conversations")
       .select(
-        "id, contact_id, contacts(phone, blocked, do_not_contact, has_active_ride, active_ride_unit, active_ride_color, active_ride_plate, active_ride_eta_minutes, active_ride_status)",
+        "id, contact_id, contacts(id, phone, blocked, do_not_contact, has_active_ride, active_ride_unit, active_ride_color, active_ride_plate, active_ride_eta_minutes, active_ride_status)",
       )
       .eq("id", conversationId)
       .single(),
@@ -155,12 +179,30 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "No hay un mensaje del cliente reciente para responder." }, 400);
   }
 
-  // Datos reales del viaje activo — SIEMPRE se le manda a Claude un
-  // bloque explícito, positivo o negativo. Antes, cuando el cliente no
-  // tenía viaje activo, este texto quedaba vacío y el modelo terminaba
-  // inventando unidad/ETA porque el propio prompt le mostraba el
-  // formato esperado sin datos reales para completarlo. Dejar el campo
-  // vacío nunca es una opción acá.
+  if (settings.AI_RULE_ENGINE_ENABLED === "true") {
+    return await respondWithRuleEngine({ conversationId, conversation, contact, claudeMessages, operator, settings });
+  }
+
+  return await respondWithLegacyPrompt({ conversationId, contact, claudeMessages, operator, settings });
+});
+
+// --- Pipeline ORIGINAL (AI_RULE_ENGINE_ENABLED = "false") --------------
+// Sin cambios de comportamiento respecto a la version anterior de este
+// archivo -- es el camino "seguro" mientras se prueba el Rule Engine.
+
+async function respondWithLegacyPrompt(args: {
+  conversationId: string;
+  contact: any;
+  claudeMessages: ClaudeMessage[];
+  operator: { id: string };
+  settings: Record<string, string | null>;
+}) {
+  const { conversationId, contact, claudeMessages, operator, settings } = args;
+
+  // SIEMPRE se manda un bloque explícito, positivo o negativo. Antes,
+  // cuando el cliente no tenía viaje activo, contextNote quedaba vacío y
+  // el modelo terminaba inventando unidad/ETA porque el propio prompt le
+  // mostraba el formato esperado sin datos reales para completarlo.
   let contextNote: string;
   if (contact.has_active_ride) {
     contextNote =
@@ -173,6 +215,22 @@ Deno.serve(async (req) => {
       `\n\nEstado del viaje de este cliente: NO tiene ningún viaje activo registrado en este momento. ` +
       `No hay unidad, color, patente ni ETA real para dar — no inventes ninguno de esos datos. ` +
       `Si pregunta por su taxi, decile que todavía no tiene un viaje asignado y que un operador se va a comunicar.`;
+  }
+
+  // Intenta resolver a una dirección real el lugar que haya mencionado el
+  // cliente como pickup (ej. "el walmart de la jimmy carter"), vía
+  // búsqueda web real — nunca el conocimiento propio del modelo. Si no
+  // hay nada confiable, resolvePickupAddress() devuelve null y acá no se
+  // agrega nada (el flujo sigue preguntando la ciudad como hasta ahora).
+  const lastCustomerMessage = claudeMessages[claudeMessages.length - 1]?.content ?? "";
+  const addressMatch = lastCustomerMessage ? await resolvePickupAddress(lastCustomerMessage) : null;
+  if (addressMatch) {
+    contextNote +=
+      `\n\nLugar de referencia que mencionó el cliente — resultado de una búsqueda real (no inventado): ` +
+      `"${addressMatch.placeName ?? "el lugar mencionado"}" sería ${addressMatch.formattedAddress}` +
+      `${addressMatch.city ? ` (${addressMatch.city})` : ""}. ` +
+      `NO lo des por confirmado en silencio — repetiselo al cliente para que lo confirme o corrija antes de anotarlo ` +
+      `como el punto de recogida definitivo (ej: "¿Es el Walmart de la 4975 Jimmy Carter Boulevard, Norcross?").`;
   }
 
   const basePrompt = settings.AI_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
@@ -201,7 +259,7 @@ Deno.serve(async (req) => {
   }
 
   const { sentVia, errors, wamid, rcMessageId } = await sendAutomatedMessage({
-    contactId: conversation.contact_id,
+    contactId: contact.id,
     phone: contact.phone,
     text: result.text,
   });
@@ -220,8 +278,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "No se pudo mandar el mensaje: " + JSON.stringify(errors) }, 502);
   }
 
-  // Registrar el mensaje que se mandó, para que quede visible en el
-  // hilo — mismo patrón que cualquier otro aviso automático.
   await serviceClient.from("messages").insert({
     conversation_id: conversationId,
     sender_type: "operator",
@@ -244,4 +300,66 @@ Deno.serve(async (req) => {
   });
 
   return jsonResponse({ text: result.text, sentVia });
-});
+}
+
+// --- Pipeline NUEVO (AI_RULE_ENGINE_ENABLED = "true") -------------------
+// Claude solo extrae intents/entidades (ClaudeIntentDetector). El Rule
+// Engine (16 reglas portadas de AI_SYSTEM_PROMPT v4) decide que regla de
+// negocio aplica y arma la respuesta -- nunca Claude por su cuenta.
+
+async function respondWithRuleEngine(args: {
+  conversationId: string;
+  conversation: any;
+  contact: any;
+  claudeMessages: ClaudeMessage[];
+  operator: { id: string };
+  settings: Record<string, string | null>;
+}) {
+  const { conversationId, contact, claudeMessages, operator } = args;
+
+  const customerMessage = claudeMessages[claudeMessages.length - 1].content;
+  const historyForDetector = claudeMessages.slice(0, -1);
+
+  const ruleRepository = new StaticRuleRepository();
+  const intentDetector = new ClaudeIntentDetector(historyForDetector);
+  const stateStore = new SupabaseConversationStateStore(serviceClient);
+  const reservationProvider = new TaxiLaserReservationProvider(serviceClient, contact);
+  const messagingProvider = new TaxiLaserMessagingProvider(serviceClient, contact);
+
+  const agent = new AIAgent(ruleRepository, intentDetector, stateStore, reservationProvider, messagingProvider);
+
+  let result;
+  try {
+    result = await agent.processMessage(conversationId, customerMessage);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await serviceClient.from("ai_usage_log").insert({
+      conversation_id: conversationId,
+      triggered_by_operator_id: operator.id,
+      mode: "manual",
+      model: "rule-engine",
+      success: false,
+      error_message: message,
+    });
+    return jsonResponse({ error: message }, 502);
+  }
+
+  await serviceClient.from("ai_usage_log").insert({
+    conversation_id: conversationId,
+    triggered_by_operator_id: operator.id,
+    mode: "manual",
+    model: "rule-engine",
+    success: true,
+    selected_rule_id: result.selectedRule?.id ?? null,
+    matched_rule_ids: result.matchedRules.map((m) => m.id),
+    conflicts: result.conflicts,
+    detected_intents: result.detectedIntents.map((d) => d.intent),
+  });
+
+  return jsonResponse({
+    text: result.finalResponse,
+    sentVia: messagingProvider.lastSend?.sentVia ?? [],
+    selectedRule: result.selectedRule?.id ?? null,
+    escalation: result.escalation,
+  });
+}

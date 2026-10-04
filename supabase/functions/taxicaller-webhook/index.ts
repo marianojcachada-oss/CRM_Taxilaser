@@ -257,6 +257,50 @@ Deno.serve(async (req) => {
     await supabase.from("contacts").update({ full_name: passengerName }).eq("id", contactId);
   }
 
+  // Si NO salió nada por ningún canal (canal apagado desde Integrations,
+  // contacto con STOP o bloqueado, o error de envío), no se guarda ningún
+  // mensaje: antes se grababa igual como "enviado por SMS", o sea un
+  // mensaje fantasma en la bandeja que nunca salió -- y de paso cada aviso
+  // reabría la conversación (find_or_create...), el round robin se la
+  // asignaba a alguien (gastándole el turno) y recién después se cerraba,
+  // con todos los eventos de Realtime que eso genera.
+  //
+  // Acá solo se cierra la conversación de SMS/WhatsApp que YA esté abierta
+  // (si hay una) -- no se crea ni se reabre ninguna.
+  if (sentVia.length === 0) {
+    const { data: openConv } = await supabase
+      .from("conversations")
+      .select("id, assigned_operator_id")
+      .eq("contact_id", contactId)
+      .in("channel", ["sms", "whatsapp"])
+      .neq("status", "cerrada")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (openConv?.id) {
+      await supabase
+        .from("conversations")
+        .update({
+          status: "cerrada",
+          unread: false,
+          assigned_operator_id: null,
+          needs_assignment: false,
+          preferred_operator_id: openConv.assigned_operator_id ?? null,
+        })
+        .eq("id", openConv.id);
+    }
+
+    await supabase.from("contact_timeline").insert({
+      contact_id: contactId,
+      conversation_id: openConv?.id ?? null,
+      event_type: "driver_arrived",
+      description: `Chofer llegó — notificación automática NO enviada (job ${body.job_id ?? "?"})`,
+    });
+
+    return new Response("OK (sin envío: ningún canal disponible)", { status: 200 });
+  }
+
   // Conversación de SMS/WhatsApp más reciente con este contacto (se
   // reabre si estaba cerrada), de forma atómica — a prueba de dos
   // llamadas simultáneas.

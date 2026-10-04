@@ -10,8 +10,17 @@
 //   "job_id": "[job.id]",
 //   "passenger_phone": "[job.client.phone]",
 //   "vehicle_make": "[vehicle.tags.make]",
-//   "fare_total": "[fx.amount(pay_shares.fare.grand_total)]"
+//   "fare_total": "[fx.amount(pay_shares.fare.grand_total)]",
+//   "booked_by": "[job.extra.tags.booked_by]"
 // }
+//
+// "booked_by" es nuevo (4/10/2026): antes esta función solo leía el
+// booked_by que había quedado guardado en el contacto desde el despacho
+// (contacts.active_ride_booked_by) — frágil, porque si ese webhook de
+// despacho se pierde o llega fuera de orden, acá queda null y el
+// servicio completado no se puede atribuir a ningún operador en
+// Métricas. Ahora, si TaxiCaller manda booked_by directo en ESTE
+// evento, se usa ese; el dato del contacto queda solo como respaldo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSettings } from "../_shared/settings.ts";
@@ -68,6 +77,7 @@ Deno.serve(async (req) => {
   const make = body.vehicle_make || "";
   const fareTotal = body.fare_total || "";
   const passengerName = body.passenger_name || null;
+  const bookedByFromBody = body.booked_by || null;
 
   const text =
     `Su servicio${make ? ` con la unidad ${make}` : ""} fue finalizado` +
@@ -129,6 +139,11 @@ Deno.serve(async (req) => {
   // Si por algún motivo la fila no existía (plantilla vieja en
   // TaxiCaller sin el evento "en camino", o ese webhook nunca llegó), el
   // upsert la crea recién acá, igual que antes.
+  //
+  // booked_by: prioridad al que manda ESTE evento (bookedByFromBody); si
+  // no vino, se cae al que había quedado cacheado en el contacto desde
+  // el despacho — así un dispatch perdido ya no deja el servicio sin
+  // atribuir, siempre que TaxiCaller mande el tag en ambos eventos.
   await supabase.from("ride_history").upsert(
     {
       contact_id: contactId,
@@ -136,10 +151,54 @@ Deno.serve(async (req) => {
       event_type: "completed",
       vehicle_unit: make || null,
       fare: fareTotal || null,
-      booked_by: existingContact?.active_ride_booked_by ?? null,
+      booked_by: bookedByFromBody ?? existingContact?.active_ride_booked_by ?? null,
     },
     { onConflict: "job_id" },
   );
+
+  // Si NO salió nada por ningún canal (canal apagado desde Integrations,
+  // contacto con STOP o bloqueado, o error de envío), no se guarda ningún
+  // mensaje: antes se grababa igual como "enviado por SMS", o sea un
+  // mensaje fantasma en la bandeja que nunca salió -- y de paso cada aviso
+  // reabría la conversación (find_or_create...), el round robin se la
+  // asignaba a alguien (gastándole el turno) y recién después se cerraba,
+  // con todos los eventos de Realtime que eso genera.
+  //
+  // Acá solo se cierra la conversación de SMS/WhatsApp que YA esté abierta
+  // (si hay una) -- no se crea ni se reabre ninguna.
+  if (sentVia.length === 0) {
+    const { data: openConv } = await supabase
+      .from("conversations")
+      .select("id, assigned_operator_id")
+      .eq("contact_id", contactId)
+      .in("channel", ["sms", "whatsapp"])
+      .neq("status", "cerrada")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (openConv?.id) {
+      await supabase
+        .from("conversations")
+        .update({
+          status: "cerrada",
+          unread: false,
+          assigned_operator_id: null,
+          needs_assignment: false,
+          preferred_operator_id: openConv.assigned_operator_id ?? null,
+        })
+        .eq("id", openConv.id);
+    }
+
+    await supabase.from("contact_timeline").insert({
+      contact_id: contactId,
+      conversation_id: openConv?.id ?? null,
+      event_type: "ride_completed",
+      description: `Servicio finalizado${fareTotal ? ` — $${fareTotal}` : ""} — notificación automática NO enviada (job ${body.job_id ?? "?"})`,
+    });
+
+    return new Response("OK (sin envío: ningún canal disponible)", { status: 200 });
+  }
 
   // Conversación de SMS/WhatsApp (se reabre si estaba cerrada), de forma
   // atómica — a prueba de dos llamadas simultáneas.

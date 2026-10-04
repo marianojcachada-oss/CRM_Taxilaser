@@ -7,8 +7,8 @@
 //   2. Respeta un cooldown de 30 minutos por número + canal, para no
 //      mandar el mensaje de nuevo si la misma persona llama varias
 //      veces seguidas.
-//   3. Busca un operador disponible (presence = 'available', el de
-//      menor carga activa) y le asigna la conversación directamente —
+//   3. Busca un operador disponible (presence = 'available', el que
+//      lleva más tiempo sin recibir una) y le asigna la conversación directamente —
 //      no espera a que el round robin normal la reparta.
 //   4. Manda el mensaje preseteado con {{codigo}} reemplazado por el
 //      código de ese operador, y deja la conversación pineada con él
@@ -48,15 +48,12 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
   if (cooldownError) throw cooldownError;
   if (!canSend) return; // ya se le mandó uno hace menos de 30 min, no se repite
 
-  // Operador disponible con menos carga activa ahora mismo.
-  const { data: operator } = await supabase
-    .from("operators")
-    .select("id, operator_code, full_name, current_load")
-    .eq("presence", "available")
-    .eq("is_active", true)
-    .order("current_load", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  // Operador al que le toca el turno (1x1x1, el que hace más tiempo que no
+  // recibe una). La RPC elige y marca su turno en un solo paso atómico, así
+  // este reparto también cuenta para el round robin normal.
+  const { data: picked, error: pickError } = await supabase.rpc("pick_next_available_operator");
+  if (pickError) throw pickError;
+  const operator = Array.isArray(picked) ? picked[0] : picked;
 
   if (!operator) {
     console.warn(`Llamada perdida de ${phone} (${source}): no hay ningún operador disponible ahora mismo.`);
@@ -119,14 +116,6 @@ export async function handleMissedCallAutoReply(rawPhone: string, source: "whats
       keep_with_operator: true,
     })
     .eq("id", conversationId);
-
-  // El round robin normal descuenta/suma carga en sus propios triggers al
-  // asignar por su cuenta — acá estamos asignando "a mano" y de una, así
-  // que sumamos la carga nosotros mismos para que quede contabilizada.
-  await supabase
-    .from("operators")
-    .update({ current_load: (operator.current_load ?? 0) + 1 })
-    .eq("id", operator.id);
 
   let wamid: string | null = null;
   let rcMessageId: string | null = null;

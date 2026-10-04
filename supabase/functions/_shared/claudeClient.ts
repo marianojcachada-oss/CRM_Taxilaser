@@ -5,6 +5,12 @@
 // La API key y el modelo se leen de integration_settings (panel de
 // Integrations), igual que todas las demás credenciales de este
 // proyecto — nunca hardcodeados acá.
+//
+// AGREGADO (port del Rule Engine): soporte opcional de tool-use, para que
+// el Rule Engine pueda pedirle a Claude una extracción ESTRUCTURADA de
+// intents/entidades (JSON validado por schema) en vez de parsear texto
+// libre. 100% retrocompatible -- askClaude() sin `tools` se comporta
+// exactamente igual que antes.
 
 import { getSettings } from "./settings.ts";
 
@@ -15,8 +21,18 @@ const DEFAULT_MAX_TOKENS = 1024;
 
 export type ClaudeMessage = { role: "user" | "assistant"; content: string };
 
+export type ClaudeTool = {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+};
+
+export type ClaudeToolUse = { name: string; input: unknown };
+
 export type AskClaudeResult = {
   text: string;
+  /** Bloques tool_use que devolvió Claude, en orden. Vacío si no se pidieron `tools`. */
+  toolUse: ClaudeToolUse[];
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -26,6 +42,9 @@ export async function askClaude(opts: {
   systemPrompt: string;
   messages: ClaudeMessage[];
   maxTokens?: number;
+  /** Tool-use opcional (extracción estructurada). Si se pasa un solo tool, se fuerza su uso con tool_choice. */
+  tools?: ClaudeTool[];
+  toolChoice?: { type: "auto" } | { type: "any" } | { type: "tool"; name: string };
 }): Promise<AskClaudeResult> {
   const settings = await getSettings(["CLAUDE_API_KEY", "CLAUDE_MODEL"]);
 
@@ -35,6 +54,17 @@ export async function askClaude(opts: {
 
   const model = settings.CLAUDE_MODEL || DEFAULT_MODEL;
 
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    system: opts.systemPrompt,
+    messages: opts.messages,
+  };
+  if (opts.tools && opts.tools.length > 0) {
+    body.tools = opts.tools;
+    body.tool_choice = opts.toolChoice ?? (opts.tools.length === 1 ? { type: "tool", name: opts.tools[0].name } : { type: "auto" });
+  }
+
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
     headers: {
@@ -42,12 +72,7 @@ export async function askClaude(opts: {
       "x-api-key": settings.CLAUDE_API_KEY,
       "anthropic-version": ANTHROPIC_VERSION,
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-      system: opts.systemPrompt,
-      messages: opts.messages,
-    }),
+    body: JSON.stringify(body),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -60,16 +85,23 @@ export async function askClaude(opts: {
     throw new Error(`La API de Claude devolvió un error: ${detail}`);
   }
 
+  const blocks: Array<{ type: string; text?: string; name?: string; input?: unknown }> = data?.content ?? [];
+
   // El contenido viene como una lista de bloques (normalmente uno solo,
   // de tipo "text") — los unimos por si alguna vez vienen varios.
-  const text = (data?.content ?? [])
-    .filter((block: { type: string }) => block.type === "text")
-    .map((block: { text: string }) => block.text)
+  const text = blocks
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
     .join("\n")
     .trim();
 
+  const toolUse: ClaudeToolUse[] = blocks
+    .filter((block) => block.type === "tool_use")
+    .map((block) => ({ name: block.name ?? "", input: block.input }));
+
   return {
     text,
+    toolUse,
     model,
     inputTokens: data?.usage?.input_tokens ?? 0,
     outputTokens: data?.usage?.output_tokens ?? 0,

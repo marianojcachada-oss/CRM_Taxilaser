@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Send, X, EyeOff, CheckCircle2, RotateCcw, Trash2, Clock, Check, CheckCheck, Pin, ArrowLeft, Info,
+  Send, X, CheckCircle2, RotateCcw, Check, CheckCheck, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
   Search, ChevronDown, Sparkles,
 } from 'lucide-react'
@@ -47,6 +47,23 @@ export const channelAvatarColor: Record<Channel, string> = {
   facebook: '#1877F2',
   instagram: '#E1306C',
   sms: '#6B6459',
+}
+
+// Iniciales para el avatar de la lista: primera letra del primer nombre y,
+// si el segundo "nombre" empieza con una letra, también esa. Si el nombre es
+// un teléfono o no tiene letras, "#".
+export function nameInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const letter = (w?: string) => (w && /^\p{L}/u.test(w) ? w[0].toUpperCase() : '')
+  const out = letter(words[0]) + letter(words[1])
+  return out || '#'
+}
+
+const channelShort: Record<Channel, string> = {
+  sms: 'SMS',
+  whatsapp: 'WA',
+  facebook: 'FB',
+  instagram: 'IG',
 }
 
 export function ChannelIcon({ channel, size = 14, color }: { channel: Channel; size?: number; color?: string }) {
@@ -1128,10 +1145,10 @@ export default function ConversationsView({
                 </span>
               )}
               <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-                style={{ backgroundColor: channelAvatarColor[c.channel] }}
+                aria-hidden="true"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel-light text-sm font-semibold text-cream"
               >
-                <ChannelIcon channel={c.channel} size={16} color="white" />
+                {nameInitials(c.name)}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
@@ -1140,10 +1157,10 @@ export default function ConversationsView({
                     title={statusConfig[c.status].label}
                   >
                     <span className="text-xs">{statusConfig[c.status].emoji}</span>
-                    <span className="truncate">{c.name}</span>
-                    {c.unread && (
-                      <span className="shrink-0 rounded-full bg-mustard px-1.5 py-0.5 text-[9px] font-bold uppercase text-asphalt">
-                        Nuevo
+                    <span className="min-w-0 truncate">{c.name}</span>
+                    {c.hasActiveRide && c.activeRideUnit && (
+                      <span title={`Unidad asignada: ${c.activeRideUnit}`} className="inline-flex shrink-0 items-center rounded-md border border-mustard/50 bg-mustard/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-mustard">
+                        {c.activeRideUnit.trim().split(/\s+/)[0]}
                       </span>
                     )}
                     {c.vip && <span title="Cliente VIP">⭐</span>}
@@ -1154,7 +1171,20 @@ export default function ConversationsView({
                   <span className={`truncate text-sm ${c.unread ? 'text-cream' : 'text-muted'}`}>
                     <EmojiText text={c.lastMessage} />
                   </span>
-                  {c.unread && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-mustard" />}
+                  <span
+                    title={channelLabel[c.channel]}
+                    className={`ml-auto shrink-0 rounded-sm border px-1 font-mono text-[10px] font-semibold leading-4 ${
+                      c.channel === 'sms' ? 'border-muted/50 text-cream' : ''
+                    }`}
+                    style={
+                      c.channel === 'sms'
+                        ? undefined
+                        : { color: channelAvatarColor[c.channel], borderColor: channelAvatarColor[c.channel] + '66' }
+                    }
+                  >
+                    {channelShort[c.channel]}
+                  </span>
+                  {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-mustard" aria-label="Sin leer" />}
                 </div>
               </div>
             </button>
@@ -1166,7 +1196,7 @@ export default function ConversationsView({
       <main className={`flex-1 flex-col ${selectedId ? 'flex' : 'hidden md:flex'}`}>
         {selected ? (
           <>
-            <div className="flex items-center justify-between border-b border-panel-light bg-panel px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-panel-light bg-panel px-4 py-2.5">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -1199,6 +1229,7 @@ export default function ConversationsView({
                   </button>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <button
                   type="button"
@@ -1265,9 +1296,6 @@ export default function ConversationsView({
                   </div>
                 )}
               </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 border-b border-panel-light bg-panel px-4 py-2">
               <div className="relative flex items-center gap-2">
                 <button
                   onClick={() => setShowContactPanel(true)}
@@ -1275,14 +1303,6 @@ export default function ConversationsView({
                   title="Ver datos del contacto"
                 >
                   <Info size={13} />
-                </button>
-                <button
-                  onClick={markAsRead}
-                  disabled={!selected.unread}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-panel-light text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-40"
-                  title="Marcar como visto"
-                >
-                  <EyeOff size={13} />
                 </button>
                 <button
                   onClick={toggleClosed}
@@ -1304,10 +1324,12 @@ export default function ConversationsView({
                 </button>
                 <button
                   onClick={toggleKeepWithOperator}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                  aria-pressed={!!selected.keepWithOperator}
+                  aria-label={selected.keepWithOperator ? 'Soltar conversación' : 'Mantener conmigo'}
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm leading-none transition-colors ${
                     selected.keepWithOperator
-                      ? 'border-mustard bg-mustard/10 text-mustard'
-                      : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                      ? 'border-mustard bg-mustard/10'
+                      : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
                   }`}
                   title={
                     selected.keepWithOperator
@@ -1315,15 +1337,17 @@ export default function ConversationsView({
                       : 'Mantener conmigo al cambiar de turno'
                   }
                 >
-                  <Pin size={13} />
+                  <span aria-hidden="true">📌</span>
                 </button>
                 {isAdmin && (
                   <button
                     onClick={() => setShowSnoozeMenu((v) => !v)}
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                    aria-expanded={showSnoozeMenu}
+                    aria-label={selected.snoozedUntil ? 'Cambiar posposición' : 'Posponer conversación'}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm leading-none transition-colors ${
                       selected.snoozedUntil
-                        ? 'border-mustard bg-mustard/10 text-mustard'
-                        : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                        ? 'border-mustard bg-mustard/10'
+                        : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
                     }`}
                     title={
                       selected.snoozedUntil
@@ -1331,16 +1355,26 @@ export default function ConversationsView({
                         : 'Posponer conversación'
                     }
                   >
-                    <Clock size={13} />
+                    <span aria-hidden="true">⏰</span>
                   </button>
                 )}
+                <button
+                  onClick={markAsRead}
+                  disabled={!selected.unread}
+                  aria-label="Marcar como visto"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-panel-light text-sm leading-none transition-colors hover:border-mustard disabled:opacity-40"
+                  title="Marcar como visto"
+                >
+                  <span aria-hidden="true">👁️</span>
+                </button>
                 {isAdmin && (
                   <button
                     onClick={handleDelete}
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-alert/40 text-alert transition-colors hover:bg-alert/10"
+                    aria-label="Borrar conversación (irreversible)"
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-alert/40 text-sm leading-none transition-colors hover:bg-alert/10"
                     title="Borrar conversación (irreversible)"
                   >
-                    <Trash2 size={13} />
+                    <span aria-hidden="true">🗑️</span>
                   </button>
                 )}
 
@@ -1396,6 +1430,7 @@ export default function ConversationsView({
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
             {/* El patrón de fondo va en un wrapper INTERNO (alto natural,
@@ -1425,21 +1460,24 @@ export default function ConversationsView({
                       </div>
                     )}
                     <div className={`mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`flex min-w-0 max-w-md flex-col ${m.from === 'operator' ? 'items-end' : 'items-start'}`}>
+                      {m.from === 'operator' && m.senderOperatorId && (
+                        <p className="mb-0.5 px-1 text-[11px] font-semibold text-muted">
+                          {operators.find((o) => o.id === m.senderOperatorId)?.full_name ?? 'Operador'}
+                        </p>
+                      )}
                       <div
-                        className={`max-w-md break-words px-3 py-2 text-sm ${
-                          m.from === 'operator'
-                            ? 'rounded-2xl bg-mustard text-asphalt'
-                            : 'rounded-2xl bg-panel-light text-cream'
+                        className={`max-w-full break-words px-3 py-2 text-sm ${
+                          m.from === 'operator' && !m.senderOperatorId && m.status !== 'sending'
+                            ? 'rounded-xl border border-dashed border-muted/50 bg-asphalt text-cream'
+                            : m.from === 'operator'
+                              ? 'rounded-2xl border border-mustard/40 bg-[color-mix(in_srgb,var(--color-mustard)_18%,var(--color-asphalt))] text-cream'
+                              : 'rounded-2xl bg-panel-light text-cream'
                         } ${m.status === 'sending' ? 'opacity-70' : ''} ${m.status === 'failed' ? 'border border-alert' : ''}`}
                       >
-                        {m.from === 'operator' && m.senderOperatorId && (
-                          <p className="mb-0.5 text-[10px] font-semibold opacity-70">
-                            {operators.find((o) => o.id === m.senderOperatorId)?.full_name ?? 'Operador'}
-                          </p>
-                        )}
                     {m.from === 'operator' && !m.senderOperatorId && m.status !== 'sending' && (
-                      <p className="mb-0.5 text-[10px] font-semibold italic opacity-70">
-                        🤖 Mensaje enviado automáticamente
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                        🤖 Mensaje automático
                       </p>
                     )}
                     {m.text && <p className="break-words">{<Linkify text={m.text} />}</p>}
@@ -1520,6 +1558,7 @@ export default function ConversationsView({
                       )}
                     </div>
                   </div>
+                      </div>
                   {/* Antes esto solo se mostraba en los mensajes del operador — pero
                       como SMS y WhatsApp comparten una misma conversación, un cliente
                       puede escribir por SMS un rato y después por WhatsApp sin que se

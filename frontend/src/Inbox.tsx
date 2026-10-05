@@ -529,6 +529,7 @@ export default function Inbox({
 
           <button
             onClick={() => setShowStartConversation(true)}
+            aria-label="Nuevo SMS"
             className="flex items-center gap-1.5 rounded-full bg-mustard px-3.5 py-2 text-xs font-semibold text-asphalt transition-opacity hover:opacity-90"
             title="Iniciar conversación nueva por SMS"
           >
@@ -550,35 +551,38 @@ export default function Inbox({
           >
             <button
               onClick={() => onSetPresence('available')}
+              aria-pressed={operatorPresence === 'available'}
               title="Recibir mensajes nuevos por round robin"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
-                operatorPresence === 'available' ? 'bg-available/15 text-available' : 'text-muted hover:text-cream'
+                operatorPresence === 'available' ? 'bg-available/25 font-semibold text-available' : 'text-muted hover:text-cream'
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${operatorPresence === 'available' ? 'bg-available' : 'bg-muted'}`} />
-              Disponible
+              <span className={`h-2 w-2 rounded-full ${operatorPresence === 'available' ? 'bg-available' : 'bg-muted'}`} />
+              Disponible{operatorPresence === 'available' && <span aria-hidden="true"> ✓</span>}
             </button>
             <button
               onClick={() => onSetPresence('offline')}
+              aria-pressed={operatorPresence === 'offline' || operatorPresence === 'busy'}
               title="No recibir mensajes nuevos"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
                 operatorPresence === 'offline' || operatorPresence === 'busy'
-                  ? 'bg-panel-light text-cream'
+                  ? 'bg-panel-light font-semibold text-cream'
                   : 'text-muted hover:text-cream'
               }`}
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-              No disponible
+              <span className="h-2 w-2 rounded-full bg-muted" />
+              No disponible{(operatorPresence === 'offline' || operatorPresence === 'busy') && <span aria-hidden="true"> ✓</span>}
             </button>
             <button
               onClick={() => onSetPresence('apoyo')}
+              aria-pressed={operatorPresence === 'apoyo'}
               title="Ayudar con conversaciones de otros operadores sin que te asignen las tuyas"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
-                operatorPresence === 'apoyo' ? 'bg-mustard/15 text-mustard' : 'text-muted hover:text-cream'
+                operatorPresence === 'apoyo' ? 'bg-mustard/25 font-semibold text-mustard' : 'text-muted hover:text-cream'
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${operatorPresence === 'apoyo' ? 'bg-mustard' : 'bg-muted'}`} />
-              Apoyo
+              <span className={`h-2 w-2 rounded-full ${operatorPresence === 'apoyo' ? 'bg-mustard' : 'bg-muted'}`} />
+              Apoyo{operatorPresence === 'apoyo' && <span aria-hidden="true"> ✓</span>}
             </button>
           </div>
 
@@ -591,7 +595,11 @@ export default function Inbox({
             </button>
           )}
 
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-panel-light">
+          <div
+            className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-panel-light"
+            role="img"
+            aria-label={`${unreadTotal} sin leer`}
+          >
             <Bell size={16} />
             {unreadTotal > 0 && (
               <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-mustard text-[9px] font-bold text-asphalt">

@@ -211,7 +211,7 @@ export default function Sidebar({
         />
         <NavButton
           icon={<UserCheck size={17} />}
-          label="Mías · round robin"
+          label="Mías"
           count={mineCount}
           active={view === 'inbox' && filter.kind === 'mine'}
           onClick={() => onSelectFilter({ kind: 'mine' })}
@@ -292,11 +292,9 @@ export default function Sidebar({
         <ChevronsLeft size={14} /> Contraer
       </button>
       <div>
-        <GroupHeader label="Bandejas" />
+        <GroupHeader label="Mi trabajo" />
 
-        {/* Selector de dos posiciones: reemplaza al viejo botón único
-            "Todos los mensajes" — mismo filtro de siempre (new/all), solo
-            presentado como slider. */}
+        {/* Selector de dos posiciones (new/all). */}
         <div className="mb-2 flex rounded-md bg-asphalt p-0.5">
           <button
             onClick={() => onSelectFilter({ kind: 'new' })}
@@ -318,27 +316,11 @@ export default function Sidebar({
 
         <NavButton
           icon={<UserCheck size={15} />}
-          label="Mías · round robin"
+          label="Mías"
           count={mineCount}
           active={view === 'inbox' && filter.kind === 'mine'}
           alwaysColor
           onClick={() => onSelectFilter({ kind: 'mine' })}
-        />
-        <NavButton
-          icon={<HeartHandshake size={15} />}
-          label="Apoyo"
-          count={supportCount}
-          active={view === 'inbox' && filter.kind === 'support'}
-          alwaysColor
-          onClick={() => onSelectFilter({ kind: 'support' })}
-        />
-        <NavButton
-          icon={<CircleDashed size={15} />}
-          label="Sin asignar"
-          count={unassignedCount}
-          active={view === 'inbox' && filter.kind === 'unassigned'}
-          alwaysColor
-          onClick={() => onSelectFilter({ kind: 'unassigned' })}
         />
         <NavButton
           icon={<Clock3 size={15} />}
@@ -356,33 +338,23 @@ export default function Sidebar({
       </div>
 
       <div>
-        <GroupHeader label="Ver bandeja de..." />
-        <select
-          value={filter.kind === 'operator' ? filter.operatorId : ''}
-          onChange={(e) => {
-            const id = e.target.value
-            if (id) onSelectFilter({ kind: 'operator', operatorId: id })
-          }}
-          className={`w-full rounded-md border px-2 py-2 text-xs outline-none ${
-            filter.kind === 'operator'
-              ? 'border-mustard bg-asphalt font-semibold text-cream'
-              : 'border-panel-light bg-asphalt text-muted'
-          }`}
-        >
-          <option value="">
-            {availableOperators.length === 0 ? 'Nadie disponible ahora' : 'Elegir operador disponible...'}
-          </option>
-          {availableOperators.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.operator_code ? `${o.operator_code} · ` : ''}
-              {o.full_name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <GroupHeader label="Mis equipos" />
+        <GroupHeader label="Equipo" />
+        <NavButton
+          icon={<CircleDashed size={15} />}
+          label="Sin asignar"
+          count={unassignedCount}
+          active={view === 'inbox' && filter.kind === 'unassigned'}
+          alwaysColor
+          onClick={() => onSelectFilter({ kind: 'unassigned' })}
+        />
+        <NavButton
+          icon={<HeartHandshake size={15} />}
+          label="Apoyo"
+          count={supportCount}
+          active={view === 'inbox' && filter.kind === 'support'}
+          alwaysColor
+          onClick={() => onSelectFilter({ kind: 'support' })}
+        />
         {teams
           .filter((team) => team !== 'Managers' || isAdmin)
           .map((team) => (
@@ -394,17 +366,39 @@ export default function Sidebar({
               onClick={() => onSelectTeamChat(team)}
             />
           ))}
+        <select
+          aria-label="Ver la bandeja de otro operador"
+          value={filter.kind === 'operator' ? filter.operatorId : ''}
+          onChange={(e) => {
+            const id = e.target.value
+            if (id) onSelectFilter({ kind: 'operator', operatorId: id })
+          }}
+          className={`mt-1 w-full rounded-md border px-2 py-2 text-xs outline-none focus-visible:border-mustard ${
+            filter.kind === 'operator'
+              ? 'border-mustard bg-asphalt font-semibold text-cream'
+              : 'border-panel-light bg-asphalt text-muted'
+          }`}
+        >
+          <option value="">
+            {availableOperators.length === 0 ? 'Ver bandeja de otro operador (nadie disponible)' : 'Ver bandeja de otro operador…'}
+          </option>
+          {availableOperators.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.operator_code ? `${o.operator_code} · ` : ''}
+              {o.full_name}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Utilidades: Pospuestas, Llamadas perdidas, Contactos */}
       <div className="mt-auto border-t border-panel-light pt-3">
+        <GroupHeader label="Más" />
         {isAdmin && (
           <NavButton
             icon={<AlarmClock size={15} />}
             label="Pospuestas"
             count={snoozedCount}
             active={view === 'inbox' && filter.kind === 'snoozed'}
-            mustardLabel
             onClick={() => onSelectFilter({ kind: 'snoozed' })}
           />
         )}
@@ -414,7 +408,6 @@ export default function Sidebar({
           count={missedCallsCount}
           active={view === 'missed-calls'}
           alwaysColor
-          mustardLabel
           onClick={onSelectMissedCalls}
         />
         <NavButton icon={<Users size={15} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />

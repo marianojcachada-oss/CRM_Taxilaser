@@ -156,6 +156,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   const [editPhone, setEditPhone] = useState('')
   const [blocked, setBlocked] = useState(conversation.blocked)
   const [now, setNow] = useState(Date.now())
+  const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
     if (!conversation.hasActiveRide) return
@@ -379,6 +380,11 @@ export default function ContactPanel({ conversation, onClose }: Props) {
     return { completados, cancelados, pct, color }
   })()
 
+  // activeRideUnit viene todo junto ("D1945 TYT RAV4 2021"): código + modelo.
+  const unitParts = (conversation.activeRideUnit ?? '').trim().split(/\s+/).filter(Boolean)
+  const unitCode = unitParts[0] ?? ''
+  const unitModel = unitParts.slice(1).join(' ')
+
   const hasName = conversation.name !== conversation.phone && conversation.name !== 'Sin nombre'
 
   return (
@@ -515,31 +521,73 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Estado del servicio</p>
         {conversation.hasActiveRide ? (
           <>
-            <p className="text-sm font-medium text-warning">
-              🚕 Servicio asignado a: {conversation.activeRideUnit || 'unidad sin datos'}
+            <p className="text-sm font-semibold text-warning">
+              Servicio asignado · unidad {unitCode || 'sin datos'}
             </p>
-            {(conversation.activeRideColor || conversation.activeRidePlate) && (
+            {(unitModel || conversation.activeRideColor || conversation.activeRidePlate) && (
               <p className="mt-0.5 text-xs text-cream">
-                {conversation.activeRideColor && <>Color: {conversation.activeRideColor}</>}
-                {conversation.activeRideColor && conversation.activeRidePlate && ' · '}
-                {conversation.activeRidePlate && <>Placa: {conversation.activeRidePlate}</>}
+                {[
+                  unitModel,
+                  conversation.activeRideColor,
+                  conversation.activeRidePlate && `Placa ${conversation.activeRidePlate}`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </p>
             )}
-            {etaRemaining !== null && (
-              <p className="mt-0.5 text-xs text-cream">Tiempo estimado: ~{etaRemaining} min</p>
-            )}
-            {conversation.activeRideEtaReceivedAt && conversation.activeRideEtaMinutes != null && (
-              <p className="mt-1 text-[11px] text-muted">
-                Se puso en camino a las{' '}
-                {formatMessageTime(conversation.activeRideEtaReceivedAt)}{' '}
-                (dijo ~{conversation.activeRideEtaMinutes} min en ese momento)
-              </p>
+            {(etaRemaining !== null || conversation.activeRideEtaReceivedAt) && (
+              <div className="mt-2 grid grid-cols-2 gap-2 border-t border-warning/20 pt-2">
+                {etaRemaining !== null && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Tiempo estimado</p>
+                    <p className="font-mono text-sm text-cream">~{etaRemaining} min</p>
+                  </div>
+                )}
+                {conversation.activeRideEtaReceivedAt && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted">Salió</p>
+                    <p
+                      className="font-mono text-sm text-cream"
+                      title={
+                        conversation.activeRideEtaMinutes != null
+                          ? `Dijo ~${conversation.activeRideEtaMinutes} min en ese momento`
+                          : undefined
+                      }
+                    >
+                      {formatMessageTime(conversation.activeRideEtaReceivedAt)}
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
           </>
         ) : (
           <p className="text-sm text-muted">No tiene servicio</p>
         )}
       </div>
+
+      {/* Fiabilidad — visible, junto al estado del servicio */}
+      {reliability && (
+        <div className="mb-4 rounded-sm border border-panel-light bg-asphalt px-3 py-2.5">
+          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Fiabilidad del cliente</p>
+          <div className="flex items-baseline justify-between gap-2">
+            <p className={`font-mono text-lg font-semibold ${reliability.color}`}>
+              {reliability.pct !== null ? `${reliability.pct}%` : 'Sin datos'}
+            </p>
+            <p className="text-[11px] text-muted">
+              {reliability.completados} completados · {reliability.cancelados} cancelados
+            </p>
+          </div>
+          {reliability.pct !== null && (
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-panel-light" aria-hidden="true">
+              <div
+                className={`h-full rounded-full ${reliability.pct >= 90 ? 'bg-available' : reliability.pct >= 70 ? 'bg-warning' : 'bg-alert'}`}
+                style={{ width: `${reliability.pct}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resumen IA — corto, se deja siempre visible */}
       <div className="mb-4 rounded-sm border border-info/30 bg-info/10 px-2.5 py-2">
@@ -557,43 +605,46 @@ export default function ContactPanel({ conversation, onClose }: Props) {
           </span>
         }
       >
-        <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Canal</p>
-          <span className="flex w-fit items-center gap-1.5 rounded-sm border border-mustard/40 px-1.5 py-0.5 font-mono text-[10px] text-mustard">
-            <ChannelIcon channel={conversation.channel} size={12} /> {channelLabel[conversation.channel]}
-          </span>
-        </div>
+        <dl className="mb-3 flex flex-col gap-2 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted">Estado</dt>
+            <dd className={`flex items-center gap-1.5 text-right ${statusConfig[conversation.status].color}`}>
+              <span aria-hidden="true">{statusConfig[conversation.status].emoji}</span>
+              {statusConfig[conversation.status].label}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted">Bandeja</dt>
+            <dd className="text-right text-cream">
+              {conversation.assignedToName ? `${conversation.assignedToName} · round robin` : 'Sin asignar'}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted">Primer contacto</dt>
+            <dd className="text-right text-cream">{formatMessageDateTimeShort(conversation.createdAt)}</dd>
+          </div>
+        </dl>
 
         <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Estado</p>
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-sm border border-panel-light px-1.5 py-0.5 text-xs ${statusConfig[conversation.status].color}`}
-          >
-            <span>{statusConfig[conversation.status].emoji}</span> {statusConfig[conversation.status].label}
-          </span>
-        </div>
-
-        <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Bandeja</p>
-          <p className="text-xs text-cream">
-            {conversation.assignedToName ? `${conversation.assignedToName} · round robin` : 'Sin asignar'}
+          <p className="mb-1 flex items-center gap-1.5 text-xs text-muted">
+            Avisos automáticos
+            <button
+              type="button"
+              onClick={() => setHelpOpen((v) => !v)}
+              aria-expanded={helpOpen}
+              aria-label="Ayuda sobre avisos automáticos"
+              className="flex h-4 w-4 items-center justify-center rounded-full border border-panel-light text-[10px] text-muted hover:border-mustard hover:text-mustard"
+            >
+              ?
+            </button>
           </p>
-        </div>
-
-        <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Primer contacto</p>
-          <p className="text-xs text-cream">
-            {formatMessageDateTimeShort(conversation.createdAt)}
-          </p>
-        </div>
-
-        <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Mensajes automáticos — canal preferido</p>
-          <p className="mb-1.5 text-[10px] text-muted">
-            SMS y WhatsApp ya no se eligen acá: los avisos de cancelación/llegada/finalización se mandan
-            solos por el canal que el cliente usó la última vez. Facebook e Instagram sí siguen siendo
-            manuales — tildalos acá si corresponde (y el cliente ya te escribió por ese canal alguna vez).
-          </p>
+          {helpOpen && (
+            <p className="mb-1.5 rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 text-[11px] text-muted">
+              SMS y WhatsApp se eligen solos: los avisos de cancelación, llegada y finalización salen por el
+              canal que el cliente usó la última vez. Facebook e Instagram son manuales: tildalos si el
+              cliente ya te escribió por ese canal.
+            </p>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {(['facebook', 'instagram'] as const).map((channel) => {
               const checked = preferredChannels.includes(channel)
@@ -623,12 +674,93 @@ export default function ContactPanel({ conversation, onClose }: Props) {
           </div>
         </div>
 
-        <div className="mb-3">
-          <p className="mb-1 text-xs text-muted">Vincular redes sociales</p>
-          <p className="mb-1.5 text-[10px] text-muted">
-            Si esta persona ya te escribió por Facebook o Instagram bajo otro contacto (sin teléfono
-            asociado), buscala acá por nombre y vinculala — habilita mandarle mensajes por esa red desde
-            este mismo chat.
+        <div>
+          <p className="mb-1 text-xs text-muted">Tags</p>
+          {tags.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <span key={tag} className="rounded-sm border border-panel-light bg-asphalt px-1.5 py-0.5 text-[10px] text-cream">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+              placeholder="Nuevo tag..."
+              className="w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1 text-xs text-cream outline-none focus:border-mustard"
+            />
+            <button
+              onClick={addTag}
+              disabled={!newTag.trim() || addingTag}
+              className="shrink-0 rounded-sm border border-panel-light p-1 text-muted hover:border-mustard hover:text-mustard disabled:opacity-40"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Notas" defaultOpen={!!savedNotes} badge={draftNotes !== savedNotes ? <span className="normal-case text-warning">●</span> : undefined}>
+        <textarea
+          rows={4}
+          value={draftNotes}
+          onChange={(e) => setDraftNotes(e.target.value)}
+          placeholder="Notas internas sobre este cliente..."
+          className="w-full resize-none rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 text-xs text-cream outline-none focus:border-mustard"
+        />
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={saveNotes}
+            disabled={savingNotes || draftNotes === savedNotes}
+            className="flex items-center gap-1 rounded-sm bg-mustard px-2 py-1 text-xs font-medium text-asphalt hover:opacity-90 disabled:opacity-40"
+          >
+            <Check size={12} /> {savingNotes ? 'Guardando...' : 'Guardar'}
+          </button>
+          <button
+            onClick={cancelNotes}
+            disabled={draftNotes === savedNotes}
+            className="flex items-center gap-1 rounded-sm border border-panel-light px-2 py-1 text-xs text-muted hover:text-cream disabled:opacity-40"
+          >
+            <X size={12} /> Cancelar
+          </button>
+        </div>
+      </Section>
+
+      {conversation.totalInvertido && (
+        <Section title="Datos de negocio">
+          <div>
+            <p className="mb-1 text-xs text-muted">Total invertido en la compañía</p>
+            <p className="font-mono text-sm text-cream">{conversation.totalInvertido}</p>
+            <p className="mt-0.5 text-[10px] text-muted">Dato histórico de TaxiCaller — pendiente de conectar</p>
+          </div>
+        </Section>
+      )}
+
+      <Section title={`Conversaciones anteriores${previous.length ? ` (${previous.length})` : ''}`}>
+        {previous.length === 0 && <p className="text-xs text-muted">No hay conversaciones cerradas previas.</p>}
+        <div className="flex flex-col gap-1.5">
+          {previous.map((p) => (
+            <div key={p.id} className="rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 text-xs">
+              <p className="text-muted">{p.date}</p>
+              <p className="text-cream">{p.summary}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Actividad">
+        <ContactTimeline contactId={conversation.contactId} />
+      </Section>
+
+      <Section title="Vincular redes sociales">
+        <div>
+          <p className="mb-1.5 text-[11px] text-muted">
+            Si ya te escribió por Facebook o Instagram bajo otro contacto, buscalo por nombre y vinculalo.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {(['facebook', 'instagram'] as const).map((channel) => {
@@ -703,103 +835,6 @@ export default function ContactPanel({ conversation, onClose }: Props) {
           )}
         </div>
 
-        <div>
-          <p className="mb-1 text-xs text-muted">Tags</p>
-          {tags.length > 0 && (
-            <div className="mb-1.5 flex flex-wrap gap-1">
-              {tags.map((tag) => (
-                <span key={tag} className="rounded-sm border border-panel-light bg-asphalt px-1.5 py-0.5 text-[10px] text-cream">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <input
-              type="text"
-              value={newTag}
-              onChange={(e) => setNewTag(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-              placeholder="Nuevo tag..."
-              className="w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1 text-xs text-cream outline-none focus:border-mustard"
-            />
-            <button
-              onClick={addTag}
-              disabled={!newTag.trim() || addingTag}
-              className="shrink-0 rounded-sm border border-panel-light p-1 text-muted hover:border-mustard hover:text-mustard disabled:opacity-40"
-            >
-              <Plus size={13} />
-            </button>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Notas" defaultOpen={!!savedNotes} badge={draftNotes !== savedNotes ? <span className="normal-case text-warning">●</span> : undefined}>
-        <textarea
-          rows={4}
-          value={draftNotes}
-          onChange={(e) => setDraftNotes(e.target.value)}
-          placeholder="Notas internas sobre este cliente..."
-          className="w-full resize-none rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 text-xs text-cream outline-none focus:border-mustard"
-        />
-        <div className="mt-2 flex gap-2">
-          <button
-            onClick={saveNotes}
-            disabled={savingNotes || draftNotes === savedNotes}
-            className="flex items-center gap-1 rounded-sm bg-mustard px-2 py-1 text-xs font-medium text-asphalt hover:opacity-90 disabled:opacity-40"
-          >
-            <Check size={12} /> {savingNotes ? 'Guardando...' : 'Guardar'}
-          </button>
-          <button
-            onClick={cancelNotes}
-            disabled={draftNotes === savedNotes}
-            className="flex items-center gap-1 rounded-sm border border-panel-light px-2 py-1 text-xs text-muted hover:text-cream disabled:opacity-40"
-          >
-            <X size={12} /> Cancelar
-          </button>
-        </div>
-      </Section>
-
-      <Section title="Datos de negocio">
-        {conversation.totalInvertido && (
-          <div className="mb-3">
-            <p className="mb-1 text-xs text-muted">Total invertido en la compañía</p>
-            <p className="font-mono text-sm text-cream">{conversation.totalInvertido}</p>
-            <p className="mt-0.5 text-[10px] text-muted">Dato histórico de TaxiCaller — pendiente de conectar</p>
-          </div>
-        )}
-
-        {reliability && (
-          <div>
-            <p className="mb-1 text-xs text-muted">Fiabilidad del cliente</p>
-            <p className={`font-mono text-sm ${reliability.color}`}>
-              {reliability.pct !== null ? `${reliability.pct}%` : 'Sin datos'}
-            </p>
-            <p className="text-[10px] text-muted">
-              {reliability.completados} completados · {reliability.cancelados} cancelados
-            </p>
-          </div>
-        )}
-
-        {!conversation.totalInvertido && !reliability && (
-          <p className="text-xs text-muted">Sin datos todavía — depende de conectar TaxiCaller.</p>
-        )}
-      </Section>
-
-      <Section title={`Conversaciones anteriores${previous.length ? ` (${previous.length})` : ''}`}>
-        {previous.length === 0 && <p className="text-xs text-muted">No hay conversaciones cerradas previas.</p>}
-        <div className="flex flex-col gap-1.5">
-          {previous.map((p) => (
-            <div key={p.id} className="rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 text-xs">
-              <p className="text-muted">{p.date}</p>
-              <p className="text-cream">{p.summary}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Actividad">
-        <ContactTimeline contactId={conversation.contactId} />
       </Section>
     </aside>
   )

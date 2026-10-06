@@ -20,6 +20,53 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+// Messenger e Instagram necesitan el token de la PÁGINA, no el del System
+// User: con el del System User, "me" es el usuario del sistema y Meta
+// rechaza el envío ("Object with ID 'me' does not exist"). Se pide con el
+// token del System User y se guarda un rato en memoria.
+// ID de la Página de Taxi Laser LLC. Se usa como segundo intento cuando
+// /me/accounts viene vacío (pasa con algunos tokens de System User aunque
+// la Página esté asignada).
+const DEFAULT_PAGE_ID = "104521984578127";
+
+let cachedPageToken: { token: string; at: number } | null = null;
+
+async function getPageAccessToken(systemToken: string): Promise<string> {
+  if (cachedPageToken && Date.now() - cachedPageToken.at < 30 * 60 * 1000) {
+    return cachedPageToken.token;
+  }
+  const headers = { Authorization: `Bearer ${systemToken}` };
+  const attempts: unknown[] = [];
+
+  // Intento 1: lista de páginas del token.
+  const r1 = await fetch(
+    "https://graph.facebook.com/v26.0/me/accounts?fields=id,name,access_token&limit=25",
+    { headers },
+  );
+  const d1 = await r1.json().catch(() => ({}));
+  attempts.push({ me_accounts: d1 });
+  let token: string | undefined = d1?.data?.[0]?.access_token;
+
+  // Intento 2: pedir el token de la Página directamente por su ID.
+  if (!token) {
+    const r2 = await fetch(
+      `https://graph.facebook.com/v26.0/${DEFAULT_PAGE_ID}?fields=id,name,access_token`,
+      { headers },
+    );
+    const d2 = await r2.json().catch(() => ({}));
+    attempts.push({ page_by_id: d2 });
+    token = d2?.access_token;
+  }
+
+  if (!token) {
+    throw new Error(
+      `No se pudo obtener el token de la Página. Respuestas de Meta: ${JSON.stringify(attempts)}`,
+    );
+  }
+  cachedPageToken = { token, at: Date.now() };
+  return token;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -204,12 +251,12 @@ Deno.serve(async (req) => {
       const resData = await res.json().catch(() => ({}));
       wamid = resData?.messages?.[0]?.id ?? null;
     } else if (channel === "facebook" || channel === "instagram") {
-      // Messenger e Instagram comparten el mismo "Send API" de Meta — el
-      // token del System User (META_ACCESS_TOKEN) alcanza para los dos
-      // siempre que tenga los permisos pages_messaging +
-      // instagram_manage_messages, y que la Página/cuenta de Instagram
-      // estén agregadas como activos de ese mismo token en Meta Business
-      // Suite. No hace falta un token de página aparte.
+      // Messenger e Instagram comparten el mismo "Send API" de Meta. Se
+      // parte del token del System User (META_ACCESS_TOKEN), que tiene que
+      // tener la Página asignada como activo con control total, y de ahí
+      // se obtiene el token de la Página (ver getPageAccessToken) — ese
+      // es el que realmente se usa para enviar. No hace falta cargar un
+      // token de página aparte en Integrations.
       if (!recipientExternalId) {
         throw new Error(
           `Falta el ID externo del contacto en ${channel} — no se puede mandar el mensaje sin saber a quién.`,
@@ -235,11 +282,12 @@ Deno.serve(async (req) => {
         messaging_type: "RESPONSE",
       };
 
+      const pageToken = await getPageAccessToken(metaToken);
       const res = await fetch(`https://graph.facebook.com/v26.0/me/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${metaToken}`,
+          Authorization: `Bearer ${pageToken}`,
         },
         body: JSON.stringify(body),
       });

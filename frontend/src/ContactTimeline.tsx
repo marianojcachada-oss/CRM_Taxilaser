@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+import {
+  MessageSquare, UserRound, Tag, Car, MapPin, XCircle, CheckCircle2, Bot, RotateCcw, Ban, Circle,
+  type LucideIcon,
+} from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { formatMessageTime } from './atlantaTime'
 
@@ -9,19 +13,19 @@ type TimelineEvent = {
   created_at: string
 }
 
-const eventEmoji: Record<string, string> = {
-  message: '💬',
-  assigned: '👤',
-  tag_added: '🏷️',
-  ride_created: '🚕',
-  driver_arrived: '📍',
-  ride_cancelled: '❌',
-  ride_completed: '🏁',
-  automation: '🤖',
-  closed: '✅',
-  reopened: '🔄',
-  blocked: '🚫',
-  unblocked: '✅',
+const eventIcon: Record<string, { Icon: LucideIcon; cls: string }> = {
+  message: { Icon: MessageSquare, cls: 'text-info' },
+  assigned: { Icon: UserRound, cls: 'text-muted' },
+  tag_added: { Icon: Tag, cls: 'text-muted' },
+  ride_created: { Icon: Car, cls: 'text-mustard' },
+  driver_arrived: { Icon: MapPin, cls: 'text-available' },
+  ride_cancelled: { Icon: XCircle, cls: 'text-alert' },
+  ride_completed: { Icon: CheckCircle2, cls: 'text-available' },
+  automation: { Icon: Bot, cls: 'text-muted' },
+  closed: { Icon: CheckCircle2, cls: 'text-available' },
+  reopened: { Icon: RotateCcw, cls: 'text-info' },
+  blocked: { Icon: Ban, cls: 'text-alert' },
+  unblocked: { Icon: CheckCircle2, cls: 'text-available' },
 }
 
 type Props = { contactId: string }
@@ -90,10 +94,13 @@ export default function ContactTimeline({ contactId }: Props) {
   return (
     <div className="flex flex-col gap-2">
       {visible.map((r) => (
-        <div key={r.id} className="flex items-start gap-2 text-xs">
-          <span className="w-24 shrink-0 font-mono text-muted">{timeLabel(r)}</span>
-          <span aria-hidden="true">{eventEmoji[r.type] ?? '•'}</span>
-          <span className="text-cream">{r.text}</span>
+        <div key={r.id} className="flex items-start gap-2 text-[13px] leading-snug">
+          {(() => {
+            const { Icon, cls } = eventIcon[r.type] ?? { Icon: Circle, cls: 'text-muted' }
+            return <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${cls}`} aria-hidden="true" />
+          })()}
+          <span className="min-w-0 flex-1 text-cream">{r.text}</span>
+          <span className="shrink-0 font-mono text-xs text-muted">{timeLabel(r)}</span>
         </div>
       ))}
       {rows.length > 8 && (

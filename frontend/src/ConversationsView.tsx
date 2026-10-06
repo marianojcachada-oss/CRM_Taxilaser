@@ -272,9 +272,16 @@ export default function ConversationsView({
   // El canal (WA/FB/IG/SMS) es un recorte independiente de la bandeja
   // (Mías/Pendientes/etc) — nunca reemplaza la cuenta de los demás
   // canales, solo decide qué se muestra en la lista.
-  const displayedConversations = useMemo(
+  // "Sin leer" es otro recorte solo visual de la lista (no toca la base).
+  const [onlyUnread, setOnlyUnread] = useState(false)
+  const byChannel = useMemo(
     () => (filter.channel ? conversations.filter((c) => c.channel === filter.channel) : conversations),
     [conversations, filter.channel],
+  )
+  const unreadCount = useMemo(() => byChannel.filter((c) => c.unread).length, [byChannel])
+  const displayedConversations = useMemo(
+    () => (onlyUnread ? byChannel.filter((c) => c.unread || c.id === selectedId) : byChannel),
+    [byChannel, onlyUnread, selectedId],
   )
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
@@ -1078,6 +1085,26 @@ export default function ConversationsView({
             </div>
           )}
 
+          <div role="tablist" aria-label="Filtrar por lectura" className="mt-2.5 flex gap-1 rounded-md bg-asphalt p-1">
+            {([
+              [false, `Todas ${byChannel.length}`],
+              [true, `Sin leer ${unreadCount}`],
+            ] as const).map(([val, label]) => (
+              <button
+                key={label}
+                type="button"
+                role="tab"
+                aria-selected={onlyUnread === val}
+                onClick={() => setOnlyUnread(val)}
+                className={`min-h-8 flex-1 rounded-sm px-2 text-xs font-medium transition-colors ${
+                  onlyUnread === val ? 'bg-panel-light text-cream' : 'text-muted hover:text-cream'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             <button
               onClick={() => onSelectFilter({ kind: filter.kind })}
@@ -1109,7 +1136,7 @@ export default function ConversationsView({
         </div>
         <div className="flex-1 overflow-y-auto">
           {displayedConversations.length === 0 && (
-            <p className="p-4 text-sm text-muted">No hay conversaciones acá.</p>
+            <p className="p-4 text-sm text-muted">{onlyUnread ? 'No hay conversaciones sin leer.' : 'No hay conversaciones acá.'}</p>
           )}
           {displayedConversations.map((c) => (
             <button

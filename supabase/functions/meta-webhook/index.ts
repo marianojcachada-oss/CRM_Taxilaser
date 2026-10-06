@@ -20,6 +20,84 @@ const supabase = createClient(
 
 const GRAPH_VERSION = "v26.0";
 
+// Messenger e Instagram mandan solo un ID numérico, no el nombre. Para
+// pedírselo a la Graph API hace falta el token de la PÁGINA (el del System
+// User no alcanza para leer perfiles). Se obtiene con el token del System
+// User y se guarda un rato en memoria para no pedirlo en cada mensaje.
+let cachedPageToken: { token: string; at: number } | null = null;
+
+// ID de la Página de Taxi Laser LLC — segundo intento si /me/accounts viene
+// vacío (pasa con algunos tokens de System User aunque la Página esté asignada).
+const DEFAULT_PAGE_ID = "104521984578127";
+
+async function getPageAccessToken(systemToken: string): Promise<string | null> {
+  if (cachedPageToken && Date.now() - cachedPageToken.at < 30 * 60 * 1000) {
+    return cachedPageToken.token;
+  }
+  try {
+    const headers = { Authorization: `Bearer ${systemToken}` };
+    const attempts: unknown[] = [];
+
+    const r1 = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token&limit=25`,
+      { headers },
+    );
+    const d1 = await r1.json().catch(() => ({}));
+    attempts.push({ me_accounts: d1 });
+    let token: string | undefined = d1?.data?.[0]?.access_token;
+
+    if (!token) {
+      const r2 = await fetch(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${DEFAULT_PAGE_ID}?fields=id,name,access_token`,
+        { headers },
+      );
+      const d2 = await r2.json().catch(() => ({}));
+      attempts.push({ page_by_id: d2 });
+      token = d2?.access_token;
+    }
+
+    if (!token) {
+      console.warn("No se pudo obtener el token de la Página:", JSON.stringify(attempts));
+      return null;
+    }
+    cachedPageToken = { token, at: Date.now() };
+    return token;
+  } catch (e) {
+    console.warn("Error pidiendo el token de la Página:", e);
+    return null;
+  }
+}
+
+// Nombre del perfil de un contacto de Facebook/Instagram. Si falla por lo
+// que sea (permiso, token, la persona no tiene nombre público) devuelve
+// null y el contacto queda "Sin nombre" como hasta ahora — nunca debe
+// romper la recepción del mensaje.
+async function fetchSocialProfileName(
+  channel: "facebook" | "instagram",
+  id: string,
+  systemToken: string | undefined,
+): Promise<string | null> {
+  if (!systemToken) return null;
+  try {
+    const pageToken = await getPageAccessToken(systemToken);
+    if (!pageToken) return null;
+    const fields = channel === "instagram" ? "name,username" : "name";
+    const res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${id}?fields=${fields}`,
+      { headers: { Authorization: `Bearer ${pageToken}` } },
+    );
+    if (!res.ok) {
+      console.warn(`No se pudo traer el nombre de ${channel} ${id}:`, await res.text());
+      return null;
+    }
+    const d = await res.json();
+    return d?.name || d?.username || null;
+  } catch (e) {
+    console.warn("Error trayendo el nombre del perfil:", e);
+    return null;
+  }
+}
+
 async function hmacSha256Hex(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -159,6 +237,21 @@ Deno.serve(async (req) => {
     return new Response("OK (body no era JSON)", { status: 200 });
   }
 
+  // Rastro para poder buscar en los logs (WhatsApp tiene mucho volumen y
+  // tapa todo): solo se loguea lo que NO es de WhatsApp, y sin guardar el
+  // texto de los mensajes — solo la "forma" del evento.
+  if (payload.object !== "whatsapp_business_account") {
+    const e0 = payload.entry?.[0] ?? {};
+    const m0 = e0.messaging?.[0] ?? e0.changes?.[0]?.value ?? {};
+    console.log(
+      `[meta-webhook] evento object=${payload.object} entries=${(payload.entry ?? []).length} ` +
+        `entry_keys=${Object.keys(e0).join(",")} messaging=${(e0.messaging ?? []).length} ` +
+        `changes=${(e0.changes ?? []).length} change_field=${e0.changes?.[0]?.field ?? "-"} ` +
+        `has_text=${Boolean(m0.message?.text)} is_echo=${Boolean(m0.message?.is_echo)} ` +
+        `mid=${m0.message?.mid ?? "-"}`,
+    );
+  }
+
   for (const entry of payload.entry ?? []) {
     // --- WhatsApp Business Platform ---
     if (payload.object === "whatsapp_business_account") {
@@ -167,6 +260,12 @@ Deno.serve(async (req) => {
 
         for (const msg of value?.messages ?? []) {
           const phone = msg.from; // ej: '5491100000000'
+          if (!phone || typeof phone !== "string") {
+            // Evento sin remitente (p. ej. payload de prueba): se ignora para no
+            // devolver 500 y evitar que Meta lo reintente en bucle.
+            console.warn(`[meta-webhook] mensaje de WhatsApp sin 'from' (type=${msg?.type}), se ignora`);
+            continue;
+          }
           const contactName = value.contacts?.[0]?.profile?.name ?? null;
 
           let text = "";
@@ -288,17 +387,45 @@ Deno.serve(async (req) => {
     if (payload.object === "page" || payload.object === "instagram") {
       const channel = payload.object === "page" ? "facebook" : "instagram";
 
-      for (const messaging of entry.messaging ?? []) {
-        const senderId = messaging.sender?.id;
-        const text = messaging.message?.text ?? "";
-        const mid = messaging.message?.mid;
+      // Meta manda los mensajes en "messaging" (formato clásico) o dentro de
+      // "changes" con field="messages" (formato que usa su muestra de
+      // prueba). Se aceptan los dos para no perder ninguno.
+      const events = [
+        ...(entry.messaging ?? []),
+        ...(entry.changes ?? []).filter((c: any) => c?.field === "messages").map((c: any) => c.value),
+      ];
+
+      for (const messaging of events) {
+        const senderId = messaging?.sender?.id;
+        const text = messaging?.message?.text ?? "";
+        const mid = messaging?.message?.mid;
 
         if (!senderId || !text) continue;
+        // Mensajes que mandó la propia página (eco) y la muestra de prueba
+        // del panel de Meta ("test_message_id") no son de un cliente.
+        if (messaging?.message?.is_echo || mid === "test_message_id") continue;
+
+        // Solo se le pregunta el nombre a Meta si todavía no lo tenemos.
+        let profileName: string | null = null;
+        const { data: known } = await supabase
+          .from("contact_channels")
+          .select("contact_id, contacts(full_name)")
+          .eq("channel", channel)
+          .eq("external_id", senderId)
+          .maybeSingle();
+        const knownName = (known as any)?.contacts?.full_name;
+        if (!knownName) {
+          profileName = await fetchSocialProfileName(channel, senderId, metaSettings.META_ACCESS_TOKEN);
+          // Contacto que ya existía como "Sin nombre": se completa ahora.
+          if (profileName && known?.contact_id) {
+            await supabase.from("contacts").update({ full_name: profileName }).eq("id", known.contact_id);
+          }
+        }
 
         await handleIncomingMessage({
           channel,
           externalContactId: senderId,
-          contactName: null, // se puede pedir a la Graph API con senderId si hace falta
+          contactName: profileName,
           externalMessageId: mid,
           text,
           attachment: null,

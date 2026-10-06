@@ -155,6 +155,7 @@ export default function Sidebar({
         <button
           onClick={onClick}
           title={label}
+          aria-label={label}
           className={`relative mx-auto flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
             active ? 'bg-asphalt text-mustard' : 'text-cream hover:bg-panel-light'
           }`}
@@ -191,6 +192,7 @@ export default function Sidebar({
           onClick={toggleCollapsed}
           className="mb-2 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-panel-light hover:text-mustard"
           title="Expandir el menú"
+          aria-label="Expandir el menú"
         >
           <ChevronsRight size={16} />
         </button>

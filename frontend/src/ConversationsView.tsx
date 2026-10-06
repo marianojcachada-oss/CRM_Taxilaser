@@ -1173,14 +1173,8 @@ export default function ConversationsView({
                   </span>
                   <span
                     title={channelLabel[c.channel]}
-                    className={`ml-auto shrink-0 rounded-sm border px-1 font-mono text-[10px] font-semibold leading-4 ${
-                      c.channel === 'sms' ? 'border-muted/50 text-cream' : ''
-                    }`}
-                    style={
-                      c.channel === 'sms'
-                        ? undefined
-                        : { color: channelAvatarColor[c.channel], borderColor: channelAvatarColor[c.channel] + '66' }
-                    }
+                    className="ml-auto shrink-0 rounded-sm border px-1 font-mono text-[11px] font-semibold leading-4 text-cream"
+                    style={{ borderColor: channelAvatarColor[c.channel] }}
                   >
                     {channelShort[c.channel]}
                   </span>
@@ -1216,7 +1210,7 @@ export default function ConversationsView({
                   <button
                     type="button"
                     onClick={copyHeaderPhone}
-                    title="Copiar número"
+                    title="Copiar número" aria-label="Copiar número"
                     className="flex items-center gap-1 text-xs text-muted transition-colors hover:text-mustard"
                   >
                     <ChannelIcon channel={sendChannel ?? selected.channel} size={11} />{' '}
@@ -1299,7 +1293,7 @@ export default function ConversationsView({
               <div className="relative flex items-center gap-2">
                 <button
                   onClick={() => setShowContactPanel(true)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-panel-light text-muted transition-colors hover:border-mustard hover:text-mustard md:hidden"
+                  className="flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border border-panel-light text-muted transition-colors hover:border-mustard hover:text-mustard md:hidden"
                   title="Ver datos del contacto"
                 >
                   <Info size={13} />
@@ -1326,7 +1320,7 @@ export default function ConversationsView({
                   onClick={toggleKeepWithOperator}
                   aria-pressed={!!selected.keepWithOperator}
                   aria-label={selected.keepWithOperator ? 'Soltar conversación' : 'Mantener conmigo'}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm leading-none transition-colors ${
+                  className={`flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border text-sm leading-none transition-colors ${
                     selected.keepWithOperator
                       ? 'border-mustard bg-mustard/10'
                       : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
@@ -1344,7 +1338,7 @@ export default function ConversationsView({
                     onClick={() => setShowSnoozeMenu((v) => !v)}
                     aria-expanded={showSnoozeMenu}
                     aria-label={selected.snoozedUntil ? 'Cambiar posposición' : 'Posponer conversación'}
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm leading-none transition-colors ${
+                    className={`flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border text-sm leading-none transition-colors ${
                       selected.snoozedUntil
                         ? 'border-mustard bg-mustard/10'
                         : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
@@ -1362,7 +1356,7 @@ export default function ConversationsView({
                   onClick={markAsRead}
                   disabled={!selected.unread}
                   aria-label="Marcar como visto"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-panel-light text-sm leading-none transition-colors hover:border-mustard disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border border-panel-light text-sm leading-none transition-colors hover:border-mustard disabled:opacity-40"
                   title="Marcar como visto"
                 >
                   <span aria-hidden="true">👁️</span>
@@ -1371,7 +1365,7 @@ export default function ConversationsView({
                   <button
                     onClick={handleDelete}
                     aria-label="Borrar conversación (irreversible)"
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-alert/40 text-sm leading-none transition-colors hover:bg-alert/10"
+                    className="flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border border-alert/40 text-sm leading-none transition-colors hover:bg-alert/10"
                     title="Borrar conversación (irreversible)"
                   >
                     <span aria-hidden="true">🗑️</span>
@@ -1626,7 +1620,7 @@ export default function ConversationsView({
                 <button
                   onClick={handleAiRespond}
                   disabled={aiResponding}
-                  title="Genera y manda una respuesta de la IA en esta conversación (solo vos la ves — etapa de prueba)"
+                  title="Genera y manda una respuesta de la IA en esta conversación (solo vos la ves — etapa de prueba)" aria-label="Genera y manda una respuesta de la IA en esta conversación (solo vos la ves — etapa de prueba)"
                   className="flex items-center gap-1.5 rounded-full border border-mustard/40 px-3 py-1.5 text-[11px] font-medium text-mustard transition-colors hover:bg-mustard/10 disabled:opacity-50"
                 >
                   {aiResponding ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
@@ -1778,7 +1772,7 @@ export default function ConversationsView({
                 onClick={handleTranslateDraft}
                 disabled={!draft.trim() || translatingDraft}
                 className="shrink-0 text-muted transition-colors hover:text-mustard disabled:opacity-40"
-                title="Traducir antes de enviar"
+                title="Traducir antes de enviar" aria-label="Traducir antes de enviar"
               >
                 {translatingDraft ? <Loader2 size={20} className="animate-spin" /> : <Languages size={20} />}
               </button>

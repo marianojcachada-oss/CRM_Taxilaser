@@ -555,3 +555,24 @@ body,
 * {
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
+
+
+/* Foco visible para quien navega con teclado (accesibilidad). Usa el
+   acento del tema, así se ve en todos los temas. */
+:where(button, a, select, summary, [role='button']):focus-visible {
+  outline: 2px solid var(--color-mustard);
+  outline-offset: 2px;
+}
+
+/* Respeta "reducir movimiento" del sistema (los spinners de carga siguen
+   girando para no perder el aviso de que algo está cargando). */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

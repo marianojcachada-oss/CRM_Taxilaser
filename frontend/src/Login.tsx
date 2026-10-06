@@ -49,7 +49,7 @@ const checkerStyle = (size: number): React.CSSProperties => ({
 })
 
 const fieldWrap =
-  'flex h-12 items-center gap-2.5 rounded-[10px] border border-panel-light bg-asphalt px-3.5 transition-[border-color,box-shadow] focus-within:border-mustard focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-mustard)_35%,transparent)]'
+  'flex h-12 items-center gap-2.5 rounded-[10px] border border-muted/70 bg-asphalt px-3.5 transition-[border-color,box-shadow] focus-within:border-mustard focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-mustard)_35%,transparent)]'
 const fieldInput =
   'h-full min-w-0 flex-1 bg-transparent text-base text-cream placeholder-muted/60 outline-none md:text-[15px] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--color-cream)] [&:-webkit-autofill]:shadow-[inset_0_0_0_40px_var(--color-asphalt)]'
 const labelCls = 'text-[13px] font-semibold text-cream/80'
@@ -118,7 +118,7 @@ export default function Login({ onIntentChange }: Props) {
   const segBase =
     'flex h-11 flex-1 items-center justify-center gap-2 rounded-[9px] border text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mustard'
   const segOn = `${segBase} border-mustard bg-mustard/15 font-semibold text-cream`
-  const segOff = `${segBase} border-transparent font-medium text-muted hover:text-cream`
+  const segOff = `${segBase} border-transparent font-medium text-cream/75 hover:text-cream`
 
   return (
     <div className="flex min-h-screen bg-asphalt text-cream transition-colors duration-300 md:flex-row" style={accentOverride}>
@@ -238,7 +238,7 @@ export default function Login({ onIntentChange }: Props) {
                   <button
                     type="button"
                     onClick={() => setShowForgot(true)}
-                    className="inline-flex min-h-11 items-center text-sm font-medium text-mustard underline underline-offset-[3px] transition-colors hover:text-cream focus-visible:outline-2 focus-visible:outline-mustard"
+                    className="inline-flex min-h-11 items-center text-sm font-medium text-cream underline underline-offset-[3px] transition-colors hover:text-mustard focus-visible:outline-2 focus-visible:outline-mustard"
                   >
                     ¿Olvidaste tu contraseña?
                   </button>
@@ -247,9 +247,9 @@ export default function Login({ onIntentChange }: Props) {
                 {error && (
                   <div
                     role="alert"
-                    className="flex items-start gap-2.5 rounded-[10px] border border-alert/40 bg-alert/10 px-3.5 py-3 text-sm text-alert"
+                    className="flex items-start gap-2.5 rounded-[10px] border border-alert bg-alert/10 px-3.5 py-3 text-sm text-cream"
                   >
-                    <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0" />
+                    <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0 text-alert" />
                     <span>{error}</span>
                   </div>
                 )}
@@ -345,9 +345,9 @@ export default function Login({ onIntentChange }: Props) {
                   {forgotError && (
                     <div
                       role="alert"
-                      className="flex items-start gap-2.5 rounded-[10px] border border-alert/40 bg-alert/10 px-3.5 py-3 text-sm text-alert"
+                      className="flex items-start gap-2.5 rounded-[10px] border border-alert bg-alert/10 px-3.5 py-3 text-sm text-cream"
                     >
-                      <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0" />
+                      <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0 text-alert" />
                       <span>{forgotError}</span>
                     </div>
                   )}

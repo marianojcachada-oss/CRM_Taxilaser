@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { X, Settings, Check } from 'lucide-react'
 import { themes, chatPatterns, fonts } from './ThemePicker'
 
@@ -24,14 +25,20 @@ export default function SettingsModal({
   onChangeFont,
   onClose,
 }: Props) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-sm border border-panel-light bg-panel">
+      <div role="dialog" aria-modal="true" className="flex max-h-[85vh] w-full max-w-md flex-col rounded-sm border border-panel-light bg-panel">
         <div className="flex items-center justify-between border-b border-panel-light p-4">
           <span className="flex items-center gap-1.5 text-sm font-medium text-mustard">
             <Settings size={14} /> Configuración
           </span>
-          <button onClick={onClose} className="text-muted hover:text-cream">
+          <button onClick={onClose} aria-label="Cerrar" className="text-muted hover:text-cream">
             <X size={16} />
           </button>
         </div>

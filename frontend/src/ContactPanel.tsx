@@ -414,7 +414,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
               </h2>
               <p className="flex items-center gap-1 font-mono text-xs text-muted">
                 {conversation.phone}
-                <button onClick={copyPhone} className="text-muted transition-colors hover:text-mustard" title="Copiar teléfono">
+                <button onClick={copyPhone} className="text-muted transition-colors hover:text-mustard" title="Copiar teléfono" aria-label="Copiar teléfono">
                   {copied ? <Check size={12} className="text-available" /> : <Copy size={12} />}
                 </button>
               </p>
@@ -422,7 +422,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
             <button
               onClick={startEditing}
               className="shrink-0 text-muted transition-colors hover:text-mustard"
-              title="Editar contacto"
+              title="Editar contacto" aria-label="Editar contacto"
             >
               <Pencil size={14} />
             </button>

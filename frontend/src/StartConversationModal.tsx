@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, MessageSquarePlus } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { getFunctionErrorMessage } from './functionsError'
@@ -33,14 +33,20 @@ export default function StartConversationModal({ onClose, onSent }: Props) {
     onSent()
   }
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-sm border border-panel-light bg-panel p-4">
+      <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-sm border border-panel-light bg-panel p-4">
         <div className="mb-3 flex items-center justify-between">
           <span className="flex items-center gap-1.5 text-sm font-medium text-mustard">
             <MessageSquarePlus size={14} /> Nueva conversación por SMS
           </span>
-          <button onClick={onClose} className="text-muted hover:text-cream">
+          <button onClick={onClose} aria-label="Cerrar" className="text-muted hover:text-cream">
             <X size={16} />
           </button>
         </div>

@@ -163,7 +163,6 @@ Deno.serve(async (req) => {
   // reabría la conversación (find_or_create...), el round robin se la
   // asignaba a alguien (gastándole el turno) y recién después se cerraba,
   // con todos los eventos de Realtime que eso genera.
-  //
   // Acá solo se cierra la conversación de SMS/WhatsApp que YA esté abierta
   // (si hay una) -- no se crea ni se reabre ninguna.
   if (sentVia.length === 0) {

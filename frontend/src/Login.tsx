@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2, MessageSquare, BarChart3 } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2, MessageSquare, BarChart3, CircleAlert } from 'lucide-react'
 import { supabase } from './supabaseClient'
-import Logo from './Logo'
 
 type LoginIntent = 'mensajeria' | 'administracion'
 
@@ -11,6 +10,51 @@ type Props = {
   // sabe la intención antes de que termine de resolverse la sesión.
   onIntentChange?: (intent: LoginIntent) => void
 }
+
+// Marca: dos cuadrados "¿" y "?" (mostaza y crema). Se escala con `scale`.
+function BrandMark({ scale = 1 }: { scale?: number }) {
+  const w = 76 * scale
+  const h = 66 * scale
+  const r = 18 * scale
+  const font = 40 * scale
+  const common = {
+    width: w,
+    height: h,
+    borderRadius: r,
+    fontSize: font,
+    lineHeight: 1,
+  } as React.CSSProperties
+  return (
+    <div aria-hidden="true" className="relative shrink-0" style={{ width: 132 * scale, height: 112 * scale }}>
+      <div
+        className="absolute left-0 top-0 flex items-center justify-center bg-mustard font-bold text-asphalt transition-colors duration-300"
+        style={common}
+      >
+        ¿
+      </div>
+      <div
+        className="absolute bottom-0 right-0 flex items-center justify-center bg-cream font-bold text-asphalt"
+        style={{ ...common, border: `${4 * scale}px solid var(--color-panel)`, boxSizing: 'content-box', margin: `0 ${-4 * scale}px ${-4 * scale}px 0` }}
+      >
+        ?
+      </div>
+    </div>
+  )
+}
+
+const checkerStyle = (size: number): React.CSSProperties => ({
+  backgroundImage:
+    'conic-gradient(var(--color-mustard) 25%, transparent 0 50%, var(--color-mustard) 0 75%, transparent 0)',
+  backgroundSize: `${size}px ${size}px`,
+})
+
+const fieldWrap =
+  'flex h-12 items-center gap-2.5 rounded-[10px] border border-panel-light bg-asphalt px-3.5 transition-[border-color,box-shadow] focus-within:border-mustard focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-mustard)_35%,transparent)]'
+const fieldInput =
+  'h-full min-w-0 flex-1 bg-transparent text-base text-cream placeholder-muted/60 outline-none md:text-[15px] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--color-cream)] [&:-webkit-autofill]:shadow-[inset_0_0_0_40px_var(--color-asphalt)]'
+const labelCls = 'text-[13px] font-semibold text-cream/80'
+const primaryBtn =
+  'flex h-12 items-center justify-center gap-2 rounded-[10px] bg-mustard text-base font-bold text-asphalt transition-[filter,opacity] hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mustard disabled:opacity-50'
 
 export default function Login({ onIntentChange }: Props) {
   const [email, setEmail] = useState('')
@@ -34,6 +78,7 @@ export default function Login({ onIntentChange }: Props) {
   // cambian solos, sin duplicar estilos.
   const accentOverride =
     intent === 'administracion' ? ({ '--color-mustard': 'var(--color-info)' } as React.CSSProperties) : undefined
+  const isAdmin = intent === 'administracion'
 
   const [showForgot, setShowForgot] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
@@ -53,7 +98,7 @@ export default function Login({ onIntentChange }: Props) {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     setLoading(false)
-    if (error) setError('Email o contraseña incorrectos')
+    if (error) setError('Email o contraseña incorrectos. Revisalos e intentá de nuevo.')
   }
 
   async function handleForgotSubmit(e: React.FormEvent) {
@@ -70,144 +115,181 @@ export default function Login({ onIntentChange }: Props) {
     else setForgotSent(true)
   }
 
+  const segBase =
+    'flex h-11 flex-1 items-center justify-center gap-2 rounded-[9px] border text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mustard'
+  const segOn = `${segBase} border-mustard bg-mustard/15 font-semibold text-cream`
+  const segOff = `${segBase} border-transparent font-medium text-muted hover:text-cream`
+
   return (
-    <div className="flex min-h-screen bg-asphalt transition-colors duration-300" style={accentOverride}>
-      {/* Panel de marca — se oculta en pantallas chicas */}
-      <div className="relative hidden flex-1 flex-col items-center justify-center overflow-hidden bg-panel md:flex">
+    <div className="flex min-h-screen bg-asphalt text-cream transition-colors duration-300 md:flex-row" style={accentOverride}>
+      {/* Panel de marca — solo en pantallas medianas y grandes */}
+      <section
+        aria-label="Qué tal?"
+        className="relative hidden flex-1 flex-col items-center justify-center gap-6 overflow-hidden border-r border-panel-light bg-panel md:flex"
+      >
         <div
-          className="absolute inset-0 opacity-[0.04] transition-colors duration-300"
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-[72px] opacity-[0.12]"
           style={{
-            backgroundImage:
-              'repeating-linear-gradient(135deg, var(--color-mustard) 0px, var(--color-mustard) 2px, transparent 2px, transparent 26px)',
+            ...checkerStyle(36),
+            WebkitMaskImage: 'linear-gradient(to top, #000, transparent)',
+            maskImage: 'linear-gradient(to top, #000, transparent)',
           }}
         />
-        <div className="relative flex flex-col items-center px-10 text-center">
-          <Logo size={96} />
-          <h1 className="mt-6 text-2xl font-semibold text-cream">Qué tal?</h1>
-          <p className="mt-2 text-sm text-muted">
-            {intent === 'administracion'
-              ? 'Métricas y reportes — acceso restringido'
-              : 'Panel de operadores — mensajería y despacho'}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(60% 50% at 50% 42%, color-mix(in srgb, var(--color-mustard) 7%, transparent), transparent 70%)',
+          }}
+        />
+        <BrandMark />
+        <div className="relative text-center">
+          <h1 className="text-[44px] font-bold uppercase leading-none tracking-[0.06em] text-cream">Qué tal?</h1>
+          <p className="mt-3 text-[17px] text-cream/75">
+            {isAdmin ? 'Métricas y reportes — acceso restringido' : 'Mensajería y despacho para operadores'}
           </p>
         </div>
-      </div>
+        <p className="absolute inset-x-0 bottom-[92px] text-center font-mono text-xs font-medium tracking-[0.08em] text-muted">
+          TAXI LASER SERVICE · ATLANTA, GA
+        </p>
+      </section>
 
       {/* Panel del formulario */}
-      <div className="flex w-full flex-1 items-center justify-center px-6 py-12 md:max-w-md">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center md:hidden">
-            <Logo size={64} />
+      <main className="flex w-full flex-col items-center px-5 pb-7 pt-10 md:w-[540px] md:max-w-full md:shrink-0 md:justify-center md:px-10 md:py-12">
+        <div className="flex w-full max-w-[380px] flex-1 flex-col gap-5 md:flex-none">
+          {/* Marca compacta — solo en celular */}
+          <div className="flex flex-col items-center gap-3.5 pt-2 md:hidden">
+            <BrandMark scale={0.66} />
+            <div className="text-[28px] font-bold uppercase tracking-[0.06em]">Qué tal?</div>
+            <div aria-hidden="true" className="h-3.5 w-full rounded-[3px] opacity-[0.14]" style={checkerStyle(14)} />
           </div>
-
-          {!showForgot && (
-            <div className="relative mb-6 flex rounded-full border border-panel-light bg-panel p-1 text-xs font-medium">
-              <div
-                className="absolute inset-y-1 w-[calc(50%-4px)] rounded-full bg-mustard transition-transform duration-200"
-                style={{ transform: intent === 'administracion' ? 'translateX(calc(100% + 8px))' : 'translateX(0)' }}
-              />
-              <button
-                type="button"
-                onClick={() => changeIntent('mensajeria')}
-                className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 transition-colors ${
-                  intent === 'mensajeria' ? 'text-asphalt' : 'text-muted hover:text-cream'
-                }`}
-              >
-                <MessageSquare size={13} /> Mensajería
-              </button>
-              <button
-                type="button"
-                onClick={() => changeIntent('administracion')}
-                className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 transition-colors ${
-                  intent === 'administracion' ? 'text-asphalt' : 'text-muted hover:text-cream'
-                }`}
-              >
-                <BarChart3 size={13} /> Administración
-              </button>
-            </div>
-          )}
 
           {!showForgot ? (
             <>
-              <h2 className="mb-1 text-xl font-semibold text-cream">Ingresá a tu cuenta</h2>
-              <p className="mb-8 text-sm text-muted">
-                {intent === 'administracion'
-                  ? 'Entrá con la misma cuenta — necesitás permiso de métricas'
-                  : 'Usá tu email y contraseña de operador'}
-              </p>
+              <div>
+                <h2 className="text-2xl font-bold leading-tight md:text-[28px]">Ingresá a tu cuenta</h2>
+                <p className="mt-1.5 text-[15px] text-muted">
+                  {isAdmin
+                    ? 'Entrá con la misma cuenta. Necesitás permiso de métricas.'
+                    : 'Usá tu email y contraseña de operador.'}
+                </p>
+              </div>
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted">Email</label>
-                  <div className="relative">
-                    <Mail size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="login-email" className={labelCls}>
+                    Email
+                  </label>
+                  <div className={fieldWrap}>
+                    <Mail size={18} aria-hidden="true" className="shrink-0 text-muted" />
                     <input
+                      id="login-email"
                       type="email"
                       required
                       autoFocus
+                      autoComplete="username"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="tu@taxilaserllc.com"
-                      className="w-full rounded-md border border-panel-light bg-asphalt py-2.5 pl-9 pr-3 text-sm text-cream placeholder-muted/50 outline-none transition-colors focus:border-mustard"
+                      className={fieldInput}
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted">Contraseña</label>
-                  <div className="relative">
-                    <Lock size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="login-password" className={labelCls}>
+                    Contraseña
+                  </label>
+                  <div className={`${fieldWrap} pr-1.5`}>
+                    <Lock size={18} aria-hidden="true" className="shrink-0 text-muted" />
                     <input
+                      id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       required
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-md border border-panel-light bg-asphalt py-2.5 pl-9 pr-9 text-sm text-cream outline-none transition-colors focus:border-mustard"
+                      className={fieldInput}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-mustard"
-                      tabIndex={-1}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      aria-pressed={showPassword}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-cream/75 transition-colors hover:text-cream focus-visible:outline-2 focus-visible:outline-mustard"
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs">
-                  <label className="flex cursor-pointer items-center gap-1.5 text-muted">
+                <div className="flex flex-wrap items-center justify-between gap-x-3">
+                  <label className="inline-flex min-h-11 cursor-pointer items-center gap-2.5 text-sm text-cream/80">
                     <input
                       type="checkbox"
                       checked={remember}
                       onChange={(e) => setRemember(e.target.checked)}
-                      className="h-3.5 w-3.5 accent-[var(--color-mustard)]"
+                      className="h-5 w-5 accent-[var(--color-mustard)]"
                     />
                     Recordarme
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowForgot(true)}
-                    className="font-medium text-muted transition-colors hover:text-mustard"
+                    className="inline-flex min-h-11 items-center text-sm font-medium text-mustard underline underline-offset-[3px] transition-colors hover:text-cream focus-visible:outline-2 focus-visible:outline-mustard"
                   >
                     ¿Olvidaste tu contraseña?
                   </button>
                 </div>
 
                 {error && (
-                  <p className="rounded-md border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">
-                    {error}
-                  </p>
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2.5 rounded-[10px] border border-alert/40 bg-alert/10 px-3.5 py-3 text-sm text-alert"
+                  >
+                    <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0" />
+                    <span>{error}</span>
+                  </div>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="mt-2 flex items-center justify-center gap-2 rounded-md bg-mustard py-2.5 text-sm font-medium text-asphalt transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {loading && <Loader2 size={15} className="animate-spin" />}
-                  {loading ? 'Ingresando...' : 'Ingresar'}
+                <button type="submit" disabled={loading} className={primaryBtn}>
+                  {loading && <Loader2 size={17} className="animate-spin" />}
+                  {loading ? 'Ingresando...' : isAdmin ? 'Ingresar a Administración' : 'Ingresar'}
                 </button>
               </form>
+
+              {/* Destino del ingreso — en celular queda al pie */}
+              <div className="flex flex-col gap-3 max-md:mt-auto">
+                <div className="flex items-center gap-3 text-[13px] text-muted">
+                  <div className="h-px flex-1 bg-panel-light" />
+                  Ingresar a
+                  <div className="h-px flex-1 bg-panel-light" />
+                </div>
+                <div
+                  role="group"
+                  aria-label="Destino del ingreso"
+                  className="flex gap-1 rounded-xl border border-panel-light bg-asphalt p-1"
+                >
+                  <button
+                    type="button"
+                    onClick={() => changeIntent('mensajeria')}
+                    aria-pressed={!isAdmin}
+                    className={!isAdmin ? segOn : segOff}
+                  >
+                    <MessageSquare size={17} aria-hidden="true" /> Mensajería
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeIntent('administracion')}
+                    aria-pressed={isAdmin}
+                    className={isAdmin ? segOn : segOff}
+                  >
+                    <BarChart3 size={17} aria-hidden="true" /> Administración
+                  </button>
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -218,50 +300,60 @@ export default function Login({ onIntentChange }: Props) {
                   setForgotSent(false)
                   setForgotError(null)
                 }}
-                className="mb-6 flex items-center gap-1 text-xs font-medium text-muted transition-colors hover:text-mustard"
+                className="inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-medium text-muted transition-colors hover:text-mustard focus-visible:outline-2 focus-visible:outline-mustard"
               >
-                <ArrowLeft size={13} /> Volver al login
+                <ArrowLeft size={15} aria-hidden="true" /> Volver al login
               </button>
 
-              <h2 className="mb-1 text-xl font-semibold text-cream">Recuperar contraseña</h2>
-              <p className="mb-8 text-sm text-muted">
-                Ingresá tu email y te mandamos instrucciones para restablecerla.
-              </p>
+              <div>
+                <h2 className="text-2xl font-bold leading-tight md:text-[28px]">Recuperar contraseña</h2>
+                <p className="mt-1.5 text-[15px] text-muted">
+                  Ingresá tu email y te mandamos instrucciones para restablecerla.
+                </p>
+              </div>
 
               {forgotSent ? (
-                <div className="flex items-start gap-2.5 rounded-md border border-available/30 bg-available/10 px-3.5 py-3 text-sm text-available">
-                  <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+                <div
+                  role="status"
+                  className="flex items-start gap-2.5 rounded-[10px] border border-available/30 bg-available/10 px-3.5 py-3 text-sm text-available"
+                >
+                  <CheckCircle2 size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
                   <span>Listo — revisá tu correo (incluyendo spam) para continuar.</span>
                 </div>
               ) : (
-                <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted">Email</label>
-                    <div className="relative">
-                      <Mail size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <form onSubmit={handleForgotSubmit} className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="forgot-email" className={labelCls}>
+                      Email
+                    </label>
+                    <div className={fieldWrap}>
+                      <Mail size={18} aria-hidden="true" className="shrink-0 text-muted" />
                       <input
+                        id="forgot-email"
                         type="email"
                         required
                         autoFocus
+                        autoComplete="username"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
-                        className="w-full rounded-md border border-panel-light bg-asphalt py-2.5 pl-9 pr-3 text-sm text-cream outline-none transition-colors focus:border-mustard"
+                        placeholder="tu@taxilaserllc.com"
+                        className={fieldInput}
                       />
                     </div>
                   </div>
 
                   {forgotError && (
-                    <p className="rounded-md border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">
-                      {forgotError}
-                    </p>
+                    <div
+                      role="alert"
+                      className="flex items-start gap-2.5 rounded-[10px] border border-alert/40 bg-alert/10 px-3.5 py-3 text-sm text-alert"
+                    >
+                      <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0" />
+                      <span>{forgotError}</span>
+                    </div>
                   )}
 
-                  <button
-                    type="submit"
-                    disabled={forgotLoading}
-                    className="mt-1 flex items-center justify-center gap-2 rounded-md bg-mustard py-2.5 text-sm font-medium text-asphalt transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {forgotLoading && <Loader2 size={15} className="animate-spin" />}
+                  <button type="submit" disabled={forgotLoading} className={primaryBtn}>
+                    {forgotLoading && <Loader2 size={17} className="animate-spin" />}
                     {forgotLoading ? 'Enviando...' : 'Enviar instrucciones'}
                   </button>
                 </form>
@@ -269,7 +361,7 @@ export default function Login({ onIntentChange }: Props) {
             </>
           )}
         </div>
-      </div>
+      </main>
     </div>
   )
 }

@@ -202,12 +202,19 @@ export default function Inbox({
     }
     loadMissedCallsCount()
 
+    // Debounce: marcar N llamadas como vistas genera N eventos de Realtime;
+    // con esto se hace UNA sola consulta de conteo cuando se calma la ráfaga.
+    let timer: ReturnType<typeof setTimeout> | null = null
     const channel = supabase
       .channel('missed-calls-count')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, loadMissedCallsCount)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, () => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(loadMissedCallsCount, 1000)
+      })
       .subscribe()
 
     return () => {
+      if (timer) clearTimeout(timer)
       supabase.removeChannel(channel)
     }
   }, [])

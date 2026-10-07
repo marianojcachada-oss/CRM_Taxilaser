@@ -44,10 +44,12 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "Secreto inválido" }), { status: 401 });
   }
 
-  const enabled = settings.TAXICALLER_FINISHED_MESSAGE_ENABLED;
-  if (enabled === "false") {
-    return new Response("OK (desactivado desde Integrations)", { status: 200 });
-  }
+  // El interruptor de Integrations apaga SOLO el aviso al pasajero. Antes
+  // cortaba acá, antes de tocar nada, y eso dejaba al contacto con el
+  // servicio "activo" para siempre (has_active_ride nunca volvía a false),
+  // sin sumar servicios_completados ni cerrar la fila de ride_history. Ahora
+  // el estado del viaje se actualiza siempre; solo se omite el mensaje.
+  const messageEnabled = settings.TAXICALLER_FINISHED_MESSAGE_ENABLED !== "false";
 
   const rawBody = await req.text();
   if (!rawBody) return new Response("OK", { status: 200 });
@@ -126,7 +128,9 @@ Deno.serve(async (req) => {
       .eq("id", contactId);
   }
 
-  const { sentVia, wamid, rcMessageId } = await sendAutomatedMessage({ contactId, phone, text });
+  const { sentVia, wamid, rcMessageId } = messageEnabled
+    ? await sendAutomatedMessage({ contactId, phone, text })
+    : { sentVia: [] as string[], wamid: null as string | null, rcMessageId: null as string | null };
 
   // La fila de este viaje en ride_history YA existe desde que
   // taxicaller-assigned-webhook la despachó (upsert_ride_dispatch crea
@@ -155,6 +159,19 @@ Deno.serve(async (req) => {
     },
     { onConflict: "job_id" },
   );
+
+  // Aviso apagado desde Integrations: el estado del viaje ya quedó
+  // actualizado arriba (contacto + ride_history). No se manda nada ni se
+  // toca ninguna conversación — solo queda constancia en el timeline.
+  if (!messageEnabled) {
+    await supabase.from("contact_timeline").insert({
+      contact_id: contactId,
+      conversation_id: null,
+      event_type: "ride_completed",
+      description: `Servicio finalizado${fareTotal ? ` — $${fareTotal}` : ""} — aviso automático desactivado (job ${body.job_id ?? "?"})`,
+    });
+    return new Response("OK (estado actualizado, aviso desactivado desde Integrations)", { status: 200 });
+  }
 
   // Si NO salió nada por ningún canal (canal apagado desde Integrations,
   // contacto con STOP o bloqueado, o error de envío), no se guarda ningún

@@ -266,6 +266,15 @@ Deno.serve(async (req) => {
             console.warn(`[meta-webhook] mensaje de WhatsApp sin 'from' (type=${msg?.type}), se ignora`);
             continue;
           }
+          // Reacciones (emoji sobre un mensaje) y mensajes "borrados": no son
+          // mensajes del cliente. Si se guardaran, reabrirían la conversación,
+          // la marcarían como no leída y la reasignarían sin motivo, además de
+          // mostrar el cartel de "revisar en WhatsApp". Se ignoran.
+          if (msg.type === "reaction") {
+            console.log(`[meta-webhook] reacción de WhatsApp ignorada (${msg.reaction?.emoji ?? "sin emoji"})`);
+            continue;
+          }
+
           const contactName = value.contacts?.[0]?.profile?.name ?? null;
 
           let text = "";
@@ -559,10 +568,15 @@ async function handleIncomingMessage(opts: {
     if (convError) throw convError;
     conversationId = convId;
 
+    // Solo se escribe si el dato cambió (o todavía no estaba): antes se
+    // hacía un UPDATE en CADA mensaje de Facebook/Instagram aunque el valor
+    // fuera el mismo, y cada UPDATE (aunque no cambie nada) genera un evento
+    // de Realtime para todos los operadores conectados.
     await supabase
       .from("conversations")
       .update({ external_thread_id: externalContactId })
-      .eq("id", conversationId);
+      .eq("id", conversationId)
+      .or(`external_thread_id.is.null,external_thread_id.neq.${externalContactId}`);
   }
 
   // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de
@@ -579,11 +593,12 @@ async function handleIncomingMessage(opts: {
     sent_via_channel: channel,
   });
 
-  // 5. Actualizar last_message_at de la conversación
-  await supabase
-    .from("conversations")
-    .update({ last_message_at: new Date().toISOString() })
-    .eq("id", conversationId);
+  // (Antes había un paso 5 que volvía a actualizar last_message_at acá.
+  // Sobraba: el trigger trg_update_conversation_preview ya lo pone al
+  // insertar el mensaje (last_message_at = new.created_at). Y si el insert
+  // fallaba — por ejemplo un mensaje duplicado que Meta reenvía — igual
+  // se actualizaba. Sacarlo evita un UPDATE y un evento de Realtime por
+  // cada mensaje entrante.)
 }
 
 // Orden de "avance" de un estado de WhatsApp — sirve para no pisar un

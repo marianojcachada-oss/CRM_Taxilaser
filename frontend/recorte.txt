@@ -1,0 +1,334 @@
+﻿===== App.tsx 296-410 =====
+    // Para esos, applyOrPatchConversation pisa el array local con los
+    // campos que ya vienen en el propio evento, sin fetch. Para una
+    // reasignaciÃ³n o cualquier mensaje nuevo (del cliente, de un
+    // operador, o automÃ¡tico â€” como el aviso de "unidad asignada" de
+    // TaxiCaller), sigue pidiendo la fila completa como siempre â€” ahÃ­ sÃ­
+    // puede haber cambiado el nombre del operador o los datos de viaje
+    // activo del contacto.
+    const channel = supabase
+      .channel('conversations-list')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
+        patchConversation((payload.new as { id: string }).id)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
+        applyOrPatchConversation(payload.new as any)
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
+        const oldRow = payload.old as { id: string }
+        setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, loadConversations, patchConversation, applyOrPatchConversation])
+
+  // Sonido + notificaciÃ³n del navegador cuando llega un mensaje nuevo de un cliente
+  useEffect(() => {
+    if (!session || !operatorId) return
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    // Antes esto escuchaba TODOS los mensajes de TODOS los clientes, sin
+    // filtrar, y por cada uno hacÃ­a una consulta aparte a "conversations"
+    // solo para chequear si era mÃ­o â€” con varios operadores conectados,
+    // cada mensaje de cualquier cliente generaba un evento de Realtime +
+    // una consulta a la base POR CADA operador conectado, casi todas
+    // descartadas al toque. Eso suma bastante al uso de Supabase sin
+    // necesidad.
+    //
+    // Ahora se filtra directo por "assigned_operator_id" â€” Realtime SÃ
+    // puede filtrar esto del lado del servidor porque es una columna
+    // propia de la tabla a la que nos suscribimos (no hace falta cruzar
+    // con "messages"), asÃ­ que Supabase ya me manda solo lo que me toca,
+    // sin la consulta extra. "conversations.last_contact_message_at" se
+    // actualiza solo con cada mensaje real del cliente (trigger ya
+    // existente), asÃ­ que alcanza con mirar ese campo.
+    const channel = supabase
+      .channel(`my-new-messages-${operatorId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversations',
+          filter: `assigned_operator_id=eq.${operatorId}`,
+        },
+        (payload) => {
+          if (muted) return
+
+          // "last_contact_message_at" puede venir en updates que no son
+          // un mensaje nuevo (por ejemplo, reasignaciÃ³n) â€” se chequea que
+          // sea reciente (Ãºltimos 10s) para no sonar de mÃ¡s en esos casos.
+          const lastContactAt = payload.new.last_contact_message_at as string | null
+          if (!lastContactAt) return
+          if (Date.now() - new Date(lastContactAt).getTime() > 10_000) return
+
+          playNotificationSound()
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Mensaje nuevo', {
+              body: String(payload.new.last_message_preview ?? '').slice(0, 120),
+            })
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // session?.user?.id, no "session" entero â€” mismo fix que en el canal
+    // de conversations-list de mÃ¡s arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, muted, operatorId])
+
+  useEffect(() => {
+    // Sin sesiÃ³n (login, o reciÃ©n cerraste sesiÃ³n) siempre va en oscuro,
+    // sin importar quÃ© tema tenÃ­a elegido el Ãºltimo operador que usÃ³
+    // esta compu â€” si no, el logo puede quedar sobre un fondo claro que
+    // no lo hace lucir bien.
+    if (!session) {
+      setTheme('dark')
+      return
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.removeAttribute('data-theme')
+    } else {
+      document.documentElement.setAttribute('data-theme', theme)
+    }
+  }, [theme])
+
+  // La tipografÃ­a no depende del tema (no hay un "--font-sans" por tema),
+  // asÃ­ que en vez de un atributo se pisa directo la variable CSS en el
+  // elemento raÃ­z â€” alcanza con esto para que todo lo que ya usa
+  // var(--font-sans) cambie de fuente al toque.
+  useEffect(() => {
+    const family = fonts.find((f) => f.id === font)?.family
+    if (family) document.documentElement.style.setProperty('--font-sans', family)
+  }, [font])
+===== Inbox.tsx 156-270 =====
+    // de chat o tipografÃ­a tambiÃ©n dispara un UPDATE ahÃ­. Confirmado en
+    // los logs de Supabase: esto era de los dos consumos mÃ¡s grandes de
+    // todo el proyecto. El payload de Realtime ya trae la fila entera
+    // actualizada â€” alcanza con parchear en memoria el operador que
+    // cambiÃ³, sin volver a pedir nada a la base.
+    const channel = supabase
+      .channel('operators-presence')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, (payload) => {
+        const row = payload.new as {
+          id: string
+          full_name: string | null
+          operator_code: string | null
+          presence: 'available' | 'offline' | 'busy' | null
+        }
+        setOperators((prev) => {
+          const idx = prev.findIndex((o) => o.id === row.id)
+          if (idx === -1) return prev
+          const next = [...prev]
+          next[idx] = {
+            ...next[idx],
+            full_name: row.full_name ?? next[idx].full_name,
+            operator_code: row.operator_code ?? next[idx].operator_code,
+            presence: row.presence ?? next[idx].presence,
+          }
+          return next.sort(byOperatorCode)
+        })
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'operators' }, loadOperators)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'operators' }, (payload) => {
+        const oldRow = payload.old as { id: string }
+        setOperators((prev) => prev.filter((o) => o.id !== oldRow.id))
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  useEffect(() => {
+    function loadMissedCallsCount() {
+      supabase
+        .from('missed_calls')
+        .select('id', { count: 'exact', head: true })
+        .eq('acknowledged', false)
+        .then(({ count }) => setMissedCallsCount(count ?? 0))
+    }
+    loadMissedCallsCount()
+
+    const channel = supabase
+      .channel('missed-calls-count')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, loadMissedCallsCount)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  // "Todos" es el histÃ³rico completo de verdad â€” a diferencia de la
+  // lista principal (que a propÃ³sito solo trae lo activo, para que la
+  // bandeja cargue rÃ¡pido), esto consulta sin importar el estado.
+  //
+  // OJO â€” esto antes dependÃ­a de [conversations] (el estado local), que
+  // cambia con CADA mensaje nuevo, cada asignaciÃ³n, cada cambio de
+  // estado â€” no solo cuando se crea o se borra una conversaciÃ³n. Eso
+  // disparaba esta consulta decenas de miles de veces por hora en cada
+  // pestaÃ±a abierta (confirmado en los logs de Supabase: ~4 requests
+  // por segundo por operador conectado), inflando un montÃ³n el consumo
+  // de Log Query y de Realtime Messages del proyecto sin necesidad.
+  // El total de conversaciones SOLO cambia cuando se crea o se borra
+  // una â€” asÃ­ que ahora se recalcula nada mÃ¡s en esos dos eventos,
+  // igual que ya hace missedCallsCount arriba.
+  useEffect(() => {
+    function loadTotalConversationsCount() {
+      supabase
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .then(({ count }) => setTotalConversationsCount(count ?? 0))
+    }
+    loadTotalConversationsCount()
+
+    const channel = supabase
+      .channel('total-conversations-count')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (filter.kind !== 'all') {
+      setAllHistoryResults(null)
+      return
+    }
+
+    setAllHistoryLoading(true)
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(300)
+      .then(({ data }) => {
+        setAllHistoryResults((data ?? []).map(mapConversation))
+        setAllHistoryLoading(false)
+      })
+  }, [filter.kind])
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+===== Inbox.tsx 401-445 =====
+        }
+        setSupportIds(new Set((data ?? []).map((r) => r.conversation_id)))
+      })
+
+    const channel = supabase
+      .channel(`conversation-support-${operatorId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_support', filter: `operator_id=eq.${operatorId}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as { conversation_id?: string; active?: boolean } | null
+          if (!row?.conversation_id) return
+          setSupportIds((prev) => {
+            const next = new Set(prev)
+            if (payload.eventType === 'DELETE' || row.active === false) {
+              next.delete(row.conversation_id!)
+            } else {
+              next.add(row.conversation_id!)
+            }
+            return next
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [operatorId])
+
+  const unreadTotal = conversations.filter((c) => c.unread).length
+
+  const visibleConversations = useMemo(() => {
+    if (searchQuery.trim().length >= 2) {
+      return searchResults ?? []
+    }
+    if (filter.kind === 'all') {
+      return allHistoryResults ?? []
+    }
+    if (filter.kind === 'my_history') {
+      return myHistoryResults ?? []
+    }
+    if (filter.kind === 'support') {
+      return conversations.filter((c) => supportIds.has(c.id))
+    }
+===== ConversationsView.tsx 466-520 =====
+          console.error('Error cargando mensajes:', error.message)
+          return
+        }
+        setThread((data ?? []).map(mapRow))
+      })
+
+    const channel = supabase
+      .channel(`messages_${selectedId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          setThread((prev) => {
+            if (prev.some((m) => m.id === payload.new.id)) return prev
+            return [...prev, mapRow(payload.new)]
+          })
+        },
+      )
+      .on(
+        // Sin esto, un cambio de "entregado" a "leÃ­do" (o el primer
+        // "entregado" en sÃ­) nunca se veÃ­a reflejado en un chat que ya
+        // estaba abierto â€” solo aparecÃ­a al recargar la pÃ¡gina.
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          setThread((prev) => prev.map((m) => (m.id === payload.new.id ? mapRow(payload.new) : m)))
+        },
+      )
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      supabase.removeChannel(channel)
+    }
+  }, [selectedId])
+
+  // Al abrir un chat, o al llegar un mensaje nuevo, va directo al final
+  // del hilo â€” no tiene que scrollear a mano para ver el Ãºltimo mensaje.
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [selectedId, thread.length])
+
+  // El canal de envÃ­o arranca en selected.channel (fijo, el que tenÃ­a
+  // la conversaciÃ³n al crearse), pero como SMS y WhatsApp comparten una
+  // misma conversaciÃ³n, un cliente puede escribir por SMS y despuÃ©s
+  // pasarse a WhatsApp sin que ese campo se entere. Esto lo corrige: al
+  // cargar (o actualizarse) el hilo, sigue el canal del ÃšLTIMO mensaje
+  // real del cliente â€” asÃ­ la respuesta sale por donde el cliente
+  // efectivamente estÃ¡ mirando, en vez de por un canal viejo que ya no
+  // usa (la causa mÃ¡s probable de "en RingCentral figura enviado pero
+  // el cliente dice que no le llegÃ³ nada").
+  useEffect(() => {
+    if (!selected || (selected.channel !== 'sms' && selected.channel !== 'whatsapp')) return
+
+    const lastContactMsg = [...thread].reverse().find((m) => m.from === 'contact')

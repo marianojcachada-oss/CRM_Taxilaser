@@ -1,0 +1,55 @@
+﻿      await handleOptOutKeyword(contactId, externalContactId, text, "whatsapp");
+    }
+    await maybeSendOutOfHoursNotice(contactId, externalContactId, "whatsapp");
+  } else {
+    const { data: convId, error: convError } = await supabase.rpc(
+      "find_or_create_channel_conversation",
+      { p_contact_id: contactId, p_channel: channel },
+    );
+    if (convError) throw convError;
+    conversationId = convId;
+
+    await supabase
+      .from("conversations")
+      .update({ external_thread_id: externalContactId })
+      .eq("id", conversationId);
+  }
+
+  // 4. Insertar el mensaje â€” sent_via_channel guarda el canal REAL de
+  // este mensaje puntual, que puede no coincidir con conversations.channel
+  // una vez que sms/whatsapp comparten conversaciÃ³n.
+  await supabase.from("messages").insert({
+    conversation_id: conversationId,
+    sender_type: "contact",
+    content: text || null,
+    external_message_id: externalMessageId,
+    attachment_url: attachment?.url ?? null,
+    attachment_name: attachment?.name ?? null,
+    attachment_kind: attachment?.kind ?? null,
+    sent_via_channel: channel,
+  });
+
+  // 5. Actualizar last_message_at de la conversaciÃ³n
+  await supabase
+    .from("conversations")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", conversationId);
+}
+
+// Orden de "avance" de un estado de WhatsApp â€” sirve para no pisar un
+// estado mÃ¡s avanzado con uno viejo si los eventos llegan fuera de orden
+// (Meta no garantiza el orden de entrega de los webhooks).
+const STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+
+async function handleStatusUpdate(status: { id?: string; status?: string; timestamp?: string }) {
+  const wamid = status.id;
+  const newStatus = status.status; // 'sent' | 'delivered' | 'read' | 'failed'
+  if (!wamid || !newStatus) return;
+
+  const { data: existing } = await supabase
+    .from("messages")
+    .select("id, delivery_status")
+    .eq("wamid", wamid)
+    .maybeSingle();
+
+  if (!existing) return; // puede llegar el status antes de que terminemos de guardar el insert, no pasa nada

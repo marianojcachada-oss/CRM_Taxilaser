@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Phone, Check, Copy } from 'lucide-react'
 import { supabase } from './supabaseClient'
 
@@ -15,21 +15,34 @@ export default function MissedCallsView() {
   const [loading, setLoading] = useState(true)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  useEffect(() => {
-    load()
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => {
+    load(true)
+
+    // "Marcar como vistas" actualiza varias filas de una vez y Realtime manda
+    // UN evento por fila. Antes cada evento disparaba una recarga completa de
+    // la lista (hasta 1000 filas con join) -- con cientos de filas eran miles
+    // de consultas en un minuto. Ahora los eventos que llegan juntos se
+    // agrupan en una sola recarga (espera 1 segundo sin eventos nuevos).
     const channel = supabase
       .channel('missed-calls-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, () => {
+        if (reloadTimer.current) clearTimeout(reloadTimer.current)
+        reloadTimer.current = setTimeout(() => load(false), 1000)
+      })
       .subscribe()
 
     return () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
       supabase.removeChannel(channel)
     }
   }, [])
 
-  function load() {
-    setLoading(true)
+  // showSpinner solo en la primera carga: en las recargas por eventos la
+  // lista queda a la vista en vez de parpadear con "Cargando...".
+  function load(showSpinner: boolean) {
+    if (showSpinner) setLoading(true)
     supabase
       .from('missed_calls')
       .select('id, phone, acknowledged, created_at, contacts(full_name)')

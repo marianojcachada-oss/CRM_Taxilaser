@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { conversationId, channel, text, attachmentUrl, attachmentName, attachmentKind } = await req.json();
+  const { conversationId, channel, text, attachmentUrl, attachmentName, attachmentKind, replyToMessageId } = await req.json();
 
   if (!conversationId || !channel || (!text && !attachmentUrl)) {
     return new Response(JSON.stringify({ error: "Faltan conversationId, channel, y text o attachmentUrl" }), {
@@ -170,6 +170,20 @@ Deno.serve(async (req) => {
     recipientExternalId = contactChannel?.external_id ?? null;
   }
 
+  // Si se está respondiendo a un mensaje puntual (citándolo, como en
+  // WhatsApp), hace falta el ID que WhatsApp le puso a ESE mensaje —
+  // "wamid" si lo mandamos nosotros, "external_message_id" si lo mandó el
+  // cliente. Solo aplica a WhatsApp — SMS no tiene forma de citar un mensaje.
+  let quotedWamid: string | null = null;
+  if (channel === "whatsapp" && replyToMessageId) {
+    const { data: quotedMessage } = await serviceClient
+      .from("messages")
+      .select("wamid, external_message_id")
+      .eq("id", replyToMessageId)
+      .maybeSingle();
+    quotedWamid = quotedMessage?.wamid ?? quotedMessage?.external_message_id ?? null;
+  }
+
   try {
     if (channel === "sms") {
       if (!phone) throw new Error("El contacto no tiene teléfono cargado");
@@ -226,6 +240,13 @@ Deno.serve(async (req) => {
           type: "text",
           text: { body: text },
         };
+      }
+
+      // "context" es lo que hace que el mensaje le aparezca CITADO al
+      // cliente en su WhatsApp. Si no se encontró el wamid del mensaje
+      // citado, se manda igual pero sin la cita, en vez de cortar el envío.
+      if (quotedWamid) {
+        body.context = { message_id: quotedWamid };
       }
 
       const res = await fetch(`https://graph.facebook.com/v26.0/${phoneNumberId}/messages`, {
@@ -315,6 +336,7 @@ Deno.serve(async (req) => {
         attachment_name: attachmentName || null,
         attachment_kind: attachmentKind || null,
         wamid,
+        reply_to_message_id: channel === "whatsapp" ? replyToMessageId || null : null,
         delivery_status: channel === "whatsapp" ? "sent" : null,
       })
       .select("id")

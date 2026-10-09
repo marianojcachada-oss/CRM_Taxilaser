@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMatch, useNavigate } from 'react-router-dom'
 import {
   Send, X, CheckCircle2, RotateCcw, Check, CheckCheck, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
@@ -241,6 +242,9 @@ type Props = {
   filter: { kind: string; channel?: Channel }
   onSelectFilter: (f: { kind: string; channel?: Channel }) => void
   onRefreshConversations?: () => void
+  // true mientras Inbox trae de Supabase la conversación de un link
+  // (/chat/:id) que no está en la lista — frena el salto automático.
+  resolvingSelection?: boolean
 }
 
 const filterTitle: Record<string, string> = {
@@ -265,9 +269,20 @@ export default function ConversationsView({
   filter,
   onSelectFilter,
   onRefreshConversations,
+  resolvingSelection = false,
 }: Props) {
   const toast = useToast()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // La conversación abierta sale de la URL (/chat/:conversationId), no de
+  // un useState: así un link compartido o un F5 abren la misma. Elegir
+  // otra conversación = navegar. `replace` para los cambios automáticos
+  // (no son un "paso" del operador, no tienen que quedar en el historial).
+  const navigate = useNavigate()
+  const chatMatch = useMatch('/chat/:conversationId')
+  const selectedId = chatMatch?.params.conversationId ?? null
+  function setSelectedId(id: string | null, opts?: { replace?: boolean }) {
+    if (id === selectedId) return
+    navigate(id ? `/chat/${id}` : '/', opts)
+  }
 
   // El canal (WA/FB/IG/SMS) es un recorte independiente de la bandeja
   // (Mías/Pendientes/etc) — nunca reemplaza la cuenta de los demás
@@ -383,6 +398,9 @@ export default function ConversationsView({
   }
 
   useEffect(() => {
+    // Inbox todavía está trayendo de Supabase la conversación de la URL
+    // (link compartido que no está en la lista cargada): no saltar a otra.
+    if (resolvingSelection) return
     if (!conversations.some((c) => c.id === selectedId)) {
       // Si el operador está en medio de escribir algo (o tiene un adjunto
       // cargado), NO lo sacamos de la conversación así nomás — esto era lo
@@ -395,11 +413,11 @@ export default function ConversationsView({
       // nada por seguir el comportamiento de siempre.
       const isComposing = draft.trim().length > 0 || pendingAttachment != null
       if (!selectedId || !isComposing) {
-        setSelectedId(conversations[0]?.id ?? null)
+        setSelectedId(conversations[0]?.id ?? null, { replace: true })
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations])
+  }, [conversations, resolvingSelection])
 
   const selected = conversations.find((c) => c.id === selectedId)
 
@@ -745,6 +763,9 @@ export default function ConversationsView({
       return
     }
     setConversations((prev) => prev.filter((c) => c.id !== selected.id))
+    // Sacarla también de la URL — si no, el Inbox intentaría volver a
+    // traer de Supabase una conversación que ya no existe.
+    setSelectedId(null, { replace: true })
   }
 
   function toggleSelectId(id: string) {

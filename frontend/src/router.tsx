@@ -21,6 +21,7 @@ import { supabase } from './supabaseClient'
 //   /login                      Login
 //   /reset-password             ResetPassword (necesita la sesión del link del mail)
 //   /                           Inbox: Conversaciones
+//   /chat/:conversationId       Inbox con esa conversación abierta (link compartible)
 //   /contactos                  Inbox: Contactos
 //   /chat-interno/:canal        Inbox: chat interno (managers solo admins)
 //   /llamadas-perdidas          Inbox: Llamadas perdidas
@@ -224,6 +225,7 @@ export const router = createBrowserRouter([
             // Inbox (que no tiene <Outlet>) lee la vista de la URL.
             children: [
               { path: '/' },
+              { path: '/chat/:conversationId' },
               { path: '/contactos' },
               { path: '/chat-interno/:canal' },
               { path: '/llamadas-perdidas' },

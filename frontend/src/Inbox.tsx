@@ -11,6 +11,7 @@ import StartConversationModal from './StartConversationModal'
 import MissedCallsView from './MissedCallsView'
 import ProfileMenu from './ProfileMenu'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
+import { useToast } from './Toast'
 
 // 'cancelacion' entra acá como red de seguridad: aunque arreglamos la
 // causa de raíz (un mensaje automático podía apagar el unread y hacer
@@ -481,6 +482,72 @@ export default function Inbox({
       .filter((c) => matchesFilter(c, filter, operatorId))
   }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, supportIds, operatorId])
 
+  // --- Conversación abierta por URL (/chat/:conversationId) ------------
+  // Un link compartido (o un F5, o una reasignación estando abierta)
+  // puede apuntar a una conversación que NO está en la lista filtrada que
+  // se ve ahora (es de otro operador, está cerrada, etc.). En ese caso se
+  // agrega arriba de la lista para poder abrirla:
+  //   1) si está en la lista global de App, esa (se mantiene al día con
+  //      Realtime);
+  //   2) si no, se trae de Supabase una vez;
+  //   3) si no existe o no hay acceso: aviso y de vuelta a /.
+  // Al cambiar de filtro a mano se "suelta" (dismissedLinkId): el operador
+  // quiere ver ese filtro, no seguir arrastrando la conversación del link.
+  const toast = useToast()
+  const chatMatch = useMatch('/chat/:conversationId')
+  const urlConversationId = chatMatch?.params.conversationId ?? null
+  const [fetchedLinked, setFetchedLinked] = useState<Conversation | null>(null)
+  const [dismissedLinkId, setDismissedLinkId] = useState<string | null>(null)
+
+  const linkIsOutsideList =
+    !!urlConversationId &&
+    urlConversationId !== dismissedLinkId &&
+    !visibleConversations.some((c) => c.id === urlConversationId)
+  const linkedConversation = linkIsOutsideList
+    ? (conversations.find((c) => c.id === urlConversationId) ??
+      (fetchedLinked?.id === urlConversationId ? fetchedLinked : null))
+    : null
+  // Hay que ir a buscarla a Supabase (y mientras tanto ConversationsView
+  // no tiene que saltar a otra conversación).
+  const linkNeedsFetch = linkIsOutsideList && !linkedConversation
+
+  useEffect(() => {
+    if (!linkNeedsFetch || !urlConversationId) return
+    let cancelled = false
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .eq('id', urlConversationId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        // Cancelado = mientras tanto apareció en la lista (ej.: terminó de
+        // cargar la lista inicial) o cambió la URL — no pisar nada.
+        if (cancelled) return
+        if (error || !data) {
+          toast.error('Conversación no encontrada — puede que el link esté mal o que ya no exista.')
+          navigate('/', { replace: true })
+          return
+        }
+        setFetchedLinked(mapConversation(data))
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkNeedsFetch, urlConversationId])
+
+  // Memo: ConversationsView tiene un efecto que depende de esta lista —
+  // un array nuevo en cada render lo dispararía de más.
+  const listForView = useMemo(
+    () => (linkedConversation ? [linkedConversation, ...visibleConversations] : visibleConversations),
+    [linkedConversation, visibleConversations],
+  )
+
+  function changeFilter(f: FilterValue) {
+    setFilter(f)
+    if (urlConversationId) setDismissedLinkId(urlConversationId)
+  }
+
   // Para el contador del sidebar — mismo criterio que la lista de arriba,
   // pero siempre calculado (no solo cuando esa pestaña está activa).
   const supportCount = conversations.filter((c) => supportIds.has(c.id)).length
@@ -494,6 +561,13 @@ export default function Inbox({
       if (!prev) return prev
       return typeof action === 'function' ? (action as (p: Conversation[]) => Conversation[])(prev) : action
     })
+    // La conversación traída por link (si hay) también — así cerrarla,
+    // marcarla como leída, etc. se ve al toque.
+    setFetchedLinked((prev) => {
+      if (!prev) return prev
+      const next = typeof action === 'function' ? (action as (p: Conversation[]) => Conversation[])([prev]) : action
+      return next.find((c) => c.id === prev.id) ?? null
+    })
   }
 
   async function handleSignOut() {
@@ -501,7 +575,7 @@ export default function Inbox({
   }
 
   // /chat-interno/<algo> escrito a mano con un canal inexistente -> de
-  // vuelta a la bandeja. (Managers sin ser admin lo redirige App.tsx,
+  // vuelta a la bandeja. (Managers sin ser admin lo redirige router.tsx,
   // que sabe cuándo terminaron de cargar los permisos — acá isAdmin
   // arranca en false y rebotaría también a los admins con un F5.)
   if (internalMatch && !internalChannel) {
@@ -705,8 +779,10 @@ export default function Inbox({
             isAdmin={isAdmin}
             filter={filter}
             onSelectFilter={(f) => {
-              setFilter(f)
-              goTo('/')
+              changeFilter(f)
+              // Si ya está en la bandeja (/ o /chat/:id) no se navega: la
+              // conversación abierta sigue abierta si entra en el filtro.
+              if (view !== 'inbox') navigate('/')
               setShowMobileSidebar(false)
             }}
             view={view}
@@ -732,7 +808,8 @@ export default function Inbox({
 
         {view === 'inbox' && (
           <ConversationsView
-            conversations={visibleConversations}
+            conversations={listForView}
+            resolvingSelection={linkNeedsFetch}
             setConversations={updateConversationsEverywhere}
             operators={operators}
             operatorId={operatorId}
@@ -742,7 +819,7 @@ export default function Inbox({
             theme={theme}
             chatPattern={chatPattern}
             filter={filter}
-            onSelectFilter={(f) => setFilter(f)}
+            onSelectFilter={(f) => changeFilter(f as FilterValue)}
             onRefreshConversations={onRefreshConversations}
           />
         )}

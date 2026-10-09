@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useLocation, useMatch, useNavigate } from 'react-router-dom'
 import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import ConversationsView, { type Conversation, type Operator } from './ConversationsView'
@@ -17,6 +18,13 @@ import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 // unread llega a estar en false, una posible cancelación tiene que
 // seguir siendo visible en "Pendientes" — nunca puede quedar afuera de
 // las dos pestañas.
+// Slug de la URL (/chat-interno/<slug>) -> nombre del canal, el mismo
+// que usa Sidebar.tsx. Un slug desconocido vuelve a la bandeja.
+const INTERNAL_CHANNEL_SLUGS: Record<string, string> = {
+  dispatchers: 'Dispatchers',
+  managers: 'Managers',
+}
+
 const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo', 'cancelacion']
 
 // Ordena por el número del código (D5 antes que D12), no por texto — un
@@ -113,10 +121,28 @@ export default function Inbox({
   operatorPresence,
   onSetPresence,
 }: Props) {
-  const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
+  // La vista (y el canal del chat interno) salen de la URL, no de un
+  // useState: así F5, atrás/adelante y los links directos funcionan.
+  // Las rutas están declaradas en App.tsx (todas renderizan este Inbox).
+  const navigate = useNavigate()
+  const location = useLocation()
+  const internalMatch = useMatch('/chat-interno/:canal')
+  const view: 'inbox' | 'contacts' | 'internal' | 'missed-calls' =
+    location.pathname === '/contactos'
+      ? 'contacts'
+      : internalMatch
+        ? 'internal'
+        : location.pathname === '/llamadas-perdidas'
+          ? 'missed-calls'
+          : 'inbox'
+  const internalChannel = internalMatch ? (INTERNAL_CHANNEL_SLUGS[internalMatch.params.canal ?? ''] ?? null) : null
+  // Cambia de vista sin apilar entradas repetidas en el historial si ya
+  // estás ahí (ej.: tocar un filtro estando en la bandeja).
+  function goTo(path: string) {
+    if (location.pathname !== path) navigate(path)
+  }
   const [missedCallsCount, setMissedCallsCount] = useState(0)
   const [totalConversationsCount, setTotalConversationsCount] = useState(0)
-  const [internalChannel, setInternalChannel] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -474,6 +500,14 @@ export default function Inbox({
     await supabase.auth.signOut()
   }
 
+  // /chat-interno/<algo> escrito a mano con un canal inexistente -> de
+  // vuelta a la bandeja. (Managers sin ser admin lo redirige App.tsx,
+  // que sabe cuándo terminaron de cargar los permisos — acá isAdmin
+  // arranca en false y rebotaría también a los admins con un F5.)
+  if (internalMatch && !internalChannel) {
+    return <Navigate to="/" replace />
+  }
+
   return (
     <div className="flex h-screen flex-col bg-asphalt text-cream">
       {/* Barra superior */}
@@ -672,7 +706,7 @@ export default function Inbox({
             filter={filter}
             onSelectFilter={(f) => {
               setFilter(f)
-              setView('inbox')
+              goTo('/')
               setShowMobileSidebar(false)
             }}
             view={view}
@@ -681,16 +715,15 @@ export default function Inbox({
             totalConversationsCount={totalConversationsCount}
             supportCount={supportCount}
             onSelectContacts={() => {
-              setView('contacts')
+              goTo('/contactos')
               setShowMobileSidebar(false)
             }}
             onSelectTeamChat={(team) => {
-              setInternalChannel(team)
-              setView('internal')
+              goTo(`/chat-interno/${team.toLowerCase()}`)
               setShowMobileSidebar(false)
             }}
             onSelectMissedCalls={() => {
-              setView('missed-calls')
+              goTo('/llamadas-perdidas')
               setShowMobileSidebar(false)
             }}
           />
@@ -714,7 +747,9 @@ export default function Inbox({
           />
         )}
         {view === 'contacts' && <ContactsView isAdmin={isAdmin} />}
-        {view === 'internal' && internalChannel && (
+        {/* Managers solo con isAdmin ya confirmado: mientras cargan los
+            permisos no se muestra, para no dejar ver ese canal ni un instante. */}
+        {view === 'internal' && internalChannel && (internalChannel !== 'Managers' || isAdmin) && (
           <InternalChat channelName={internalChannel} operatorId={operatorId} operatorName={operatorName} />
         )}
         {view === 'missed-calls' && <MissedCallsView />}

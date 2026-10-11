@@ -496,8 +496,14 @@ export default function App() {
 
     const INACTIVITY_LIMIT_MS = 10 * 60 * 1000 // 10 minutos
 
-    const interval = setInterval(() => {
+    // Evita que un tick nuevo (cada 30 s) arranque otro cierre mientras el
+    // anterior todavía está esperando que la base confirme el cambio.
+    let closing = false
+
+    const interval = setInterval(async () => {
+      if (closing) return
       if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
+        closing = true
         // Cierra la sesión de verdad (no alcanza con solo cambiar el
         // estado — dejar la sesión abierta e inactiva es justamente lo
         // que generaba la sobrecarga de conexiones/consultas a Supabase
@@ -508,8 +514,22 @@ export default function App() {
         // robin hasta que alguien lo note, aunque ya no esté conectado.
         const currentOperatorId = operatorIdRef.current
         const currentPresence = operatorPresenceRef.current
+        //
+        // OJO: hay que ESPERAR (await) la actualización ANTES del signOut.
+        // Las consultas de supabase-js no se envían hasta que se las
+        // espera (o se les pone .then) — antes se armaba el update y nunca
+        // se mandaba, así que el operador quedaba como "Disponible" en la
+        // base aunque la sesión se hubiera cerrado. Y tiene que ir antes
+        // del signOut porque, una vez cerrada la sesión, la base ya no
+        // acepta el cambio (no hay usuario autenticado).
         if (currentOperatorId && (currentPresence === 'available' || currentPresence === 'apoyo')) {
-          supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
+          try {
+            await supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
+            setOperatorPresence('offline')
+          } catch (err) {
+            // Si falla, igual se cierra la sesión (no dejar al operador logueado).
+            console.error('No se pudo marcar al operador como no disponible:', err)
+          }
         }
         setLoggedOutForInactivity(true)
         // Se navega DESPUÉS del signOut: si se navegara antes, /login

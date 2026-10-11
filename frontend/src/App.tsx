@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
 import { supabase } from './supabaseClient'
-import Login from './Login'
-import ResetPassword from './ResetPassword'
-import Inbox from './Inbox'
-import AdminPanel from './AdminPanel'
-import MetricsPage from './MetricsPage'
 import type { Session } from '@supabase/supabase-js'
 import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation, applyConversationPatch } from './conversationsData'
@@ -34,15 +30,42 @@ function playNotificationSound() {
 }
 
 
-export default function App() {
-  return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
-  )
+// Todo lo que las rutas de router.tsx necesitan de la lógica global.
+// App lo pasa con <Outlet context>, y las rutas lo leen con useAppContext().
+export type AppContext = {
+  session: Session | null
+  passwordRecovery: boolean
+  // true cuando ya llegaron los permisos del operador de ESTA sesión —
+  // los guards de /admin y /metrics esperan esto antes de decidir.
+  operatorReady: boolean
+  loggedOutForInactivity: boolean
+  finishPasswordRecovery: () => void
+  operatorName: string
+  operatorId: string | null
+  isAdmin: boolean
+  isSuperAdmin: boolean
+  canViewMetrics: boolean
+  theme: string
+  changeTheme: (next: string) => void
+  chatPattern: string
+  changeChatPattern: (next: string) => void
+  font: string
+  changeFont: (next: string) => void
+  conversations: Conversation[]
+  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
+  loadConversations: () => void
+  muted: boolean
+  toggleMuted: () => void
+  operatorPresence: Presence
+  setOwnPresence: (next: 'available' | 'offline' | 'apoyo') => void
 }
 
-function AppContent() {
+// Ruta raíz del router (ver router.tsx): está montada mientras dure la
+// app, así que los efectos globales (sesión, Realtime, inactividad) no
+// se desarman al cambiar de ruta. Las pantallas se renderizan en el
+// <Outlet> de abajo.
+export default function App() {
+  const navigate = useNavigate()
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<string>('dark')
@@ -52,17 +75,16 @@ function AppContent() {
   // Tipografía — mismo mecanismo que tema y patrón, un sibling más de
   // "configuraciones" por operador (ver ThemePicker.tsx -> fonts).
   const [font, setFont] = useState<string>('plex')
-  const [view, setView] = useState<'inbox' | 'admin' | 'metrics'>('inbox')
   const [operatorName, setOperatorName] = useState('Operador')
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [canViewMetrics, setCanViewMetrics] = useState(false)
-  // Lo que eligió el selector "Mensajería / Administración" en el
-  // Login, ANTES de que termine de resolverse la sesión — así, apenas
-  // tenemos los datos del operador, ya sabemos a dónde mandarlo.
-  const [loginIntent, setLoginIntent] = useState<'mensajeria' | 'administracion'>('mensajeria')
-  const [metricsAccessDenied, setMetricsAccessDenied] = useState(false)
+  // De qué usuario son los permisos de arriba (is_admin, can_view_metrics)
+  // — los guards de router.tsx esperan a que coincida con la sesión
+  // actual antes de decidir, para no rebotar un F5 en /admin antes de
+  // tener los datos, ni usar los permisos del operador anterior.
+  const [operatorLoadedFor, setOperatorLoadedFor] = useState<string | null>(null)
   const [operatorPresence, setOperatorPresence] = useState<Presence>('offline')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(false)
@@ -104,6 +126,10 @@ function AppContent() {
       .eq('auth_user_id', session.user.id)
       .single()
       .then(({ data, error }) => {
+        // Se marca como cargado aunque falle: si no, los guards de
+        // /admin y /metrics se quedarían en "Cargando..." para siempre
+        // (con error, los permisos quedan en false y lo rebotan a /).
+        setOperatorLoadedFor(session.user.id)
         if (error) {
           console.error('No se pudo cargar el operador:', error.message)
           return
@@ -118,27 +144,15 @@ function AppContent() {
           setTheme(data.theme_preference ?? 'dark')
           setChatPattern(data.chat_pattern_preference ?? 'dots')
           setFont(data.font_preference ?? 'plex')
-
-          // Acá se decide a dónde entra, según lo que eligió en el
-          // selector del Login. Si pidió "Administración" pero no
-          // tiene el permiso, lo mandamos igual a la bandeja normal
-          // (la cuenta sigue sirviendo para lo de siempre) y mostramos
-          // un aviso en vez de dejarlo en una pantalla en blanco.
-          if (loginIntent === 'administracion') {
-            if (data.can_view_metrics) {
-              setView('metrics')
-            } else {
-              setMetricsAccessDenied(true)
-              setView('inbox')
-            }
-          }
+          // A dónde entra según el selector del Login lo resuelve
+          // router.tsx (LoginRoute + RequirePermission), no acá.
         }
       })
     // session?.user?.id (no "session" entero) — mismo motivo que en los
     // demás efectos de más abajo: no hace falta re-traer el operador ni
     // resetear tema/vista en cada refresh de token en segundo plano.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id, loginIntent])
+  }, [session?.user?.id])
 
   // Reemplaza al viejo toggle binario (Disponible/No disponible) — ahora
   // el operador elige explícitamente entre los 3 estados desde Inbox.
@@ -498,7 +512,13 @@ function AppContent() {
           supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
         }
         setLoggedOutForInactivity(true)
-        supabase.auth.signOut()
+        // Se navega DESPUÉS del signOut: si se navegara antes, /login
+        // todavía vería la sesión y rebotaría de vuelta a /. Se guarda
+        // `from` para volver a la misma pantalla al reloguearse.
+        const from = window.location.pathname + window.location.search
+        supabase.auth.signOut().finally(() => {
+          navigate('/login', { replace: true, state: { from } })
+        })
       }
     }, 30_000) // chequear cada 30s alcanza, no hace falta más seguido
 
@@ -535,87 +555,44 @@ function AppContent() {
     })
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-asphalt text-muted">
-        Cargando...
-      </div>
-    )
-  }
-
-  if (!session) {
-    return (
-      <>
-        {loggedOutForInactivity && (
-          <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
-            Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.
-          </div>
-        )}
-        <Login onIntentChange={setLoginIntent} />
-      </>
-    )
-  }
-
-  if (passwordRecovery) {
-    return <ResetPassword onDone={() => setPasswordRecovery(false)} />
-  }
-
-  if (view === 'metrics' && canViewMetrics) {
-    return (
-      <MetricsPage
-        operatorName={operatorName}
-        onSignOut={() => supabase.auth.signOut()}
-        onBackToInbox={() => setView('inbox')}
-      />
-    )
-  }
-
-  if (view === 'admin' && isAdmin) {
-    return (
-      <AdminPanel
-        theme={theme}
-        onChangeTheme={changeTheme}
-        operatorName={operatorName}
-        isSuperAdmin={isSuperAdmin}
-        onBack={() => setView('inbox')}
-        conversations={conversations}
-      />
-    )
+  const context: AppContext = {
+    session,
+    passwordRecovery,
+    operatorReady: !!session && operatorLoadedFor === session.user.id,
+    loggedOutForInactivity,
+    finishPasswordRecovery: () => {
+      setPasswordRecovery(false)
+      navigate('/', { replace: true })
+    },
+    operatorName,
+    operatorId,
+    isAdmin,
+    isSuperAdmin,
+    canViewMetrics,
+    theme,
+    changeTheme,
+    chatPattern,
+    changeChatPattern,
+    font,
+    changeFont,
+    conversations,
+    setConversations,
+    loadConversations,
+    muted,
+    toggleMuted,
+    operatorPresence,
+    setOwnPresence,
   }
 
   return (
-    <>
-      {metricsAccessDenied && (
-        <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-alert px-4 py-2 text-center text-sm font-medium text-cream">
-          Tu cuenta no tiene permiso para entrar a Administración — te dejamos en Mensajería.
-          <button
-            onClick={() => setMetricsAccessDenied(false)}
-            className="rounded-sm bg-asphalt/30 px-3 py-1 text-xs font-semibold text-cream hover:bg-asphalt/50"
-          >
-            Entendido
-          </button>
-        </div>
+    <ToastProvider>
+      {/* Hasta que getSession() no responde no sabemos si hay sesión — sin
+          esto, los guards mandarían a /login a alguien que sí está logueado. */}
+      {loading ? (
+        <div className="flex h-screen items-center justify-center bg-asphalt text-muted">Cargando...</div>
+      ) : (
+        <Outlet context={context} />
       )}
-      <Inbox
-        theme={theme}
-        onChangeTheme={changeTheme}
-        chatPattern={chatPattern}
-        onChangeChatPattern={changeChatPattern}
-        font={font}
-        onChangeFont={changeFont}
-        operatorName={operatorName}
-        operatorId={operatorId}
-        isAdmin={isAdmin}
-        isSuperAdmin={isSuperAdmin}
-        onOpenAdmin={() => setView('admin')}
-        conversations={conversations}
-        setConversations={setConversations}
-        onRefreshConversations={loadConversations}
-        muted={muted}
-        onToggleMuted={toggleMuted}
-        operatorPresence={operatorPresence}
-        onSetPresence={setOwnPresence}
-      />
-    </>
+    </ToastProvider>
   )
 }

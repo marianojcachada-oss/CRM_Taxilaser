@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
 import type { Conversation } from './ConversationsView'
@@ -81,8 +82,23 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
     ? navItems
     : navItems.filter((item) => ADMIN_ALLOWED_SECTIONS.includes(item.id))
 
-  const [active, setActive] = useState<Section>(isSuperAdmin ? 'command-center' : 'analytics')
+  // La sección sale de la URL (/admin/<sección>) en vez de un useState —
+  // F5, atrás/adelante y links directos caen en la misma sección.
+  const navigate = useNavigate()
+  const { section } = useParams<{ section?: string }>()
+  const defaultSection: Section = isSuperAdmin ? 'command-center' : 'analytics'
+  const active = (section ?? defaultSection) as Section
+  const setActive = (next: Section) => {
+    if (next !== active) navigate(`/admin/${next}`)
+  }
   const [showMobileNav, setShowMobileNav] = useState(false)
+
+  // Sección inexistente, o reservada a superadmin para un admin común
+  // (antes no se podía llegar porque no aparece en el menú; con URLs se
+  // puede tipear a mano) -> a la sección por defecto.
+  if (!visibleNavItems.some((item) => item.id === active)) {
+    return <Navigate to="/admin" replace />
+  }
 
   return (
     <div className="flex h-screen bg-asphalt text-cream">

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useLocation, useMatch, useNavigate } from 'react-router-dom'
 import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import ConversationsView, { type Conversation, type Operator } from './ConversationsView'
@@ -10,6 +11,7 @@ import StartConversationModal from './StartConversationModal'
 import MissedCallsView from './MissedCallsView'
 import ProfileMenu from './ProfileMenu'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
+import { useToast } from './Toast'
 
 // 'cancelacion' entra acá como red de seguridad: aunque arreglamos la
 // causa de raíz (un mensaje automático podía apagar el unread y hacer
@@ -17,6 +19,13 @@ import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 // unread llega a estar en false, una posible cancelación tiene que
 // seguir siendo visible en "Pendientes" — nunca puede quedar afuera de
 // las dos pestañas.
+// Slug de la URL (/chat-interno/<slug>) -> nombre del canal, el mismo
+// que usa Sidebar.tsx. Un slug desconocido vuelve a la bandeja.
+const INTERNAL_CHANNEL_SLUGS: Record<string, string> = {
+  dispatchers: 'Dispatchers',
+  managers: 'Managers',
+}
+
 const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo', 'cancelacion']
 
 // Ordena por el número del código (D5 antes que D12), no por texto — un
@@ -113,10 +122,28 @@ export default function Inbox({
   operatorPresence,
   onSetPresence,
 }: Props) {
-  const [view, setView] = useState<'inbox' | 'contacts' | 'internal' | 'missed-calls'>('inbox')
+  // La vista (y el canal del chat interno) salen de la URL, no de un
+  // useState: así F5, atrás/adelante y los links directos funcionan.
+  // Las rutas están declaradas en App.tsx (todas renderizan este Inbox).
+  const navigate = useNavigate()
+  const location = useLocation()
+  const internalMatch = useMatch('/chat-interno/:canal')
+  const view: 'inbox' | 'contacts' | 'internal' | 'missed-calls' =
+    location.pathname === '/contactos'
+      ? 'contacts'
+      : internalMatch
+        ? 'internal'
+        : location.pathname === '/llamadas-perdidas'
+          ? 'missed-calls'
+          : 'inbox'
+  const internalChannel = internalMatch ? (INTERNAL_CHANNEL_SLUGS[internalMatch.params.canal ?? ''] ?? null) : null
+  // Cambia de vista sin apilar entradas repetidas en el historial si ya
+  // estás ahí (ej.: tocar un filtro estando en la bandeja).
+  function goTo(path: string) {
+    if (location.pathname !== path) navigate(path)
+  }
   const [missedCallsCount, setMissedCallsCount] = useState(0)
   const [totalConversationsCount, setTotalConversationsCount] = useState(0)
-  const [internalChannel, setInternalChannel] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -455,6 +482,72 @@ export default function Inbox({
       .filter((c) => matchesFilter(c, filter, operatorId))
   }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, supportIds, operatorId])
 
+  // --- Conversación abierta por URL (/chat/:conversationId) ------------
+  // Un link compartido (o un F5, o una reasignación estando abierta)
+  // puede apuntar a una conversación que NO está en la lista filtrada que
+  // se ve ahora (es de otro operador, está cerrada, etc.). En ese caso se
+  // agrega arriba de la lista para poder abrirla:
+  //   1) si está en la lista global de App, esa (se mantiene al día con
+  //      Realtime);
+  //   2) si no, se trae de Supabase una vez;
+  //   3) si no existe o no hay acceso: aviso y de vuelta a /.
+  // Al cambiar de filtro a mano se "suelta" (dismissedLinkId): el operador
+  // quiere ver ese filtro, no seguir arrastrando la conversación del link.
+  const toast = useToast()
+  const chatMatch = useMatch('/chat/:conversationId')
+  const urlConversationId = chatMatch?.params.conversationId ?? null
+  const [fetchedLinked, setFetchedLinked] = useState<Conversation | null>(null)
+  const [dismissedLinkId, setDismissedLinkId] = useState<string | null>(null)
+
+  const linkIsOutsideList =
+    !!urlConversationId &&
+    urlConversationId !== dismissedLinkId &&
+    !visibleConversations.some((c) => c.id === urlConversationId)
+  const linkedConversation = linkIsOutsideList
+    ? (conversations.find((c) => c.id === urlConversationId) ??
+      (fetchedLinked?.id === urlConversationId ? fetchedLinked : null))
+    : null
+  // Hay que ir a buscarla a Supabase (y mientras tanto ConversationsView
+  // no tiene que saltar a otra conversación).
+  const linkNeedsFetch = linkIsOutsideList && !linkedConversation
+
+  useEffect(() => {
+    if (!linkNeedsFetch || !urlConversationId) return
+    let cancelled = false
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_SELECT)
+      .eq('id', urlConversationId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        // Cancelado = mientras tanto apareció en la lista (ej.: terminó de
+        // cargar la lista inicial) o cambió la URL — no pisar nada.
+        if (cancelled) return
+        if (error || !data) {
+          toast.error('Conversación no encontrada — puede que el link esté mal o que ya no exista.')
+          navigate('/', { replace: true })
+          return
+        }
+        setFetchedLinked(mapConversation(data))
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkNeedsFetch, urlConversationId])
+
+  // Memo: ConversationsView tiene un efecto que depende de esta lista —
+  // un array nuevo en cada render lo dispararía de más.
+  const listForView = useMemo(
+    () => (linkedConversation ? [linkedConversation, ...visibleConversations] : visibleConversations),
+    [linkedConversation, visibleConversations],
+  )
+
+  function changeFilter(f: FilterValue) {
+    setFilter(f)
+    if (urlConversationId) setDismissedLinkId(urlConversationId)
+  }
+
   // Para el contador del sidebar — mismo criterio que la lista de arriba,
   // pero siempre calculado (no solo cuando esa pestaña está activa).
   const supportCount = conversations.filter((c) => supportIds.has(c.id)).length
@@ -468,10 +561,25 @@ export default function Inbox({
       if (!prev) return prev
       return typeof action === 'function' ? (action as (p: Conversation[]) => Conversation[])(prev) : action
     })
+    // La conversación traída por link (si hay) también — así cerrarla,
+    // marcarla como leída, etc. se ve al toque.
+    setFetchedLinked((prev) => {
+      if (!prev) return prev
+      const next = typeof action === 'function' ? (action as (p: Conversation[]) => Conversation[])([prev]) : action
+      return next.find((c) => c.id === prev.id) ?? null
+    })
   }
 
   async function handleSignOut() {
     await supabase.auth.signOut()
+  }
+
+  // /chat-interno/<algo> escrito a mano con un canal inexistente -> de
+  // vuelta a la bandeja. (Managers sin ser admin lo redirige router.tsx,
+  // que sabe cuándo terminaron de cargar los permisos — acá isAdmin
+  // arranca en false y rebotaría también a los admins con un F5.)
+  if (internalMatch && !internalChannel) {
+    return <Navigate to="/" replace />
   }
 
   return (
@@ -671,8 +779,10 @@ export default function Inbox({
             isAdmin={isAdmin}
             filter={filter}
             onSelectFilter={(f) => {
-              setFilter(f)
-              setView('inbox')
+              changeFilter(f)
+              // Si ya está en la bandeja (/ o /chat/:id) no se navega: la
+              // conversación abierta sigue abierta si entra en el filtro.
+              if (view !== 'inbox') navigate('/')
               setShowMobileSidebar(false)
             }}
             view={view}
@@ -681,16 +791,15 @@ export default function Inbox({
             totalConversationsCount={totalConversationsCount}
             supportCount={supportCount}
             onSelectContacts={() => {
-              setView('contacts')
+              goTo('/contactos')
               setShowMobileSidebar(false)
             }}
             onSelectTeamChat={(team) => {
-              setInternalChannel(team)
-              setView('internal')
+              goTo(`/chat-interno/${team.toLowerCase()}`)
               setShowMobileSidebar(false)
             }}
             onSelectMissedCalls={() => {
-              setView('missed-calls')
+              goTo('/llamadas-perdidas')
               setShowMobileSidebar(false)
             }}
           />
@@ -699,7 +808,8 @@ export default function Inbox({
 
         {view === 'inbox' && (
           <ConversationsView
-            conversations={visibleConversations}
+            conversations={listForView}
+            resolvingSelection={linkNeedsFetch}
             setConversations={updateConversationsEverywhere}
             operators={operators}
             operatorId={operatorId}
@@ -709,12 +819,14 @@ export default function Inbox({
             theme={theme}
             chatPattern={chatPattern}
             filter={filter}
-            onSelectFilter={(f) => setFilter(f)}
+            onSelectFilter={(f) => changeFilter(f as FilterValue)}
             onRefreshConversations={onRefreshConversations}
           />
         )}
         {view === 'contacts' && <ContactsView isAdmin={isAdmin} />}
-        {view === 'internal' && internalChannel && (
+        {/* Managers solo con isAdmin ya confirmado: mientras cargan los
+            permisos no se muestra, para no dejar ver ese canal ni un instante. */}
+        {view === 'internal' && internalChannel && (internalChannel !== 'Managers' || isAdmin) && (
           <InternalChat channelName={internalChannel} operatorId={operatorId} operatorName={operatorName} />
         )}
         {view === 'missed-calls' && <MissedCallsView />}

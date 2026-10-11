@@ -123,7 +123,7 @@ function ResetPasswordRoute() {
 }
 
 // El aviso rojo de acceso denegado, alimentado por el state que deja
-// RequirePermission al rebotar.
+// RequirePermission al rebotar..
 function AccessDeniedBanner() {
   const location = useLocation()
   const navigate = useNavigate()

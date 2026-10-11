@@ -11,7 +11,7 @@ import ResetPassword from './ResetPassword'
 import Inbox from './Inbox'
 import AdminPanel from './AdminPanel'
 import MetricsPage from './MetricsPage'
-import { supabase } from './supabaseClient'
+import { signOutOperator } from './operatorPresence'
 
 // Router centralizado. App (la ruta raíz) tiene toda la lógica global —
 // sesión, operador, Realtime, inactividad — y se la pasa a estas rutas
@@ -204,7 +204,7 @@ function MetricsRoute() {
   return (
     <MetricsPage
       operatorName={ctx.operatorName}
-      onSignOut={() => supabase.auth.signOut()}
+      onSignOut={() => void signOutOperator('cerrar sesión (Métricas)')}
       onBackToInbox={() => navigate('/')}
     />
   )

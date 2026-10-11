@@ -6,6 +6,8 @@ import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation, applyConversationPatch } from './conversationsData'
 import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
+import { logAppError } from './errorLogging'
+import { HEARTBEAT_INTERVAL_MS, sendHeartbeat, signOutOperator } from './operatorPresence'
 
 // Los 3 estados que elige el operador son Disponible / No disponible /
 // Apoyo. "No disponible" es el 'offline' de siempre (mismo valor que ya
@@ -57,7 +59,7 @@ export type AppContext = {
   muted: boolean
   toggleMuted: () => void
   operatorPresence: Presence
-  setOwnPresence: (next: 'available' | 'offline' | 'apoyo') => void
+  setOwnPresence: (next: 'available' | 'offline' | 'apoyo') => Promise<boolean>
 }
 
 // Ruta raíz del router (ver router.tsx): está montada mientras dure la
@@ -91,6 +93,12 @@ export default function App() {
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
   const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
+  // Clave de localStorage donde las pestañas del mismo operador comparten
+  // su última actividad. Antes cada pestaña llevaba la cuenta sola: una
+  // pestaña olvidada en segundo plano llegaba a los 10 min y hacía
+  // signOut() — que es global — y deslogueaba también la pestaña en la
+  // que el operador SÍ estaba trabajando.
+  const activityKeyRef = useRef<string | null>(null)
 
   // Espejo del estado `conversations` en un ref — se usa SOLO para
   // decidir, de forma sincrónica y sin side-effects dentro de un
@@ -154,12 +162,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
 
+  // Se incrementa con cada cambio manual de presencia — el heartbeat lo
+  // usa para no pisar con un valor viejo (pedido antes del click) el
+  // estado que el operador acaba de elegir.
+  const presenceSeqRef = useRef(0)
+
   // Reemplaza al viejo toggle binario (Disponible/No disponible) — ahora
   // el operador elige explícitamente entre los 3 estados desde Inbox.
-  async function setOwnPresence(next: 'available' | 'offline' | 'apoyo') {
-    if (!operatorId) return
+  // Devuelve false si la base no lo aceptó: antes el error se ignoraba
+  // y la UI mostraba un estado que la base no tenía.
+  async function setOwnPresence(next: 'available' | 'offline' | 'apoyo'): Promise<boolean> {
+    if (!operatorId) return false
+    const previous = operatorPresence
+    const seq = ++presenceSeqRef.current
     setOperatorPresence(next)
-    await supabase.from('operators').update({ presence: next }).eq('id', operatorId)
+    const { error } = await supabase.from('operators').update({ presence: next }).eq('id', operatorId)
+    if (error) {
+      if (seq === presenceSeqRef.current) setOperatorPresence(previous)
+      console.error('No se pudo cambiar la presencia:', error.message)
+      logAppError('setOwnPresence', error.message)
+      return false
+    }
+    return true
   }
 
   // Solo trae lo activo (no cerrado) — el trabajo del día a día. El
@@ -440,8 +464,22 @@ export default function App() {
   //      seleccionada tiene que disparar también (ver nota más abajo,
   //      no está en este archivo).
   useEffect(() => {
+    let lastSharedWrite = 0
     function markActivity() {
-      lastActivityRef.current = Date.now()
+      const now = Date.now()
+      lastActivityRef.current = now
+      // Se comparte con las demás pestañas del mismo operador (ver
+      // readLastActivity más abajo). Como mucho una escritura cada 5s —
+      // keydown llega por cada tecla.
+      const key = activityKeyRef.current
+      if (key && now - lastSharedWrite > 5_000) {
+        lastSharedWrite = now
+        try {
+          localStorage.setItem(key, String(now))
+        } catch {
+          // Sin localStorage (modo privado estricto): queda solo el ref local.
+        }
+      }
     }
     // keydown + input cubren entre los dos: tipeo normal (keydown) y
     // texto que entra sin tecleo letra por letra -- pegar con el mouse,
@@ -471,58 +509,138 @@ export default function App() {
   // que el operador hiciera nada, lo cual iba en contra de la idea de
   // "solo por inactividad real".
   useEffect(() => {
+    activityKeyRef.current = session ? `operatorLastActivityAt:${session.user.id}` : null
     if (session) {
-      lastActivityRef.current = Date.now()
+      const now = Date.now()
+      lastActivityRef.current = now
+      try {
+        localStorage.setItem(`operatorLastActivityAt:${session.user.id}`, String(now))
+      } catch {
+        // ver markActivity
+      }
       setLoggedOutForInactivity(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
 
-  // operatorId/operatorPresence como refs (no como dependencia del efecto
-  // de abajo) para no desarmar y rearmar el setInterval cada vez que
-  // cambian — mismo motivo que session?.user?.id en los demás efectos de
-  // este archivo: evitar churn innecesario.
-  const operatorIdRef = useRef<string | null>(null)
-  const operatorPresenceRef = useRef<Presence>('offline')
-  useEffect(() => {
-    operatorIdRef.current = operatorId
-  }, [operatorId])
-  useEffect(() => {
-    operatorPresenceRef.current = operatorPresence
-  }, [operatorPresence])
-
   useEffect(() => {
     if (!session) return
 
     const INACTIVITY_LIMIT_MS = 10 * 60 * 1000 // 10 minutos
+    // Evita que dos ticks disparen el logout dos veces mientras se
+    // espera la respuesta de la base.
+    let loggingOut = false
+
+    // La actividad más reciente entre esta pestaña y las demás del mismo operador.
+    function readLastActivity() {
+      let shared = 0
+      try {
+        const key = activityKeyRef.current
+        shared = key ? Number(localStorage.getItem(key)) || 0 : 0
+      } catch {
+        // ver markActivity
+      }
+      return Math.max(lastActivityRef.current, shared)
+    }
 
     const interval = setInterval(() => {
-      if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
-        // Cierra la sesión de verdad (no alcanza con solo cambiar el
-        // estado — dejar la sesión abierta e inactiva es justamente lo
-        // que generaba la sobrecarga de conexiones/consultas a Supabase
-        // que veníamos corrigiendo). Antes de cerrarla, si el operador
-        // se había olvidado de marcarse como no disponible (quedó en
-        // "Disponible" o "Apoyo"), lo dejamos como "No disponible" en la
-        // base — si no, quedaría "pegado" como disponible para el round
-        // robin hasta que alguien lo note, aunque ya no esté conectado.
-        const currentOperatorId = operatorIdRef.current
-        const currentPresence = operatorPresenceRef.current
-        if (currentOperatorId && (currentPresence === 'available' || currentPresence === 'apoyo')) {
-          supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
-        }
-        setLoggedOutForInactivity(true)
-        // Se navega DESPUÉS del signOut: si se navegara antes, /login
-        // todavía vería la sesión y rebotaría de vuelta a /. Se guarda
-        // `from` para volver a la misma pantalla al reloguearse.
-        const from = window.location.pathname + window.location.search
-        supabase.auth.signOut().finally(() => {
-          navigate('/login', { replace: true, state: { from } })
-        })
-      }
+      if (loggingOut) return
+      if (Date.now() - readLastActivity() < INACTIVITY_LIMIT_MS) return
+      loggingOut = true
+      // Cierra la sesión de verdad (no alcanza con solo cambiar el
+      // estado — dejar la sesión abierta e inactiva es justamente lo
+      // que generaba la sobrecarga de conexiones/consultas a Supabase
+      // que veníamos corrigiendo). Antes de cerrarla, si el operador
+      // se había olvidado de marcarse como no disponible (quedó en
+      // "Disponible" o "Apoyo"), lo dejamos como "No disponible" en la
+      // base — si no, quedaría "pegado" como disponible para el round
+      // robin hasta que alguien lo note, aunque ya no esté conectado.
+      //
+      // OJO — bug real: antes el update a 'offline' se armaba sin
+      // await ni .then(), y el query builder de supabase-js no manda
+      // NADA hasta que alguien lo "espera" — o sea que nunca se
+      // ejecutaba, y el operador quedaba Disponible igual. Ahora
+      // signOutOperator lo espera (con timeout) ANTES de cerrar sesión,
+      // y si falla lo registra; el barrido del servidor es el respaldo.
+      setLoggedOutForInactivity(true)
+      setOperatorPresence('offline')
+      // Se navega DESPUÉS del signOut: si se navegara antes, /login
+      // todavía vería la sesión y rebotaría de vuelta a /. Se guarda
+      // `from` para volver a la misma pantalla al reloguearse.
+      const from = window.location.pathname + window.location.search
+      signOutOperator('auto-logout por inactividad').finally(() => {
+        navigate('/login', { replace: true, state: { from } })
+      })
     }, 30_000) // chequear cada 30s alcanza, no hace falta más seguido
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
+
+  // --- Heartbeat de conectividad --------------------------------------
+  // Esto NO es actividad del operador (eso es lo de arriba, 10 min sin
+  // tipear/mandar): es "esta pestaña sigue abierta y con red". Mientras
+  // haya sesión, cada pestaña llama a operator_heartbeat() cada 60s, sin
+  // importar si el operador toca algo o no. Si dejan de llegar latidos
+  // por más de 4 min (pestaña o navegador cerrados, compu suspendida,
+  // sin red, pestaña congelada por el navegador), un job de pg_cron lo
+  // pasa a No disponible — ver PARTE H de supabase/schema.sql. Con varias
+  // pestañas abiertas, alcanza con que cualquiera siga latiendo.
+  //
+  // De paso, la respuesta trae la presencia actual de la base: si el
+  // barrido (o un admin desde Equipo) lo cambió, la UI se entera.
+  useEffect(() => {
+    if (!session) return
+
+    let cancelled = false
+    let inFlight = false
+    let lastOkAt = 0
+    let consecutiveFailures = 0
+
+    async function beat() {
+      if (inFlight || cancelled) return
+      inFlight = true
+      const seq = presenceSeqRef.current
+      try {
+        const presence = await sendHeartbeat()
+        lastOkAt = Date.now()
+        consecutiveFailures = 0
+        // Si en el medio el operador cambió su presencia a mano, este
+        // valor ya es viejo — no se pisa.
+        if (!cancelled && presence && seq === presenceSeqRef.current) {
+          setOperatorPresence(presence)
+        }
+      } catch (err) {
+        consecutiveFailures++
+        console.warn('Heartbeat de presencia falló:', err)
+        // Un corte breve es normal; 3 seguidos (~3 min, a 1 min de
+        // quedar No disponible) ya vale registrarlo. Una vez por racha.
+        if (consecutiveFailures === 3) logAppError('operator_heartbeat', err)
+      } finally {
+        inFlight = false
+      }
+    }
+
+    // Al volver la red, o al volver a la pestaña (los navegadores frenan
+    // los timers de las pestañas en segundo plano), se late enseguida en
+    // vez de esperar al próximo tick.
+    function beatSoon() {
+      if (Date.now() - lastOkAt > 15_000) void beat()
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') beatSoon()
+    }
+
+    void beat()
+    const interval = setInterval(() => void beat(), HEARTBEAT_INTERVAL_MS)
+    window.addEventListener('online', beatSoon)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('online', beatSoon)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
 

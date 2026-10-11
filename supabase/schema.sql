@@ -597,6 +597,158 @@ where status <> 'cerrada'
 
 
 -- ============================================================================
+-- PARTE H — Heartbeat de operadores: nadie queda "Disponible" pegado
+--
+-- Problema: operators.presence solo lo cambiaba el frontend (el botón,
+-- o el auto-logout de 10 min por inactividad). Si el operador cerraba
+-- la pestaña/navegador, se le colgaba la red, se suspendía la compu o
+-- el navegador congelaba la pestaña, nadie lo pasaba nunca a "No
+-- disponible" y el round robin le seguía asignando conversaciones.
+--
+-- Solución: cada pestaña abierta con sesión llama a operator_heartbeat()
+-- cada 60s (conectividad, NO actividad — el auto-logout de 10 min por
+-- inactividad sigue siendo aparte, en App.tsx). Un job de pg_cron corre
+-- cada minuto expire_stale_operator_presence(), que pasa a 'offline' a
+-- quien esté en 'available'/'apoyo' sin heartbeat hace más de 4 min
+-- (tolera ~3 heartbeats perdidos por un corte de red breve). Pasar a
+-- 'offline' por acá dispara el mismo trigger que el botón (C.3 —
+-- libera sus conversaciones), así que no hay un camino nuevo de reglas.
+--
+-- Con varias pestañas, cualquiera que siga abierta mantiene vivo el
+-- heartbeat — cerrar una no afecta a las demás.
+-- ============================================================================
+
+-- Tabla aparte (y NO una columna de operators) a propósito:
+--   - operators está en la publicación de Realtime y el Inbox escucha
+--     todos sus UPDATE — un heartbeat por minuto por operador ahí
+--     serían N² mensajes de Realtime por minuto.
+--   - tampoco dispara los triggers de operators en cada latido.
+--   - con RLS activado y SIN policies, el cliente no la puede escribir
+--     directo (no puede "inventarse" un heartbeat a futuro): solo pasa
+--     por operator_heartbeat(), que es security definer.
+create table if not exists operator_heartbeats (
+  operator_id uuid primary key references operators(id) on delete cascade,
+  last_seen_at timestamptz not null default now()
+);
+
+alter table operator_heartbeats enable row level security;
+
+-- H.1 — Latido de la pestaña. Solo toca la fila del operador logueado
+-- (auth.uid()), y devuelve su presencia actual para que el frontend se
+-- resincronice si el barrido (o un admin) lo cambió mientras tanto.
+create or replace function operator_heartbeat()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_operator_id uuid;
+  v_presence text;
+begin
+  if auth.uid() is null then
+    raise exception 'operator_heartbeat: sin sesión' using errcode = '28000';
+  end if;
+
+  select id, presence::text into v_operator_id, v_presence
+  from operators
+  where auth_user_id = auth.uid();
+
+  if v_operator_id is null then
+    return null;
+  end if;
+
+  insert into operator_heartbeats (operator_id, last_seen_at)
+  values (v_operator_id, now())
+  on conflict (operator_id) do update set last_seen_at = excluded.last_seen_at;
+
+  return v_presence;
+end;
+$$;
+
+revoke all on function operator_heartbeat() from public, anon;
+grant execute on function operator_heartbeat() to authenticated;
+
+-- H.2 — Al pasar a 'available'/'apoyo' (botón del operador, o un admin
+-- desde Equipo) se renueva el heartbeat, para que el barrido no lo
+-- tumbe al toque si justo venía de un heartbeat viejo. Si nadie tiene
+-- la app abierta para ese operador, vence igual a los 4 min.
+create or replace function touch_heartbeat_on_presence_available()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.presence::text in ('available', 'apoyo')
+     and old.presence is distinct from new.presence then
+    insert into operator_heartbeats (operator_id, last_seen_at)
+    values (new.id, now())
+    on conflict (operator_id) do update set last_seen_at = excluded.last_seen_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_heartbeat_on_presence_available on operators;
+create trigger trg_touch_heartbeat_on_presence_available
+after update of presence on operators
+for each row
+execute function touch_heartbeat_on_presence_available();
+
+-- H.3 — Barrido: 'available'/'apoyo' sin heartbeat hace más de 4 min
+-- -> 'offline'. Un solo UPDATE con la condición adentro (atómico, sin
+-- leer-y-después-escribir), así que correrlo dos veces a la vez o
+-- pisarse con un cambio manual no deja estados raros. Devuelve cuántos
+-- pasó a offline (queda en cron.job_run_details).
+create or replace function expire_stale_operator_presence()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  update operators o
+  set presence = 'offline'
+  where o.presence::text in ('available', 'apoyo')
+    and not exists (
+      select 1 from operator_heartbeats h
+      where h.operator_id = o.id
+        and h.last_seen_at > now() - interval '4 minutes'
+    );
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+-- Solo la corre pg_cron (como postgres) — ningún cliente la puede llamar.
+revoke all on function expire_stale_operator_presence() from public, anon, authenticated;
+
+-- H.4 — Para no tumbar a los que ya están 'available'/'apoyo' en el
+-- momento de correr esto: arrancan con un heartbeat de "ahora" (4 min
+-- de gracia para que su pestaña, ya con el frontend nuevo, empiece a
+-- latir). Si ya tienen fila no se toca.
+insert into operator_heartbeats (operator_id, last_seen_at)
+select id, now() from operators where presence::text in ('available', 'apoyo')
+on conflict (operator_id) do nothing;
+
+-- H.5 — Job de pg_cron, cada minuto. cron.schedule con nombre hace
+-- upsert del job, así que correr esto de nuevo no lo duplica.
+-- OJO: correr esto DESPUÉS de desplegar el frontend nuevo (el que manda
+-- heartbeats) — si no, en 4 min pasa a "No disponible" a todos los que
+-- tengan la versión vieja abierta (que no late).
+create extension if not exists pg_cron;
+
+select cron.schedule(
+  'expire-stale-operator-presence',
+  '* * * * *',
+  $$select public.expire_stale_operator_presence()$$
+);
+
+
+-- ============================================================================
 -- PASO MANUAL — hace falta correrlo una vez, con tu propio mail:
 --
 -- update operators set is_superadmin = true

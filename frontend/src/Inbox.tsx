@@ -12,6 +12,7 @@ import MissedCallsView from './MissedCallsView'
 import ProfileMenu from './ProfileMenu'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 import { useToast } from './Toast'
+import { signOutOperator } from './operatorPresence'
 
 // 'cancelacion' entra acá como red de seguridad: aunque arreglamos la
 // causa de raíz (un mensaje automático podía apagar el unread y hacer
@@ -99,7 +100,7 @@ type Props = {
   muted: boolean
   onToggleMuted: () => void
   operatorPresence: 'available' | 'offline' | 'busy' | 'apoyo'
-  onSetPresence: (next: 'available' | 'offline' | 'apoyo') => void
+  onSetPresence: (next: 'available' | 'offline' | 'apoyo') => Promise<boolean>
 }
 
 export default function Inbox({
@@ -570,8 +571,16 @@ export default function Inbox({
     })
   }
 
+  // Antes cerraba sesión sin tocar la presencia — el operador quedaba
+  // "Disponible" para el round robin después de irse. signOutOperator
+  // lo pasa a No disponible (esperando la respuesta) y después cierra.
   async function handleSignOut() {
-    await supabase.auth.signOut()
+    await signOutOperator('cerrar sesión (Inbox)')
+  }
+
+  async function handleSetPresence(next: 'available' | 'offline' | 'apoyo') {
+    const ok = await onSetPresence(next)
+    if (!ok) toast.error('No se pudo cambiar tu estado. Revisá la conexión y probá de nuevo.')
   }
 
   // /chat-interno/<algo> escrito a mano con un canal inexistente -> de
@@ -665,7 +674,7 @@ export default function Inbox({
             }`}
           >
             <button
-              onClick={() => onSetPresence('available')}
+              onClick={() => handleSetPresence('available')}
               aria-pressed={operatorPresence === 'available'}
               title="Recibir mensajes nuevos por round robin"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
@@ -676,7 +685,7 @@ export default function Inbox({
               Disponible{operatorPresence === 'available' && <span aria-hidden="true"> ✓</span>}
             </button>
             <button
-              onClick={() => onSetPresence('offline')}
+              onClick={() => handleSetPresence('offline')}
               aria-pressed={operatorPresence === 'offline' || operatorPresence === 'busy'}
               title="No recibir mensajes nuevos"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${
@@ -689,7 +698,7 @@ export default function Inbox({
               No disponible{(operatorPresence === 'offline' || operatorPresence === 'busy') && <span aria-hidden="true"> ✓</span>}
             </button>
             <button
-              onClick={() => onSetPresence('apoyo')}
+              onClick={() => handleSetPresence('apoyo')}
               aria-pressed={operatorPresence === 'apoyo'}
               title="Ayudar con conversaciones de otros operadores sin que te asignen las tuyas"
               className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors ${

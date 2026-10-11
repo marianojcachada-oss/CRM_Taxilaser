@@ -229,6 +229,20 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
     await supabase.from('integration_settings').upsert({ key: 'AI_CAN_CANCEL_RIDES', value: next, updated_at: new Date().toISOString() })
   }
 
+  // Muestra u oculta el NÚMERO de llamadas perdidas sin ver (sidebar). Apagado,
+  // los operadores no hacen la consulta de conteo ni escuchan Realtime de
+  // missed_calls. Las llamadas se siguen registrando y la pantalla "Llamadas
+  // perdidas" sigue andando. Default "activado" si nunca se guardó nada.
+  async function toggleMissedCallsCounter() {
+    if (readOnly) return
+    const current = values['MISSED_CALLS_COUNTER_ENABLED']
+    const next = current === 'false' ? 'true' : 'false'
+    setValues((prev) => ({ ...prev, MISSED_CALLS_COUNTER_ENABLED: next }))
+    await supabase
+      .from('integration_settings')
+      .upsert({ key: 'MISSED_CALLS_COUNTER_ENABLED', value: next, updated_at: new Date().toISOString() })
+  }
+
   async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
     if (readOnly) return
     const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
@@ -407,6 +421,22 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
                 llamada perdida, si está activado, se manda el mensaje preseteado y el chat se asigna
                 directo a un operador disponible. Cooldown de 30 min por número — no se repite si la
                 misma persona llama varias veces seguidas.
+              </p>
+              <button
+                onClick={toggleMissedCallsCounter}
+                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
+                  values['MISSED_CALLS_COUNTER_ENABLED'] !== 'false'
+                    ? 'border-available/40 text-available hover:bg-available/10'
+                    : 'border-alert/40 text-alert hover:bg-alert/10'
+                }`}
+              >
+                <Power size={13} />
+                Contador de llamadas perdidas: {values['MISSED_CALLS_COUNTER_ENABLED'] !== 'false' ? 'Activado' : 'Desactivado'}
+              </button>
+              <p className="mb-4 text-[11px] text-muted">
+                Apagado, se oculta el número en el menú lateral y los operadores dejan de consultar y
+                escuchar cambios de llamadas perdidas. Las llamadas se siguen registrando y la pantalla
+                "Llamadas perdidas" sigue disponible. Cada operador lo ve al recargar la página.
               </p>
               <button
                 onClick={() => toggleMissedCallAutoReply('WHATSAPP')}

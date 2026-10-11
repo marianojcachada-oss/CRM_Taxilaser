@@ -143,6 +143,9 @@ export default function Inbox({
     if (location.pathname !== path) navigate(path)
   }
   const [missedCallsCount, setMissedCallsCount] = useState(0)
+  // Interruptor de Integraciones (MISSED_CALLS_COUNTER_ENABLED). null = todavía
+  // no se leyó; si no hay valor guardado, el contador queda ACTIVADO.
+  const [missedCallsCounterEnabled, setMissedCallsCounterEnabled] = useState<boolean | null>(null)
   const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   const [searchQuery, setSearchQuery] = useState('')
@@ -220,6 +223,24 @@ export default function Inbox({
   }, [])
 
   useEffect(() => {
+    supabase
+      .from('integration_settings')
+      .select('value')
+      .eq('key', 'MISSED_CALLS_COUNTER_ENABLED')
+      .maybeSingle()
+      .then(({ data }) => setMissedCallsCounterEnabled(data?.value !== 'false'))
+  }, [])
+
+  useEffect(() => {
+    // Todavía no se sabe si está activado: no consultar nada todavía.
+    if (missedCallsCounterEnabled === null) return
+    // Apagado desde Integraciones: sin consulta de conteo y sin canal de
+    // Realtime (así tampoco consume mensajes de Realtime por este motivo).
+    if (!missedCallsCounterEnabled) {
+      setMissedCallsCount(0)
+      return
+    }
+
     function loadMissedCallsCount() {
       supabase
         .from('missed_calls')
@@ -244,7 +265,7 @@ export default function Inbox({
       if (timer) clearTimeout(timer)
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [missedCallsCounterEnabled])
 
   // "Todos" es el histórico completo de verdad — a diferencia de la
   // lista principal (que a propósito solo trae lo activo, para que la
@@ -787,7 +808,7 @@ export default function Inbox({
             }}
             view={view}
             internalChannel={internalChannel}
-            missedCallsCount={missedCallsCount}
+            missedCallsCount={missedCallsCounterEnabled === false ? undefined : missedCallsCount}
             totalConversationsCount={totalConversationsCount}
             supportCount={supportCount}
             onSelectContacts={() => {

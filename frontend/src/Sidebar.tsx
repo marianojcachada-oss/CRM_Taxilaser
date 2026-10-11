@@ -52,7 +52,8 @@ type Props = {
   onSelectFilter: (f: FilterValue) => void
   view: 'inbox' | 'contacts' | 'internal' | 'missed-calls'
   internalChannel: string | null
-  missedCallsCount: number
+  // undefined = contador apagado desde Integraciones (no se muestra el número)
+  missedCallsCount?: number
   totalConversationsCount: number
   onSelectContacts: () => void
   onSelectTeamChat: (team: string) => void

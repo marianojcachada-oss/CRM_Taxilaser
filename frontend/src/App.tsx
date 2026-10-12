@@ -13,6 +13,11 @@ import { ToastProvider } from './Toast'
 // solo por compatibilidad con lo que ya hubiera en la base.
 export type Presence = 'available' | 'offline' | 'busy' | 'apoyo'
 
+// Marca (en este navegador) de que la última sesión de ese operador se cerró
+// por inactividad. Si la actualización a "No disponible" no llegó a la base
+// (error, pestaña cerrada justo en ese momento), el próximo login la completa.
+const INACTIVITY_LOGOUT_FLAG = 'quetal_inactivity_logout_operator'
+
 function playNotificationSound() {
   try {
     const ctx = new AudioContext()
@@ -140,7 +145,17 @@ export default function App() {
           setIsAdmin(data.is_admin ?? false)
           setIsSuperAdmin(data.is_superadmin ?? false)
           setCanViewMetrics(data.can_view_metrics ?? false)
-          setOperatorPresence(data.presence ?? 'offline')
+          let presence: Presence = data.presence ?? 'offline'
+          try {
+            if (localStorage.getItem(INACTIVITY_LOGOUT_FLAG) === data.id) {
+              localStorage.removeItem(INACTIVITY_LOGOUT_FLAG)
+              if (presence === 'available' || presence === 'apoyo') {
+                presence = 'offline'
+                supabase.from('operators').update({ presence: 'offline' }).eq('id', data.id).then(() => {})
+              }
+            }
+          } catch { /* localStorage no disponible */ }
+          setOperatorPresence(presence)
           setTheme(data.theme_preference ?? 'dark')
           setChatPattern(data.chat_pattern_preference ?? 'dots')
           setFont(data.font_preference ?? 'plex')
@@ -159,6 +174,10 @@ export default function App() {
   async function setOwnPresence(next: 'available' | 'offline' | 'apoyo') {
     if (!operatorId) return
     setOperatorPresence(next)
+    if (next === 'available' || next === 'apoyo') {
+      // Latido inmediato: evita que el cron de la base lo vea "viejo".
+      await supabase.rpc('operator_heartbeat')
+    }
     await supabase.from('operators').update({ presence: next }).eq('id', operatorId)
   }
 
@@ -458,7 +477,11 @@ export default function App() {
     window.addEventListener('keydown', markActivityIfTyping)
     window.addEventListener('input', markActivityIfTyping, { passive: true })
     window.addEventListener('operator-activity', markActivity)
+    // AJUSTADO (12/10/2026): un CLIC o toque también cuenta como actividad
+    // (antes solo tipear/enviar). Mover el mouse o scrollear sigue sin contar.
+    window.addEventListener('pointerdown', markActivity, { passive: true })
     return () => {
+      window.removeEventListener('pointerdown', markActivity)
       window.removeEventListener('keydown', markActivityIfTyping)
       window.removeEventListener('input', markActivityIfTyping)
       window.removeEventListener('operator-activity', markActivity)
@@ -490,6 +513,23 @@ export default function App() {
   useEffect(() => {
     operatorPresenceRef.current = operatorPresence
   }, [operatorPresence])
+
+  // Latido: mientras el operador está disponible/apoyo y la pestaña está
+  // abierta, avisa a la base cada 2 min. Si deja de llegar (pestaña cerrada,
+  // PC apagada), el cron del servidor lo pasa a "No disponible".
+  useEffect(() => {
+    if (!session) return
+    if (operatorPresence !== 'available' && operatorPresence !== 'apoyo') return
+    const beat = (syncUi: boolean) => {
+      supabase.rpc('operator_heartbeat').then(({ data }) => {
+        if (syncUi && data === 'offline') setOperatorPresence('offline')
+      })
+    }
+    beat(false)
+    const interval = setInterval(() => beat(true), 2 * 60 * 1000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, operatorPresence])
 
   useEffect(() => {
     if (!session) return
@@ -523,9 +563,19 @@ export default function App() {
         // del signOut porque, una vez cerrada la sesión, la base ya no
         // acepta el cambio (no hay usuario autenticado).
         if (currentOperatorId && (currentPresence === 'available' || currentPresence === 'apoyo')) {
+          try { localStorage.setItem(INACTIVITY_LOGOUT_FLAG, currentOperatorId) } catch { /* sin localStorage */ }
           try {
-            await supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
-            setOperatorPresence('offline')
+            const { error } = await supabase.from('operators').update({ presence: 'offline' }).eq('id', currentOperatorId)
+            if (error) {
+              console.error('No se pudo marcar al operador como no disponible:', error)
+              await supabase.from('app_errors').insert({
+                context: 'auto-logout-presence',
+                message: `No se pudo pasar a no disponible por inactividad: ${error.message}`,
+                url: window.location.href,
+              })
+            } else {
+              setOperatorPresence('offline')
+            }
           } catch (err) {
             // Si falla, igual se cierra la sesión (no dejar al operador logueado).
             console.error('No se pudo marcar al operador como no disponible:', err)

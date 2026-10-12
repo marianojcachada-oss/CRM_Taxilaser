@@ -173,6 +173,20 @@ async function handleIncomingSms(opts: {
 }) {
   const { phone, contactName, externalMessageId, text, attachment } = opts;
 
+  // Mensaje repetido: RingCentral puede reenviar la misma notificación. Antes
+  // se hacía todo el trabajo de nuevo (consulta a TaxiCaller, contacto,
+  // conversación, avisos fuera de horario) y recién al final la base lo
+  // rechazaba por el índice único. Con esto se corta de entrada.
+  if (externalMessageId) {
+    const { data: alreadySaved } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("external_message_id", externalMessageId)
+      .limit(1)
+      .maybeSingle();
+    if (alreadySaved) return;
+  }
+
   // SMS ya viaja con el teléfono real — si ese número es pasajero
   // conocido en TaxiCaller, se prioriza ese nombre por sobre el que
   // manda RingCentral (que muchas veces no manda ninguno).
@@ -193,8 +207,24 @@ async function handleIncomingSms(opts: {
       .insert({ phone, full_name: resolvedName })
       .select("id")
       .single();
-    if (error) throw error;
-    contactId = newContact.id;
+    if (error) {
+      // Dos SMS del mismo número nuevo llegando a la vez: el segundo choca con
+      // el teléfono único que creó el primero. Se usa ese contacto en vez de
+      // fallar (un 500 haría que RingCentral reintente).
+      if (error.code === "23505") {
+        const { data: createdMeanwhile } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("phone", phone)
+          .maybeSingle();
+        if (!createdMeanwhile) throw error;
+        contactId = createdMeanwhile.id;
+      } else {
+        throw error;
+      }
+    } else {
+      contactId = newContact.id;
+    }
 
     await supabase.from("contact_channels").insert({
       contact_id: contactId,

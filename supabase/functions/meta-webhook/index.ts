@@ -456,6 +456,22 @@ async function handleIncomingMessage(opts: {
 }) {
   const { channel, externalContactId, contactName, externalMessageId, text, attachment } = opts;
 
+  // 0. Mensaje repetido: Meta reintenta la entrega si no recibe respuesta a
+  // tiempo, y llegaba el mismo mensaje dos veces. Antes se hacía TODO el
+  // trabajo de nuevo (buscar contacto, consultar TaxiCaller, conversación,
+  // avisos fuera de horario...) y recién al final la base lo rechazaba por
+  // el índice único. Con esto se corta de entrada: una consulta barata por
+  // el índice, y se evita también el error "duplicate key" en los logs.
+  if (externalMessageId) {
+    const { data: alreadySaved } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("external_message_id", externalMessageId)
+      .limit(1)
+      .maybeSingle();
+    if (alreadySaved) return;
+  }
+
   // 1. Buscar si ya existe el mapeo de canal -> contacto
   const { data: existingChannel } = await supabase
     .from("contact_channels")
@@ -513,8 +529,27 @@ async function handleIncomingMessage(opts: {
       .select("id")
       .single();
 
-    if (contactErr) throw contactErr;
-    contactId = newContact.id;
+    if (contactErr) {
+      // Dos mensajes del mismo número llegando a la vez (reintento de Meta,
+      // o dos mensajes seguidos de un cliente nuevo): el segundo choca con
+      // el teléfono único que acaba de crear el primero. No es un error
+      // real: se usa el contacto que ya se creó, en vez de devolver 500 y
+      // hacer que Meta reintente.
+      if (contactErr.code === "23505" && normalizedPhoneForLookup) {
+        const { data: createdMeanwhile } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("phone", normalizedPhoneForLookup)
+          .maybeSingle();
+        if (!createdMeanwhile) throw contactErr;
+        contactId = createdMeanwhile.id;
+        isNewContact = false;
+      } else {
+        throw contactErr;
+      }
+    } else {
+      contactId = newContact.id;
+    }
 
     await supabase.from("contact_channels").insert({
       contact_id: contactId,

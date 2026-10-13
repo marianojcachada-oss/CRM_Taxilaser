@@ -93,6 +93,15 @@ const groups: { title: string; keys: { key: string; label: string; secret?: bool
   },
 ]
 
+type AutomatedMode = 'sms' | 'whatsapp' | 'last_channel' | 'none'
+
+const AUTOMATED_MODE_OPTIONS: { value: AutomatedMode; label: string; hint: string }[] = [
+  { value: 'sms', label: 'Enviar los mensajes automáticos por SMS', hint: 'Siempre por RingCentral, sin importar por dónde escribió el cliente.' },
+  { value: 'whatsapp', label: 'Enviar los mensajes automáticos solo por WhatsApp', hint: 'Nada sale por SMS. Si el cliente nunca usó WhatsApp, igual se intenta por ahí.' },
+  { value: 'last_channel', label: 'Enviar los mensajes automáticos por donde escribió el cliente la última vez', hint: 'SMS o WhatsApp según su último mensaje (más Facebook/Instagram si el contacto los tiene tildados).' },
+  { value: 'none', label: 'No enviar mensajes automáticos', hint: 'Los avisos de llegó / cancelado / terminado no salen por ningún canal.' },
+]
+
 export default function IntegrationsSection({ readOnly = false }: { readOnly?: boolean }) {
   const toast = useToast()
   const [values, setValues] = useState<Record<string, string>>({})
@@ -252,18 +261,28 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
     await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
   }
 
-  // Corta/prende el CANAL de los 3 avisos automáticos de TaxiCaller
-  // (esperando pasajero / cancelado / terminado) — independiente de los
-  // switches de arriba, que cortan el AVISO entero. Esto deja, por
-  // ejemplo, apagar solo el SMS (RingCentral) sin tocar WhatsApp.
-  // Default "activado" si nunca se guardó nada (igual que los demás).
-  async function toggleAutomatedMessagesChannel(channel: 'WHATSAPP' | 'RINGCENTRAL') {
+  // Selector de los 3 avisos automáticos de TaxiCaller (esperando
+  // pasajero / cancelado / terminado): por dónde salen. Se guarda en
+  // AUTOMATED_MESSAGES_MODE y lo leen las Edge Functions directamente.
+  // Si nunca se eligió, se muestra lo que deducen ellas de los dos
+  // interruptores viejos, así la pantalla refleja lo que realmente pasa.
+  function currentAutomatedMode(): AutomatedMode {
+    const saved = values['AUTOMATED_MESSAGES_MODE']
+    if (saved === 'sms' || saved === 'whatsapp' || saved === 'last_channel' || saved === 'none') return saved
+    const smsOff = values['AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED'] === 'false'
+    const waOff = values['AUTOMATED_MESSAGES_WHATSAPP_ENABLED'] === 'false'
+    if (smsOff && waOff) return 'none'
+    if (smsOff) return 'whatsapp'
+    if (waOff) return 'sms'
+    return 'last_channel'
+  }
+
+  async function setAutomatedMode(mode: AutomatedMode) {
     if (readOnly) return
-    const key = `AUTOMATED_MESSAGES_${channel}_ENABLED`
-    const current = values[key]
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, [key]: next }))
-    await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
+    setValues((prev) => ({ ...prev, AUTOMATED_MESSAGES_MODE: mode }))
+    await supabase
+      .from('integration_settings')
+      .upsert({ key: 'AUTOMATED_MESSAGES_MODE', value: mode, updated_at: new Date().toISOString() })
   }
 
   if (loading) return <p className="text-sm text-muted">Cargando...</p>
@@ -523,38 +542,42 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
               </button>
 
               <p className="mb-2 mt-2 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
-                Estos dos de acá abajo no apagan el aviso en sí — cortan el CANAL por el que sale.
-                Los 3 avisos de arriba se mandan por WhatsApp o por SMS (RingCentral) según cómo te
-                escribió el cliente la última vez; con esto podés cortar uno de los dos canales (por
-                ejemplo el SMS, mientras se resuelve el límite diario de T-Mobile) sin dejar de avisarle
-                a quien te escribe por el otro.
+                Elegí por dónde salen los 3 avisos de arriba (esperando pasajero / cancelado / terminado).
+                Esto no toca las respuestas de la IA, que siguen contestando por donde escribió el cliente.
               </p>
-              <button
-                onClick={() => toggleAutomatedMessagesChannel('WHATSAPP')}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AUTOMATED_MESSAGES_WHATSAPP_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['AUTOMATED_MESSAGES_WHATSAPP_ENABLED'] === 'false'
-                  ? 'Avisos automáticos por WhatsApp: Desactivado'
-                  : 'Avisos automáticos por WhatsApp: Activado'}
-              </button>
-              <button
-                onClick={() => toggleAutomatedMessagesChannel('RINGCENTRAL')}
-                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED'] === 'false'
-                  ? 'Avisos automáticos por RingCentral (SMS): Desactivado'
-                  : 'Avisos automáticos por RingCentral (SMS): Activado'}
-              </button>
+              <div role="radiogroup" aria-label="Mensajes automáticos" className="mb-4 flex flex-col gap-2">
+                {AUTOMATED_MODE_OPTIONS.map((opt) => {
+                  const selected = currentAutomatedMode() === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setAutomatedMode(opt.value)}
+                      className={`flex items-start gap-2 rounded-sm border px-3 py-2 text-left text-xs transition-colors ${
+                        selected
+                          ? opt.value === 'none'
+                            ? 'border-alert/60 bg-alert/10 text-alert'
+                            : 'border-available/60 bg-available/10 text-available'
+                          : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
+                          selected ? 'border-current' : 'border-panel-light'
+                        }`}
+                      >
+                        {selected && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                      </span>
+                      <span className="flex flex-col">
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="text-[11px] opacity-80">{opt.hint}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </>
           )}
 

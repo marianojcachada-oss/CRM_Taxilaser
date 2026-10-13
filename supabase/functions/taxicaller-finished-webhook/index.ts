@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   }
 
   const { sentVia, wamid, rcMessageId } = messageEnabled
-    ? await sendAutomatedMessage({ contactId, phone, text })
+    ? await sendAutomatedMessage({ contactId, phone, text, notice: true })
     : { sentVia: [] as string[], wamid: null as string | null, rcMessageId: null as string | null };
 
   // La fila de este viaje en ride_history YA existe desde que

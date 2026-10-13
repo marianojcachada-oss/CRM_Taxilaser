@@ -40,6 +40,11 @@ export async function sendAutomatedMessage(opts: {
   contactId: string;
   phone: string;
   text: string;
+  // true SOLO para los avisos de TaxiCaller (llegó / cancelado / terminado):
+  // únicos que obedecen el selector "Avisos automáticos" de Integrations
+  // (AUTOMATED_MESSAGES_MODE). Las respuestas de la IA no lo pasan, así que
+  // siguen contestando por donde escribió el cliente, sin importar el modo.
+  notice?: boolean;
 }): Promise<{
   sentVia: string[];
   errors: { channel: string; error: string }[];
@@ -49,7 +54,7 @@ export async function sendAutomatedMessage(opts: {
   wamid: string | null;
   rcMessageId: string | null;
 }> {
-  const { contactId, phone, text } = opts;
+  const { contactId, phone, text, notice = false } = opts;
 
   const { data: contact } = await supabase
     .from("contacts")
@@ -70,21 +75,55 @@ export async function sendAutomatedMessage(opts: {
     return { sentVia: [], errors: [{ channel: "*", error: "Contacto bloqueado — no se manda nada" }] };
   }
 
+  // Selector de 4 modos para los avisos de TaxiCaller (Integrations):
+  //   "sms"          -> siempre por SMS (RingCentral)
+  //   "whatsapp"     -> siempre por WhatsApp, nada por SMS
+  //   "last_channel" -> por donde escribió el cliente la última vez
+  //                     (comportamiento de siempre, más Facebook/Instagram
+  //                     si el contacto los tiene tildados)
+  //   "none"         -> no se manda ningún aviso automático
+  // Si todavía no se eligió ninguno, se deduce de los dos interruptores
+  // viejos (AUTOMATED_MESSAGES_*_ENABLED) para que nada cambie solo.
+  let mode: "sms" | "whatsapp" | "last_channel" | "none" = "last_channel";
+  if (notice) {
+    const modeSettings = await getSettings([
+      "AUTOMATED_MESSAGES_MODE",
+      "AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED",
+      "AUTOMATED_MESSAGES_WHATSAPP_ENABLED",
+    ]);
+    const saved = modeSettings.AUTOMATED_MESSAGES_MODE;
+    if (saved === "sms" || saved === "whatsapp" || saved === "last_channel" || saved === "none") {
+      mode = saved;
+    } else {
+      const smsOff = modeSettings.AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED === "false";
+      const waOff = modeSettings.AUTOMATED_MESSAGES_WHATSAPP_ENABLED === "false";
+      mode = smsOff && waOff ? "none" : smsOff ? "whatsapp" : waOff ? "sms" : "last_channel";
+    }
+  }
+
+  if (mode === "none") {
+    console.log(`sendAutomatedMessage: avisos automáticos desactivados desde Integrations (contacto ${contactId}).`);
+    return { sentVia: [], errors: [], wamid: null, rcMessageId: null };
+  }
+
   // SMS y WhatsApp comparten una misma conversación por cliente (ver
   // find_or_create_sms_whatsapp_conversation), así que el canal se
   // decide mirando por cuál escribió la ÚLTIMA vez — no un checkbox
   // guardado aparte que puede quedar desactualizado.
   let smsWhatsappChannel: "sms" | "whatsapp" | null = null;
 
-  const { data: conv } = await supabase
-    .from("conversations")
-    .select("id")
-    .eq("contact_id", contactId)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: conv } =
+    mode === "last_channel"
+      ? await supabase
+          .from("conversations")
+          .select("id")
+          .eq("contact_id", contactId)
+          .order("last_message_at", { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
 
-  if (conv?.id) {
+  if (mode === "last_channel" && conv?.id) {
     const { data: lastMsg } = await supabase
       .from("messages")
       .select("sent_via_channel")
@@ -106,36 +145,15 @@ export async function sendAutomatedMessage(opts: {
     (c: string) => c === "facebook" || c === "instagram",
   );
 
-  let channels: string[] = [
-    smsWhatsappChannel ?? "sms", // sin historial todavía -> comportamiento de siempre
-    ...metaChannels,
-  ];
-
-  // Interruptores por CANAL (Integrations → TaxiCaller): apagan el envío
-  // de estos 3 avisos automáticos (llegó / cancelado / terminado) por
-  // RingCentral o por WhatsApp de forma independiente, sin tocar el
-  // otro — por ejemplo, para cortar el SMS mientras se resuelve el
-  // límite diario de T-Mobile, sin dejar de avisar por WhatsApp a los
-  // clientes que escriben por ahí. Por defecto quedan prendidos (si
-  // nunca se cargó el valor, se tratan como activados).
-  const channelToggles = await getSettings([
-    "AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED",
-    "AUTOMATED_MESSAGES_WHATSAPP_ENABLED",
-  ]);
-  const skipped: string[] = [];
-  if (channelToggles.AUTOMATED_MESSAGES_RINGCENTRAL_ENABLED === "false" && channels.includes("sms")) {
-    skipped.push("sms");
-    channels = channels.filter((c) => c !== "sms");
-  }
-  if (channelToggles.AUTOMATED_MESSAGES_WHATSAPP_ENABLED === "false" && channels.includes("whatsapp")) {
-    skipped.push("whatsapp");
-    channels = channels.filter((c) => c !== "whatsapp");
-  }
-  if (skipped.length) {
-    console.log(
-      `sendAutomatedMessage: canal(es) ${skipped.join(", ")} desactivado(s) desde Integrations — no se manda por ahí (contacto ${contactId}).`,
-    );
-  }
+  const channels: string[] =
+    mode === "sms"
+      ? ["sms"]
+      : mode === "whatsapp"
+        ? ["whatsapp"]
+        : [
+            smsWhatsappChannel ?? "sms", // sin historial todavía -> comportamiento de siempre
+            ...metaChannels,
+          ];
 
   const sentVia: string[] = [];
   const errors: { channel: string; error: string }[] = [];

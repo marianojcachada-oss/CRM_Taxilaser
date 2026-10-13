@@ -414,24 +414,46 @@ export default function Inbox({
       setMyHistoryResults(null)
       return
     }
+    let cancelled = false
+    // Antes esto traía TODOS los mensajes del operador (sin índice, con
+    // millones de filas, y cortado en 1000 por max_rows) y recién después
+    // buscaba las conversaciones: tardaba hasta pasarse del tiempo máximo
+    // y la pantalla quedaba vacía sin avisar. Ahora una función en
+    // Postgres (my_replied_conversation_ids) devuelve directo las 300
+    // conversaciones más recientes donde este operador escribió.
     supabase
-      .from('messages')
-      .select('conversation_id')
-      .eq('sender_operator_id', operatorId)
-      .then(async ({ data: msgs }) => {
-        const ids = Array.from(new Set((msgs ?? []).map((m) => m.conversation_id).filter(Boolean)))
+      .rpc('my_replied_conversation_ids', { p_operator_id: operatorId, p_limit: 300 })
+      .then(async ({ data: rows, error: rpcError }) => {
+        if (cancelled) return
+        if (rpcError) {
+          console.error('No se pudo cargar "Mis respuestas":', rpcError.message)
+          setMyHistoryResults([])
+          toast.error('No se pudo cargar "Mis respuestas". Probá de nuevo en un momento.')
+          return
+        }
+        const ids = (rows ?? []).map((r: { conversation_id: string }) => r.conversation_id)
         if (ids.length === 0) {
           setMyHistoryResults([])
           return
         }
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('conversations')
           .select(CONVERSATION_SELECT)
           .in('id', ids)
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(300)
+        if (cancelled) return
+        if (error) {
+          console.error('No se pudo cargar "Mis respuestas":', error.message)
+          toast.error('No se pudo cargar "Mis respuestas". Probá de nuevo en un momento.')
+          setMyHistoryResults([])
+          return
+        }
         setMyHistoryResults((data ?? []).map(mapConversation))
       })
+    return () => {
+      cancelled = true
+    }
   }, [filter.kind, operatorId])
 
   // Bandeja "Apoyo": arranca con lo que ya esté activo en conversation_support

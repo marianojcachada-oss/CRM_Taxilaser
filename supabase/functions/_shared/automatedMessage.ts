@@ -29,6 +29,9 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// Ventana de atención al cliente de WhatsApp (24 hs desde su último mensaje).
+// Se usa un margen de 1 minuto para no apurar el límite justo.
+const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000 - 60 * 1000;
 
 /**
  * Manda `text` a un cliente: por SMS o WhatsApp (el que haya usado la
@@ -126,7 +129,7 @@ export async function sendAutomatedMessage(opts: {
   if (mode === "last_channel" && conv?.id) {
     const { data: lastMsg } = await supabase
       .from("messages")
-      .select("sent_via_channel")
+      .select("sent_via_channel, created_at")
       .eq("conversation_id", conv.id)
       .eq("sender_type", "contact")
       .in("sent_via_channel", ["sms", "whatsapp"])
@@ -136,6 +139,22 @@ export async function sendAutomatedMessage(opts: {
 
     if (lastMsg?.sent_via_channel === "sms" || lastMsg?.sent_via_channel === "whatsapp") {
       smsWhatsappChannel = lastMsg.sent_via_channel;
+
+      // Ventana de 24 hs de WhatsApp: Meta solo deja mandar texto libre
+      // (sin plantilla) hasta 24 hs después del último mensaje del cliente.
+      // Si el último mensaje del cliente fue por WhatsApp y ya pasó ese
+      // plazo, el aviso por WhatsApp fallaría — se manda por SMS. Apenas el
+      // cliente vuelva a escribir por WhatsApp, ese mensaje pasa a ser el
+      // último y los avisos vuelven a ir por WhatsApp solos.
+      if (smsWhatsappChannel === "whatsapp") {
+        const ageMs = Date.now() - new Date(lastMsg.created_at).getTime();
+        if (Number.isFinite(ageMs) && ageMs > WHATSAPP_WINDOW_MS) {
+          console.log(
+            `sendAutomatedMessage: último mensaje de WhatsApp de ${contactId} fue hace más de 24 hs — se manda por SMS.`,
+          );
+          smsWhatsappChannel = "sms";
+        }
+      }
     }
   }
 

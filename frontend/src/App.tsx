@@ -44,6 +44,10 @@ export type AppContext = {
   // los guards de /admin y /metrics esperan esto antes de decidir.
   operatorReady: boolean
   loggedOutForInactivity: boolean
+  // true cuando la sesión se perdió por debajo (otra pestaña la cerró, se
+  // borraron datos del navegador, no se pudo renovar) — ver el vigilante de
+  // sesión en App.
+  sessionLost: boolean
   finishPasswordRecovery: () => void
   operatorName: string
   operatorId: string | null
@@ -95,6 +99,7 @@ export default function App() {
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
   const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
+  const [sessionLost, setSessionLost] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
   // Opción del panel de administración (Team → "Cerrar sesión por
   // inactividad"). Por defecto APAGADA: si la base no responde o todavía no
@@ -501,6 +506,7 @@ export default function App() {
     if (session) {
       lastActivityRef.current = Date.now()
       setLoggedOutForInactivity(false)
+      setSessionLost(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
@@ -622,6 +628,68 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
 
+  // --- Vigilante de sesión --------------------------------------------
+  // Si el navegador pierde la sesión de Supabase "por debajo" (otra pestaña la
+  // cerró, se borraron datos del sitio, falló una renovación), la pantalla
+  // seguía abierta y los mensajes fallaban con "Auth session missing" sin
+  // avisar. Esto la verifica cada minuto, al volver a la pestaña, al
+  // recuperar internet y cuando un envío falla por ese motivo. Si no hay
+  // sesión intenta renovarla; si no se puede, lleva al login con un aviso.
+  // Un corte de internet NO cuenta como sesión perdida.
+  useEffect(() => {
+    if (!session) return
+    let checking = false
+
+    async function checkSession() {
+      if (checking) return
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+      checking = true
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        if (data.session) return
+        const retryable =
+          error?.name === 'AuthRetryableFetchError' || /fetch|network/i.test(error?.message ?? '')
+        if (retryable) return
+
+        const refreshed = await supabase.auth.refreshSession()
+        if (refreshed.data.session) return
+        const refreshRetryable =
+          refreshed.error?.name === 'AuthRetryableFetchError' || /fetch|network/i.test(refreshed.error?.message ?? '')
+        if (refreshRetryable) return
+
+        setSessionLost(true)
+        try {
+          await supabase.from('app_errors').insert({
+            context: 'session-lost',
+            message: 'Se perdió la sesión del navegador (Auth session missing); se mandó al login.',
+            url: window.location.href,
+          })
+        } catch { /* sin sesión la base puede rechazarlo, no pasa nada */ }
+        const from = window.location.pathname + window.location.search
+        supabase.auth.signOut().finally(() => {
+          navigate('/login', { replace: true, state: { from } })
+        })
+      } finally {
+        checking = false
+      }
+    }
+
+    const interval = setInterval(checkSession, 60_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkSession()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', checkSession)
+    window.addEventListener('session-check', checkSession)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', checkSession)
+      window.removeEventListener('session-check', checkSession)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
+
   async function changeTheme(next: string) {
     setTheme(next)
     if (operatorId) {
@@ -656,6 +724,7 @@ export default function App() {
     passwordRecovery,
     operatorReady: !!session && operatorLoadedFor === session.user.id,
     loggedOutForInactivity,
+    sessionLost,
     finishPasswordRecovery: () => {
       setPasswordRecovery(false)
       navigate('/', { replace: true })

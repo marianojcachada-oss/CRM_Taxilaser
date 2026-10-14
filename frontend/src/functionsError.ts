@@ -5,6 +5,16 @@
 // non-2xx status code". El detalle real viaja en el cuerpo de la
 // respuesta (error.context), esta función lo rescata.
 export async function getFunctionErrorMessage(error: any, data: any): Promise<string> {
+  const message = await readFunctionErrorMessage(error, data)
+  // Si el error es de sesión perdida, se avisa a App.tsx para que lo
+  // verifique en el momento (renueva la sesión o manda al login).
+  if (/auth session missing|no autenticado/i.test(message)) {
+    window.dispatchEvent(new Event('session-check'))
+  }
+  return message
+}
+
+async function readFunctionErrorMessage(error: any, data: any): Promise<string> {
   if (data?.error) {
     return typeof data.error === 'string' ? data.error : JSON.stringify(data.error)
   }

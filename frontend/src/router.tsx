@@ -105,6 +105,11 @@ function LoginRoute() {
 
   return (
     <>
+      {ctx.sessionLost && !ctx.loggedOutForInactivity && (
+        <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
+          Se perdió tu sesión (puede haberse cerrado en otra pestaña o ventana). Volvé a iniciar sesión para continuar.
+        </div>
+      )}
       {ctx.loggedOutForInactivity && (
         <div className="fixed inset-x-0 top-0 z-50 bg-mustard px-4 py-2 text-center text-sm font-medium text-asphalt">
           Se cerró tu sesión por inactividad (10 minutos sin uso). Volvé a iniciar sesión para continuar.

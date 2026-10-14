@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     // por completo: el mensaje llegaba sin texto y sin nada más, y el
     // módulo de IA respondía "no puedo visualizar imágenes" sin haber
     // recibido ninguna imagen de verdad.
-    const mediaAttachment = (body.attachments ?? []).find((a: any) => a.type !== "Text");
+    const mediaAttachment = pickMediaAttachment(body.attachments ?? []);
     let attachment: { url: string; name: string; kind: "image" | "audio" | "file" } | null = null;
 
     if (mediaAttachment?.uri) {
@@ -120,6 +120,52 @@ Deno.serve(async (req) => {
   return new Response("OK", { status: 200 });
 });
 
+// Elige el adjunto "real" de un MMS. Un MMS puede traer varias partes: el
+// texto, un descriptor SMIL (la "receta" de cómo mostrarlo, no es contenido)
+// y el archivo de verdad (imagen, audio...). Antes se tomaba la primera que
+// no fuera de tipo "Text", y si esa era el descriptor SMIL o cualquier otra
+// parte técnica, el audio o la imagen se perdía. Ahora se descartan texto y
+// SMIL y se prefiere audio, después imagen, después el resto.
+function pickMediaAttachment(attachments: any[]): any | null {
+  const rank = (a: any): number => {
+    const ct = String(a?.contentType ?? "").toLowerCase();
+    if (ct.startsWith("audio/")) return 0;
+    if (ct.startsWith("image/")) return 1;
+    if (ct.startsWith("video/")) return 2;
+    return 3;
+  };
+  const candidates = attachments.filter((a: any) => {
+    if (!a?.uri || a.type === "Text") return false;
+    const ct = String(a.contentType ?? "").toLowerCase();
+    return !(ct.startsWith("text/") || ct.includes("smil"));
+  });
+  candidates.sort((x: any, y: any) => rank(x) - rank(y));
+  return candidates[0] ?? null;
+}
+
+// Extensión según el tipo MIME. Las notas de voz de los celulares llegan en
+// formatos poco comunes (amr, 3gp, caf...), y con el "subtipo" crudo se
+// guardaban con nombres raros como "x-caf" o "3gpp".
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  "audio/amr": "amr",
+  "audio/amr-wb": "awb",
+  "audio/3gpp": "3gp",
+  "audio/3gpp2": "3g2",
+  "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/aac": "aac",
+  "audio/x-caf": "caf",
+  "audio/ogg": "ogg",
+  "audio/opus": "opus",
+  "audio/webm": "webm",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+};
+
 // Baja el adjunto de MMS desde el message-store de RingCentral (el "uri"
 // del attachment devuelve el binario directo, igual que la documentación
 // de "Get Message Attachment") y lo sube a nuestro propio Storage, para no
@@ -138,15 +184,20 @@ async function downloadAndStoreMmsAttachment(
       return null;
     }
 
-    const mimeType = mediaAttachment.contentType ?? fileRes.headers.get("content-type") ?? "application/octet-stream";
+    const rawMime = mediaAttachment.contentType ?? fileRes.headers.get("content-type") ?? "application/octet-stream";
+    const mimeType = rawMime.split(";")[0].trim().toLowerCase();
     const bytes = new Uint8Array(await fileRes.arrayBuffer());
+    // Queda en los logs para poder ver qué formato mandó cada celular.
+    console.log(
+      `ringcentral-webhook: adjunto MMS recibido type=${mediaAttachment.type ?? "?"} contentType=${rawMime} bytes=${bytes.length}`,
+    );
 
     const kind: "image" | "audio" | "file" = mimeType.startsWith("image/")
       ? "image"
       : mimeType.startsWith("audio/")
         ? "audio"
         : "file";
-    const ext = mimeType.split("/")[1]?.split(";")[0] || "bin";
+    const ext = AUDIO_EXTENSIONS[mimeType] ?? (mimeType.split("/")[1]?.replace(/^x-/, "") || "bin");
     const filename = `${mediaAttachment.type ?? "adjunto"}.${ext}`;
     const path = `sms/${phone}/${crypto.randomUUID()}.${ext}`;
 

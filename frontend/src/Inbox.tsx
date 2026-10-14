@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useLocation, useMatch, useNavigate } from 'react-router-dom'
-import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck } from 'lucide-react'
+import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck, LifeBuoy } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import ConversationsView, { type Conversation, type Operator } from './ConversationsView'
 import ContactsView from './ContactsView'
@@ -10,6 +10,8 @@ import SimulateMessageModal from './SimulateMessageModal'
 import StartConversationModal from './StartConversationModal'
 import MissedCallsView from './MissedCallsView'
 import ProfileMenu from './ProfileMenu'
+import AtlantaClock from './AtlantaClock'
+import ReportProblemModal from './ReportProblemModal'
 import { CONVERSATION_SELECT, mapConversation } from './conversationsData'
 import { useToast } from './Toast'
 
@@ -38,6 +40,19 @@ function byOperatorCode(a: Operator, b: Operator) {
   if (isNaN(numA)) return 1
   if (isNaN(numB)) return -1
   return numA - numB
+}
+
+// Orden de las bandejas: la conversación con actividad más reciente arriba.
+// Antes la lista solo venía ordenada de la carga inicial: cuando entraba un
+// mensaje nuevo en una conversación que ya estaba, se actualizaba EN SU
+// LUGAR y no subía.
+function activityTime(c: Conversation): number {
+  const t = c.lastMessageAtRaw ?? c.createdAt
+  const n = t ? new Date(t).getTime() : 0
+  return Number.isFinite(n) ? n : 0
+}
+function byMostRecentActivity(a: Conversation, b: Conversation): number {
+  return activityTime(b) - activityTime(a)
 }
 
 function isSnoozed(c: Conversation): boolean {
@@ -148,6 +163,10 @@ export default function Inbox({
   const [missedCallsCounterEnabled, setMissedCallsCounterEnabled] = useState<boolean | null>(null)
   const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
+  // Reportar un problema/idea al superadmin (ver ReportProblemModal) y, solo
+  // para el superadmin, cuántos reportes nuevos hay sin atender.
+  const [showReport, setShowReport] = useState(false)
+  const [newReportsCount, setNewReportsCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [allHistoryResults, setAllHistoryResults] = useState<Conversation[] | null>(null)
@@ -507,6 +526,24 @@ export default function Inbox({
 
   const unreadTotal = conversations.filter((c) => c.unread).length
 
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    const count = () =>
+      supabase
+        .from('problem_reports')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'nuevo')
+        .then(({ count: n }) => setNewReportsCount(n ?? 0))
+    count()
+    const channel = supabase
+      .channel('problem-reports-badge')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'problem_reports' }, count)
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [isSuperAdmin])
+
   const visibleConversations = useMemo(() => {
     if (searchQuery.trim().length >= 2) {
       return searchResults ?? []
@@ -518,11 +555,12 @@ export default function Inbox({
       return myHistoryResults ?? []
     }
     if (filter.kind === 'support') {
-      return conversations.filter((c) => supportIds.has(c.id))
+      return conversations.filter((c) => supportIds.has(c.id)).sort(byMostRecentActivity)
     }
     return conversations
       .filter((c) => (filter.kind === 'snoozed' ? true : !isSnoozed(c)))
       .filter((c) => matchesFilter(c, filter, operatorId))
+      .sort(byMostRecentActivity)
   }, [conversations, filter, searchQuery, searchResults, allHistoryResults, myHistoryResults, supportIds, operatorId])
 
   // --- Conversación abierta por URL (/chat/:conversationId) ------------
@@ -685,6 +723,8 @@ export default function Inbox({
             <Search size={18} />
           </button>
 
+          <AtlantaClock />
+
           <button
             onClick={() => setShowStartConversation(true)}
             aria-label="Nuevo SMS"
@@ -765,6 +805,29 @@ export default function Inbox({
               </span>
             )}
           </div>
+
+          <button
+            onClick={() => setShowReport(true)}
+            className="flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted transition-colors hover:bg-panel-light hover:text-cream"
+            title="Reportar un problema, mandar una idea o pedir soporte"
+          >
+            <LifeBuoy size={16} /> <span className="hidden lg:inline">Reportar</span>
+          </button>
+
+          {isSuperAdmin && (
+            <button
+              onClick={() => navigate('/admin/reports')}
+              className="relative flex h-9 items-center gap-1.5 rounded-full px-2.5 text-xs text-mustard transition-colors hover:bg-mustard/10"
+              title="Problemas reportados por los operadores"
+            >
+              🛟 <span className="hidden lg:inline">Problemas reportados</span>
+              {newReportsCount > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-alert px-1 text-[10px] font-bold text-asphalt">
+                  {newReportsCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <ProfileMenu
             operatorName={operatorName}
@@ -874,6 +937,16 @@ export default function Inbox({
         )}
         {view === 'missed-calls' && <MissedCallsView />}
       </div>
+
+      {showReport && (
+        <ReportProblemModal
+          operatorId={operatorId}
+          operatorName={operatorName}
+          operatorCode={operators.find((o) => o.id === operatorId)?.operator_code ?? null}
+          conversationId={urlConversationId}
+          onClose={() => setShowReport(false)}
+        />
+      )}
 
       {showSimulator && (
         <SimulateMessageModal

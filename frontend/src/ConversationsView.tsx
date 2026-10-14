@@ -87,6 +87,31 @@ export type Operator = {
   presence?: 'available' | 'offline' | 'busy' | 'apoyo'
 }
 
+// Reproductor de audio con salida de emergencia: algunos celulares mandan
+// notas de voz por MMS en formatos que Chrome no sabe reproducir (por ejemplo
+// AMR o 3GP). En ese caso se ofrece descargar el archivo en vez de dejar un
+// reproductor mudo.
+function AudioAttachment({ url, name }: { url: string; name: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <div className="flex flex-col gap-1 text-xs">
+        <span className="opacity-80">El navegador no puede reproducir este formato de audio.</span>
+        <a
+          href={url}
+          download
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1.5 rounded-sm border border-black/10 bg-black/10 px-2 py-1 hover:opacity-80"
+        >
+          <Mic size={13} /> Descargar audio ({name})
+        </a>
+      </div>
+    )
+  }
+  return <audio controls preload="metadata" src={url} onError={() => setFailed(true)} className="max-w-[220px]" />
+}
+
 const urlPattern = /(https?:\/\/[^\s]+)/g
 
 // Los emojis se dibujan con imágenes propias (Twemoji) en vez de
@@ -747,6 +772,15 @@ export default function ConversationsView({
     // que vació la pantalla.
     if (closing) {
       toast.success('Conversación cerrada.')
+      // En Mías / Sin leer / Pendientes una conversación cerrada ya no
+      // pertenece a la lista, pero seguía abierta por la URL (/chat/:id) y
+      // por eso Inbox la volvía a mostrar arriba ("no se me va de Mías").
+      // Se suelta la selección para que salga de la lista y el panel pase
+      // a la siguiente. En las demás vistas (Todas, Historial, etc.) la
+      // cerrada sigue siendo parte de la lista y se deja abierta.
+      if (filter.kind === 'mine' || filter.kind === 'new' || filter.kind === 'pending') {
+        setSelectedId(null, { replace: true })
+      }
     }
   }
 
@@ -1536,7 +1570,7 @@ export default function ConversationsView({
                           </a>
                         )}
                         {m.attachment.kind === 'audio' && (
-                          <audio controls src={m.attachment.url} className="max-w-[220px]" />
+                          <AudioAttachment url={m.attachment.url} name={m.attachment.name} />
                         )}
                         {m.attachment.kind === 'file' && (
                           <a

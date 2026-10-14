@@ -96,6 +96,10 @@ export default function App() {
   const [muted, setMuted] = useState(() => localStorage.getItem('notificationsMuted') === 'true')
   const [loggedOutForInactivity, setLoggedOutForInactivity] = useState(false)
   const lastActivityRef = useRef<number>(Date.now())
+  // Opción del panel de administración (Team → "Cerrar sesión por
+  // inactividad"). Por defecto APAGADA: si la base no responde o todavía no
+  // existe la función, no se cierra la sesión de nadie.
+  const autoLogoutEnabledRef = useRef<boolean>(false)
 
   // Espejo del estado `conversations` en un ref — se usa SOLO para
   // decidir, de forma sincrónica y sin side-effects dentro de un
@@ -531,6 +535,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, operatorPresence])
 
+  // Lee la opción del panel (Team) al iniciar sesión y cada 5 minutos, así un
+  // cambio del admin se nota sin que los operadores tengan que recargar. Si la
+  // lectura falla se conserva el último valor conocido.
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    const readSetting = () => {
+      supabase.rpc('get_auto_logout_enabled').then(({ data, error }) => {
+        if (cancelled || error) return
+        autoLogoutEnabledRef.current = data === true
+      })
+    }
+    readSetting()
+    const interval = setInterval(readSetting, 5 * 60 * 1000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [session?.user?.id])
+
   useEffect(() => {
     if (!session) return
 
@@ -542,6 +566,8 @@ export default function App() {
 
     const interval = setInterval(async () => {
       if (closing) return
+      // Opción apagada desde el panel: no se cierra la sesión por inactividad.
+      if (!autoLogoutEnabledRef.current) return
       if (Date.now() - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
         closing = true
         // Cierra la sesión de verdad (no alcanza con solo cambiar el

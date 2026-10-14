@@ -36,6 +36,12 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Opción global: cerrar la sesión de los operadores tras 10 min sin actividad.
+  // Se guarda en integration_settings (clave AUTO_LOGOUT_ENABLED); lo cambia
+  // solo el superadmin. Sin valor guardado = apagada.
+  const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false)
+  const [autoLogoutSaving, setAutoLogoutSaving] = useState(false)
+
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -65,7 +71,28 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
 
   useEffect(() => {
     load()
+    supabase
+      .from('integration_settings')
+      .select('value')
+      .eq('key', 'AUTO_LOGOUT_ENABLED')
+      .maybeSingle()
+      .then(({ data }) => setAutoLogoutEnabled(data?.value === 'true'))
   }, [])
+
+  async function toggleAutoLogout() {
+    if (!isSuperAdmin || autoLogoutSaving) return
+    const next = !autoLogoutEnabled
+    setAutoLogoutSaving(true)
+    const { error } = await supabase
+      .from('integration_settings')
+      .upsert({ key: 'AUTO_LOGOUT_ENABLED', value: next ? 'true' : 'false', updated_at: new Date().toISOString() })
+    setAutoLogoutSaving(false)
+    if (error) {
+      alert('No se pudo guardar: ' + error.message)
+      return
+    }
+    setAutoLogoutEnabled(next)
+  }
 
   function load() {
     setLoading(true)
@@ -432,6 +459,34 @@ export default function TeamSection({ isSuperAdmin }: { isSuperAdmin: boolean })
           </button>
         </form>
       )}
+
+      <div className="flex items-start justify-between gap-4 rounded-sm border border-panel-light bg-panel p-4">
+        <div>
+          <p className="text-sm font-medium text-cream">Cerrar sesión por inactividad</p>
+          <p className="mt-0.5 text-xs text-muted">
+            Si está activado, a los operadores se les cierra la sesión (y quedan "No disponible") después de 10 minutos sin
+            escribir, enviar mensajes ni hacer clic. Apagado, la sesión queda abierta hasta que ellos la cierren. Los cambios
+            tardan hasta 5 minutos en llegar a quienes ya están conectados.
+            {!isSuperAdmin && ' Solo el superadmin puede cambiarlo.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoLogoutEnabled}
+          onClick={toggleAutoLogout}
+          disabled={!isSuperAdmin || autoLogoutSaving}
+          className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+            autoLogoutEnabled ? 'bg-available' : 'bg-panel-light'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-cream transition-all ${
+              autoLogoutEnabled ? 'left-[18px]' : 'left-0.5'
+            }`}
+          />
+        </button>
+      </div>
 
       <div className="rounded-sm border border-panel-light bg-panel">
         <table className="w-full text-left text-sm">

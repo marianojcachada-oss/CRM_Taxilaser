@@ -364,6 +364,9 @@ Deno.serve(async (req) => {
             externalMessageId: msg.id,
             text,
             attachment,
+            // Si el cliente citó un mensaje (mantuvo apretado y "Responder"),
+            // Meta manda el wamid del mensaje citado en msg.context.id.
+            replyToExternalId: msg.context?.id ?? null,
           });
         }
 
@@ -453,8 +456,9 @@ async function handleIncomingMessage(opts: {
   externalMessageId: string | undefined;
   text: string;
   attachment: { url: string; name: string; kind: "image" | "audio" | "file" } | null;
+  replyToExternalId?: string | null;
 }) {
-  const { channel, externalContactId, contactName, externalMessageId, text, attachment } = opts;
+  const { channel, externalContactId, contactName, externalMessageId, text, attachment, replyToExternalId } = opts;
 
   // 0. Mensaje repetido: Meta reintenta la entrega si no recibe respuesta a
   // tiempo, y llegaba el mismo mensaje dos veces. Antes se hacía TODO el
@@ -614,6 +618,21 @@ async function handleIncomingMessage(opts: {
       .or(`external_thread_id.is.null,external_thread_id.neq.${externalContactId}`);
   }
 
+  // Mensaje citado: si el cliente respondió citando un mensaje, se busca el
+  // nuestro (por wamid si lo mandamos nosotros, o por external_message_id si
+  // fue un mensaje del propio cliente) para guardar la referencia y poder
+  // mostrar la cita en el CRM. Si no se encuentra, se guarda sin cita.
+  let replyToMessageId: string | null = null;
+  if (replyToExternalId) {
+    const { data: quoted } = await supabase
+      .from("messages")
+      .select("id")
+      .or(`wamid.eq."${replyToExternalId}",external_message_id.eq."${replyToExternalId}"`)
+      .limit(1)
+      .maybeSingle();
+    replyToMessageId = quoted?.id ?? null;
+  }
+
   // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de
   // este mensaje puntual, que puede no coincidir con conversations.channel
   // una vez que sms/whatsapp comparten conversación.
@@ -626,6 +645,7 @@ async function handleIncomingMessage(opts: {
     attachment_name: attachment?.name ?? null,
     attachment_kind: attachment?.kind ?? null,
     sent_via_channel: channel,
+    reply_to_message_id: replyToMessageId,
   });
 
   // (Antes había un paso 5 que volvía a actualizar last_message_at acá.

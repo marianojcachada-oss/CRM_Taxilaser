@@ -3,7 +3,7 @@ import { useMatch, useNavigate } from 'react-router-dom'
 import {
   Send, X, CheckCircle2, RotateCcw, Check, CheckCheck, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
-  Search, ChevronDown, Sparkles,
+  Search, ChevronDown, Sparkles, Reply,
 } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react'
 import twemoji from 'twemoji'
@@ -215,6 +215,8 @@ export type Message = {
   attachment?: Attachment
   sentViaChannel?: Channel | null
   senderOperatorId?: string
+  // Mensaje al que este responde (cita, como en WhatsApp) — id interno de messages.
+  replyToId?: string
   time: string
   date?: string
   // 'delivered'/'read' solo aplican a WhatsApp (es lo único que manda esos
@@ -326,6 +328,8 @@ export default function ConversationsView({
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState('')
+  // Mensaje que se está citando para la próxima respuesta (solo WhatsApp).
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showReassignMenu, setShowReassignMenu] = useState(false)
@@ -477,6 +481,7 @@ export default function ConversationsView({
       text: m.content ?? undefined,
       sentViaChannel: m.sent_via_channel ?? null,
       senderOperatorId: m.sender_operator_id ?? undefined,
+      replyToId: m.reply_to_message_id ?? undefined,
       time: formatMessageTime(m.created_at),
       date: atlantaDateISO(m.created_at), // yyyy-mm-dd en calendario de Atlanta, para agrupar por día de forma confiable
       attachment: m.attachment_url
@@ -497,10 +502,11 @@ export default function ConversationsView({
     }
 
     let cancelled = false
+    setReplyingTo(null)
 
     supabase
       .from('messages')
-      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status')
+      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status, reply_to_message_id')
       .eq('conversation_id', selectedId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
@@ -997,6 +1003,8 @@ export default function ConversationsView({
     const textToSend = draft.trim()
     const attachmentToSend = pendingAttachment
     const tempId = `temp-${crypto.randomUUID()}`
+    // La cita solo existe en WhatsApp (SMS no tiene forma de citar).
+    const replyToSend = sendChannel === 'whatsapp' ? replyingTo : null
 
     // El mensaje aparece al toque, con un estado "Enviando..." — no
     // esperamos a que termine el viaje de red para mostrarlo.
@@ -1007,6 +1015,7 @@ export default function ConversationsView({
         from: 'operator',
         text: textToSend || undefined,
         senderOperatorId: operatorId ?? undefined,
+        replyToId: replyToSend?.id,
         attachment: attachmentToSend
           ? { name: attachmentToSend.name, url: attachmentToSend.url, kind: attachmentToSend.kind }
           : undefined,
@@ -1015,6 +1024,7 @@ export default function ConversationsView({
       },
     ])
     setDraft('')
+    setReplyingTo(null)
     setPendingAttachment(null)
     setShowEmoji(false)
     setSendError(null)
@@ -1047,6 +1057,7 @@ export default function ConversationsView({
           attachmentUrl: urlData.publicUrl,
           attachmentName: attachmentToSend.name,
           attachmentKind: attachmentToSend.kind,
+          replyToMessageId: replyToSend?.id,
         },
       })
 
@@ -1062,7 +1073,7 @@ export default function ConversationsView({
       window.dispatchEvent(new Event('operator-activity'))
     } else {
       const { data, error } = await supabase.functions.invoke('send-message', {
-        body: { conversationId: selectedId, channel: sendChannel, text: textToSend },
+        body: { conversationId: selectedId, channel: sendChannel, text: textToSend, replyToMessageId: replyToSend?.id },
       })
 
       if (error || data?.error) {
@@ -1525,7 +1536,7 @@ export default function ConversationsView({
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
-                  <div key={m.id}>
+                  <div key={m.id} id={`msg-${m.id}`}>
                     {showDaySeparator && (
                       <div className="my-4 flex items-center gap-3">
                         <div className="h-px flex-1 bg-panel-light" />
@@ -1556,6 +1567,45 @@ export default function ConversationsView({
                         🤖 Mensaje automático
                       </p>
                     )}
+                    {m.replyToId && (() => {
+                      const quoted = thread.find((x) => x.id === m.replyToId)
+                      const quotedAuthor = !quoted
+                        ? null
+                        : quoted.from === 'contact'
+                          ? (selected?.name ?? 'Cliente')
+                          : quoted.senderOperatorId
+                            ? (operators.find((o) => o.id === quoted.senderOperatorId)?.full_name ?? 'Operador')
+                            : 'Mensaje automático'
+                      const quotedPreview = !quoted
+                        ? 'Mensaje no disponible'
+                        : quoted.text
+                          ? quoted.text
+                          : quoted.attachment?.kind === 'image'
+                            ? '📷 Imagen'
+                            : quoted.attachment?.kind === 'audio'
+                              ? '🎤 Audio'
+                              : quoted.attachment
+                                ? `📎 ${quoted.attachment.name}`
+                                : ''
+                      return (
+                        <button
+                          type="button"
+                          disabled={!quoted}
+                          onClick={() =>
+                            document
+                              .getElementById(`msg-${m.replyToId}`)
+                              ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                          }
+                          title={quoted ? 'Ir al mensaje citado' : undefined}
+                          className="mb-1.5 block w-full rounded-sm border-l-2 border-mustard bg-black/15 px-2 py-1 text-left"
+                        >
+                          {quotedAuthor && (
+                            <span className="block text-[10px] font-semibold text-mustard">{quotedAuthor}</span>
+                          )}
+                          <span className="line-clamp-2 block break-words text-xs opacity-80">{quotedPreview}</span>
+                        </button>
+                      )
+                    })()}
                     {m.text && <p className="break-words">{<Linkify text={m.text} />}</p>}
 
                     {m.attachment && (
@@ -1619,6 +1669,16 @@ export default function ConversationsView({
                           {m.status === 'read' && <CheckCheck size={10} className="text-sky-400" />}
                         </p>
                       )}
+                      {sendChannel === 'whatsapp' && m.status !== 'sending' && m.status !== 'failed' && !m.id.startsWith('temp-') && (
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(m)}
+                          className="opacity-60 transition-opacity hover:opacity-100"
+                          title="Responder citando este mensaje"
+                        >
+                          <Reply size={11} />
+                        </button>
+                      )}
                       {m.from === 'contact' && m.text && (
                         <button
                           onClick={() => handleTranslateMessage(m.id, m.text!)}
@@ -1661,6 +1721,39 @@ export default function ConversationsView({
               <p className="border-t border-panel-light bg-panel px-4 pt-2 text-xs italic text-mustard">
                 ✍️ {typingOperators.join(', ')} {typingOperators.length === 1 ? 'está' : 'están'} respondiendo...
               </p>
+            )}
+
+            {replyingTo && sendChannel === 'whatsapp' && (
+              <div className="flex items-start gap-2 border-t border-panel-light bg-panel px-4 pt-3">
+                <div className="min-w-0 flex-1 rounded-sm border-l-2 border-mustard bg-asphalt px-2 py-1">
+                  <span className="block text-[10px] font-semibold text-mustard">
+                    Respondiendo a{' '}
+                    {replyingTo.from === 'contact'
+                      ? (selected?.name ?? 'Cliente')
+                      : replyingTo.senderOperatorId
+                        ? (operators.find((o) => o.id === replyingTo.senderOperatorId)?.full_name ?? 'Operador')
+                        : 'Mensaje automático'}
+                  </span>
+                  <span className="line-clamp-2 block break-words text-xs text-muted">
+                    {replyingTo.text ??
+                      (replyingTo.attachment?.kind === 'image'
+                        ? '📷 Imagen'
+                        : replyingTo.attachment?.kind === 'audio'
+                          ? '🎤 Audio'
+                          : replyingTo.attachment
+                            ? `📎 ${replyingTo.attachment.name}`
+                            : '')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  className="mt-1 text-muted hover:text-alert"
+                  title="Cancelar cita"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             )}
 
             {pendingAttachment && (

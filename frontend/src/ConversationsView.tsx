@@ -13,7 +13,7 @@ import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import { getFunctionErrorMessage } from './functionsError'
 import { phoneForCopy } from './phone'
-import { atlantaDateISO, formatMessageTime, formatMessageDateTimeShort } from './atlantaTime'
+import { atlantaDateISO, formatMessageTime } from './atlantaTime'
 
 export type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'sms'
 
@@ -58,6 +58,22 @@ export function nameInitials(name: string): string {
   const letter = (w?: string) => (w && /^\p{L}/u.test(w) ? w[0].toUpperCase() : '')
   const out = letter(words[0]) + letter(words[1])
   return out || '#'
+}
+
+const shortStatus: Record<ConversationStatus, string> = {
+  esperando_operador: 'Esperando',
+  esperando_informacion: 'Falta info',
+  esperando_cliente: 'Esperando cliente',
+  reclamo: 'Reclamo',
+  cancelacion: 'Cancelación',
+  cerrada: 'Cerrada',
+}
+
+const channelName: Record<Channel, string> = {
+  whatsapp: 'WhatsApp',
+  facebook: 'Messenger',
+  instagram: 'Instagram',
+  sms: 'SMS',
 }
 
 const channelShort: Record<Channel, string> = {
@@ -236,24 +252,6 @@ async function translateText(text: string, targetLang: 'es' | 'en'): Promise<str
   return data.translated as string
 }
 
-function getSnoozeDate(preset: '15m' | '1h' | 'tomorrow' | 'monday'): Date {
-  const now = new Date()
-  if (preset === '15m') return new Date(now.getTime() + 15 * 60_000)
-  if (preset === '1h') return new Date(now.getTime() + 60 * 60_000)
-  if (preset === 'tomorrow') {
-    const d = new Date(now)
-    d.setDate(d.getDate() + 1)
-    d.setHours(9, 0, 0, 0)
-    return d
-  }
-  // monday
-  const d = new Date(now)
-  const daysUntilMonday = (8 - d.getDay()) % 7 || 7
-  d.setDate(d.getDate() + daysUntilMonday)
-  d.setHours(9, 0, 0, 0)
-  return d
-}
-
 type Props = {
   conversations: Conversation[]
   setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
@@ -352,8 +350,6 @@ export default function ConversationsView({
   const [linkedChannels, setLinkedChannels] = useState<Set<Channel>>(new Set())
   const [sendChannel, setSendChannel] = useState<Channel | null>(null)
   const [typingOperators, setTypingOperators] = useState<string[]>([])
-  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
-  const [customSnooze, setCustomSnooze] = useState('')
   const [showContactPanel, setShowContactPanel] = useState(false)
   const [headerPhoneCopied, setHeaderPhoneCopied] = useState(false)
 
@@ -745,15 +741,6 @@ export default function ConversationsView({
     }
   }
 
-  async function toggleKeepWithOperator() {
-    if (!selectedId || !selected) return
-    const next = !selected.keepWithOperator
-    setConversations((prev) =>
-      prev.map((c) => (c.id === selectedId ? { ...c, keepWithOperator: next } : c)),
-    )
-    await supabase.from('conversations').update({ keep_with_operator: next }).eq('id', selectedId)
-  }
-
   async function toggleClosed() {
     if (!selected) return
     const closing = selected.status !== 'cerrada'
@@ -843,19 +830,6 @@ export default function ConversationsView({
     if (selectedId && selectedIds.has(selectedId)) setSelectedId(null)
     toast.success(`${ids.length} conversaciones borradas.`)
     exitBulkSelect()
-  }
-
-  async function applySnooze(until: Date | null) {
-    if (!selectedId) return
-    setConversations((prev) =>
-      prev.map((c) => (c.id === selectedId ? { ...c, snoozedUntil: until ? until.toISOString() : null } : c)),
-    )
-    await supabase
-      .from('conversations')
-      .update({ snoozed_until: until ? until.toISOString() : null })
-      .eq('id', selectedId)
-    setShowSnoozeMenu(false)
-    setCustomSnooze('')
   }
 
   function handleEmojiClick(emojiData: { emoji: string }) {
@@ -1113,7 +1087,7 @@ export default function ConversationsView({
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Columna: lista de conversaciones (ya filtrada desde arriba) */}
-      <aside className={`w-full shrink-0 flex-col border-r border-panel-light bg-panel md:flex md:w-80 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
+      <aside className={`ui-list w-full shrink-0 flex-col border-r border-panel-light bg-panel md:flex md:w-80 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
         <div className="border-b border-panel-light px-4 py-3">
           <h2 className="text-base font-bold text-cream">{filterTitle[filter.kind] ?? 'Mensajes'}</h2>
           <p className="mt-0.5 text-xs text-muted">
@@ -1207,6 +1181,7 @@ export default function ConversationsView({
           {displayedConversations.map((c) => (
             <button
               key={c.id}
+              data-selected={c.id === selectedId && !bulkSelectMode ? 'true' : undefined}
               onClick={() => {
                 if (bulkSelectMode) {
                   toggleSelectId(c.id)
@@ -1216,7 +1191,7 @@ export default function ConversationsView({
                 setShowEmoji(false)
                 setSendError(null)
               }}
-              className={`flex w-full items-start gap-3 border-b border-l-2 border-panel-light px-4 py-3 text-left transition-colors ${
+              className={`ui-row flex w-full items-start gap-3 border-b border-l-2 border-panel-light px-4 py-3 text-left transition-colors ${
                 c.status === 'cancelacion' ? 'border-l-alert bg-alert/10 hover:bg-alert/15' : 'border-l-transparent'
               } ${
                 bulkSelectMode
@@ -1239,9 +1214,12 @@ export default function ConversationsView({
               )}
               <span
                 aria-hidden="true"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel-light text-sm font-semibold text-cream"
+                className="ui-avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel-light text-sm font-semibold text-cream"
               >
                 {nameInitials(c.name)}
+                <span aria-hidden="true" className="ui-only ui-chbadge" style={{ backgroundColor: channelAvatarColor[c.channel] }}>
+                  <ChannelIcon channel={c.channel} size={8} color="white" />
+                </span>
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
@@ -1266,12 +1244,19 @@ export default function ConversationsView({
                   </span>
                   <span
                     title={channelLabel[c.channel]}
-                    className="ml-auto shrink-0 rounded-sm border px-1 font-mono text-[11px] font-semibold leading-4 text-cream"
+                    className="ui-hide ml-auto shrink-0 rounded-sm border px-1 font-mono text-[11px] font-semibold leading-4 text-cream"
                     style={{ borderColor: channelAvatarColor[c.channel] }}
                   >
                     {channelShort[c.channel]}
                   </span>
                   {c.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-mustard" aria-label="Sin leer" />}
+                </div>
+                <div className="ui-only ui-meta mt-1.5 flex-wrap items-center gap-1.5">
+                  <span className={`ui-tag ${statusConfig[c.status].color}`}>
+                    <span className="ui-tag-t">{shortStatus[c.status]}</span>
+                  </span>
+                  <span className="ui-tag text-muted">{channelName[c.channel]}</span>
+                  {c.unread && <span className="ui-tag ui-tag-accent">Sin leer</span>}
                 </div>
               </div>
             </button>
@@ -1283,7 +1268,7 @@ export default function ConversationsView({
       <main className={`flex-1 flex-col ${selectedId ? 'flex' : 'hidden md:flex'}`}>
         {selected ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-panel-light bg-panel px-4 py-2.5">
+            <div className="ui-chathead flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-panel-light bg-panel px-4 py-2.5">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -1323,6 +1308,7 @@ export default function ConversationsView({
                   onClick={() => setShowReassignMenu((v) => !v)}
                   className="flex items-center gap-1.5 rounded-full border border-panel-light bg-asphalt px-3 py-1.5 text-xs text-cream outline-none transition-colors hover:border-mustard focus:border-mustard"
                 >
+                  <span className="ui-lbl text-muted">Asignada a</span>
                   {selected.assignedOperatorId
                     ? (operators.find((o) => o.id === selected.assignedOperatorId)?.full_name ?? 'Asignado')
                     : 'Sin asignar'}
@@ -1393,6 +1379,7 @@ export default function ConversationsView({
                 </button>
                 <button
                   onClick={toggleClosed}
+                  data-act="close"
                   className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors ${
                     selected.status === 'cerrada'
                       ? 'border-available/40 text-available hover:bg-available/10'
@@ -1410,114 +1397,41 @@ export default function ConversationsView({
                   )}
                 </button>
                 <button
-                  onClick={toggleKeepWithOperator}
-                  aria-pressed={!!selected.keepWithOperator}
-                  aria-label={selected.keepWithOperator ? 'Soltar conversación' : 'Mantener conmigo'}
-                  className={`flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border text-sm leading-none transition-colors ${
-                    selected.keepWithOperator
-                      ? 'border-mustard bg-mustard/10'
-                      : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
-                  }`}
-                  title={
-                    selected.keepWithOperator
-                      ? 'Pineada conmigo (se pinea sola al responder o marcar visto; tocá para soltarla)'
-                      : 'Mantener conmigo al cambiar de turno'
-                  }
-                >
-                  <span aria-hidden="true">📌</span>
-                </button>
-                {isAdmin && (
-                  <button
-                    onClick={() => setShowSnoozeMenu((v) => !v)}
-                    aria-expanded={showSnoozeMenu}
-                    aria-label={selected.snoozedUntil ? 'Cambiar posposición' : 'Posponer conversación'}
-                    className={`flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border text-sm leading-none transition-colors ${
-                      selected.snoozedUntil
-                        ? 'border-mustard bg-mustard/10'
-                        : 'border-panel-light opacity-80 hover:border-mustard hover:opacity-100'
-                    }`}
-                    title={
-                      selected.snoozedUntil
-                        ? `Pospuesta hasta ${formatMessageDateTimeShort(selected.snoozedUntil)}`
-                        : 'Posponer conversación'
-                    }
-                  >
-                    <span aria-hidden="true">⏰</span>
-                  </button>
-                )}
-                <button
                   onClick={markAsRead}
+                  data-act="read"
                   disabled={!selected.unread}
                   aria-label="Marcar como visto"
                   className="flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border border-panel-light text-sm leading-none transition-colors hover:border-mustard disabled:opacity-40"
                   title="Marcar como visto"
                 >
-                  <span aria-hidden="true">👁️</span>
+                  <span aria-hidden="true">👁️</span><span className="ui-lbl">Visto</span>
                 </button>
                 {isAdmin && (
                   <button
                     onClick={handleDelete}
+                    data-act="delete"
                     aria-label="Borrar conversación (irreversible)"
                     className="flex h-8 w-8 items-center justify-center max-md:h-11 max-md:w-11 rounded-full border border-alert/40 text-sm leading-none transition-colors hover:bg-alert/10"
                     title="Borrar conversación (irreversible)"
                   >
-                    <span aria-hidden="true">🗑️</span>
+                    <span aria-hidden="true">🗑️</span><span className="ui-lbl">Borrar</span>
                   </button>
                 )}
+              </div>
+              </div>
+            </div>
 
-                {showSnoozeMenu && (
-                  <div className="absolute right-0 top-full z-10 mt-1 w-56 rounded-sm border border-panel-light bg-panel p-2 shadow-lg">
-                    <button
-                      onClick={() => applySnooze(getSnoozeDate('15m'))}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-cream hover:bg-panel-light"
-                    >
-                      15 minutos
-                    </button>
-                    <button
-                      onClick={() => applySnooze(getSnoozeDate('1h'))}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-cream hover:bg-panel-light"
-                    >
-                      1 hora
-                    </button>
-                    <button
-                      onClick={() => applySnooze(getSnoozeDate('tomorrow'))}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-cream hover:bg-panel-light"
-                    >
-                      Mañana 9am
-                    </button>
-                    <button
-                      onClick={() => applySnooze(getSnoozeDate('monday'))}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-cream hover:bg-panel-light"
-                    >
-                      Próximo lunes 9am
-                    </button>
-                    <div className="mt-1 flex items-center gap-1 border-t border-panel-light pt-2">
-                      <input
-                        type="datetime-local"
-                        value={customSnooze}
-                        onChange={(e) => setCustomSnooze(e.target.value)}
-                        className="w-full rounded-sm border border-panel-light bg-asphalt px-1.5 py-1 text-xs text-cream outline-none focus:border-mustard"
-                      />
-                      <button
-                        onClick={() => customSnooze && applySnooze(new Date(customSnooze))}
-                        disabled={!customSnooze}
-                        className="shrink-0 rounded-sm bg-mustard px-2 py-1 text-xs text-asphalt disabled:opacity-40"
-                      >
-                        OK
-                      </button>
-                    </div>
-                    {selected.snoozedUntil && (
-                      <button
-                        onClick={() => applySnooze(null)}
-                        className="mt-1 block w-full rounded-sm px-2 py-1.5 text-left text-xs text-alert hover:bg-alert/10"
-                      >
-                        Quitar snooze
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              </div>
+            <div className="ui-only ui-infostrip flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-panel-light px-5 py-2 text-[11px] text-muted">
+              <Sparkles size={11} aria-hidden="true" />
+              <b className={statusConfig[selected.status].color}>{statusConfig[selected.status].label}</b>
+              <span>·</span>
+              <span>
+                {selected.assignedOperatorId
+                  ? `Asignada a ${operators.find((o) => o.id === selected.assignedOperatorId)?.full_name ?? 'un operador'}`
+                  : 'Sin asignar'}
+              </span>
+              <span>·</span>
+              <span>Último mensaje {selected.time}</span>
             </div>
 
             {/* El patrón de fondo va en un wrapper INTERNO (alto natural,
@@ -1547,6 +1461,9 @@ export default function ConversationsView({
                       </div>
                     )}
                     <div className={`mb-3 flex items-end gap-1 ${m.from === 'operator' ? 'justify-end' : 'justify-start'}`}>
+                      {m.from === 'contact' && (
+                        <span aria-hidden="true" className="ui-only ui-msgavatar">{nameInitials(selected.name)}</span>
+                      )}
                       <div className={`flex min-w-0 max-w-md flex-col ${m.from === 'operator' ? 'items-end' : 'items-start'}`}>
                       {m.from === 'operator' && m.senderOperatorId && (
                         <p className="mb-0.5 px-1 text-[11px] font-semibold text-muted">
@@ -1554,7 +1471,8 @@ export default function ConversationsView({
                         </p>
                       )}
                       <div
-                        className={`max-w-full break-words px-3 py-2 text-sm ${
+                        data-from={m.from}
+                        className={`ui-bubble max-w-full break-words px-3 py-2 text-sm ${
                           m.from === 'operator' && !m.senderOperatorId && m.status !== 'sending'
                             ? 'rounded-xl border border-dashed border-muted/50 bg-asphalt text-cream'
                             : m.from === 'operator'
@@ -1812,7 +1730,7 @@ export default function ConversationsView({
             ) : (
             <form
               onSubmit={handleSend}
-              className="relative flex items-center gap-2.5 border-t border-panel-light bg-panel px-4 py-4"
+              className="ui-composer relative flex items-center gap-2.5 border-t border-panel-light bg-panel px-4 py-4"
             >
               {showEmoji && (
                 <div className="absolute bottom-full left-4 z-10 mb-2">
@@ -1864,7 +1782,7 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard"
                 title="Emojis"
               >
-                <Smile size={22} />
+                <Smile size={22} /><span className="ui-lbl">Emoji</span>
               </button>
 
               <div className="relative">
@@ -1874,7 +1792,7 @@ export default function ConversationsView({
                   className="shrink-0 text-muted transition-colors hover:text-mustard"
                   title="Plantillas"
                 >
-                  <FileText size={22} />
+                  <FileText size={22} /><span className="ui-lbl">Plantillas</span>
                 </button>
                 {showTemplates && (
                   <div className="absolute bottom-full left-0 z-10 mb-2 w-64 rounded-sm border border-panel-light bg-panel p-1.5 shadow-lg">
@@ -1903,7 +1821,7 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard disabled:opacity-40"
                 title={pendingAttachment ? 'Ya hay un adjunto cargado' : 'Adjuntar archivo'}
               >
-                <Paperclip size={22} />
+                <Paperclip size={22} /><span className="ui-lbl">Adjuntar</span>
               </button>
               <input ref={fileInputRef} type="file" onChange={handleFilesSelected} className="hidden" />
 
@@ -1916,7 +1834,7 @@ export default function ConversationsView({
                 }`}
                 title={recording ? 'Detener grabación' : 'Grabar audio'}
               >
-                {recording ? <Square size={21} /> : <Mic size={22} />}
+                {recording ? <Square size={21} /> : <Mic size={22} />}<span className="ui-lbl">{recording ? 'Detener' : 'Audio'}</span>
               </button>
 
               <textarea
@@ -1949,14 +1867,18 @@ export default function ConversationsView({
                 className="shrink-0 text-muted transition-colors hover:text-mustard disabled:opacity-40"
                 title="Traducir antes de enviar" aria-label="Traducir antes de enviar"
               >
-                {translatingDraft ? <Loader2 size={20} className="animate-spin" /> : <Languages size={20} />}
+                {translatingDraft ? <Loader2 size={20} className="animate-spin" /> : <Languages size={20} />}<span className="ui-lbl">Traducir</span>
               </button>
+
+              <span className="ui-only ui-hint">
+                {channelName[sendChannel ?? selected.channel]} · Enter para enviar, Shift + Enter para nueva línea
+              </span>
 
               <button
                 type="submit"
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-mustard text-asphalt transition-opacity hover:opacity-90"
               >
-                <Send size={19} />
+                <Send size={19} /><span className="ui-lbl">Enviar</span>
               </button>
             </form>
             )}

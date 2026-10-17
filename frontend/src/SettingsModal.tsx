@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { X, Settings, Check } from 'lucide-react'
 import { themes, chatPatterns, fonts } from './ThemePicker'
+import { layouts, setLayout, useLayout } from './layoutPreference'
 
 type Props = {
   theme: string
@@ -25,6 +26,7 @@ export default function SettingsModal({
   onChangeFont,
   onClose,
 }: Props) {
+  const layout = useLayout()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -62,6 +64,27 @@ export default function SettingsModal({
               Todo bien, ¡gracias!
             </span>
           </div>
+
+          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted">Diseño de la interfaz</p>
+          <div className="mb-1 grid grid-cols-2 gap-1.5">
+            {layouts.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => setLayout(l.id)}
+                aria-pressed={layout === l.id}
+                className={`relative flex flex-col gap-0.5 rounded-sm border p-2.5 text-left transition-colors ${
+                  layout === l.id
+                    ? 'border-mustard bg-panel-light text-mustard'
+                    : 'border-panel-light text-cream hover:bg-panel-light/60'
+                }`}
+              >
+                {layout === l.id && <Check size={10} className="absolute right-1.5 top-1.5 text-mustard" />}
+                <span className="text-xs font-medium">{l.label}</span>
+                <span className="text-[10px] leading-snug text-muted">{l.description}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mb-5 text-[10px] text-muted">Se guarda en este navegador. Los datos y los temas son los mismos.</p>
 
           <p className="mb-2 text-[10px] uppercase tracking-wide text-muted">Tema</p>
           <div className="mb-5 grid grid-cols-3 gap-1.5">

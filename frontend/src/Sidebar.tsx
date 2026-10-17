@@ -14,6 +14,7 @@ import {
   HeartHandshake,
 } from 'lucide-react'
 import type { Conversation, Channel, Operator } from './ConversationsView'
+import { useLayout } from './layoutPreference'
 
 export type FilterValue =
   | { kind: 'all'; channel?: Channel }
@@ -40,6 +41,13 @@ function byOperatorCode(a: Operator, b: Operator) {
 }
 
 const teams = ['Dispatchers', 'Managers']
+
+const channelNav: { id: Channel; label: string; color: string }[] = [
+  { id: 'whatsapp', label: 'WhatsApp', color: '#25D366' },
+  { id: 'sms', label: 'SMS', color: '#6B6459' },
+  { id: 'instagram', label: 'Instagram', color: '#E1306C' },
+  { id: 'facebook', label: 'Messenger', color: '#1877F2' },
+]
 
 const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo']
 
@@ -107,6 +115,7 @@ export default function Sidebar({
     .sort(byOperatorCode)
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+  const layout = useLayout()
 
   function toggleCollapsed() {
     setCollapsed((v) => {
@@ -120,6 +129,7 @@ export default function Sidebar({
     if (n === 0) return null
     return (
       <span
+        data-count=""
         className={`rounded-full px-2 py-0.5 font-mono text-xs ${
           active || alwaysColor ? 'bg-mustard font-bold text-asphalt' : 'text-muted'
         }`}
@@ -174,6 +184,8 @@ export default function Sidebar({
     return (
       <button
         onClick={onClick}
+        data-nav="item"
+        data-active={active ? 'true' : undefined}
         className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
           active ? 'bg-asphalt font-semibold text-cream' : 'text-cream hover:bg-panel-light'
         }`}
@@ -188,7 +200,7 @@ export default function Sidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-panel-light bg-panel py-4">
+      <aside className="ui-nav ui-nav-collapsed flex w-14 shrink-0 flex-col items-center gap-1 border-r border-panel-light bg-panel py-4">
         <button
           onClick={toggleCollapsed}
           className="mb-2 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-panel-light hover:text-mustard"
@@ -285,8 +297,172 @@ export default function Sidebar({
     )
   }
 
+  // Interfaz "Espacio de trabajo": mismas bandejas y mismos contadores, pero
+  // cada una como ítem propio (en la clásica "Sin leer/Todos" es un selector
+  // de dos posiciones), con canales, equipo y la tarjeta del operador abajo.
+  if (layout === 'espacio') {
+    const me = operators.find((o) => o.id === operatorId)
+    const meName = me?.full_name ?? 'Operador'
+    const meInitials =
+      meName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase())
+        .join('') || '?'
+    const inInbox = view === 'inbox'
+    return (
+      <aside className="ui-nav flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-panel-light bg-panel px-3 py-4">
+        <div>
+          <GroupHeader label="Espacio de trabajo" />
+          <NavButton
+            icon={<InboxIcon size={16} />}
+            label="Bandeja de entrada"
+            count={totalConversationsCount}
+            active={inInbox && filter.kind === 'all'}
+            onClick={() => onSelectFilter({ kind: 'all' })}
+          />
+          <NavButton
+            icon={<CircleDashed size={16} />}
+            label="Sin leer"
+            count={newCount}
+            active={inInbox && filter.kind === 'new'}
+            onClick={() => onSelectFilter({ kind: 'new' })}
+          />
+          <NavButton
+            icon={<UserCheck size={16} />}
+            label="Mis conversaciones"
+            count={mineCount}
+            active={inInbox && filter.kind === 'mine'}
+            onClick={() => onSelectFilter({ kind: 'mine' })}
+          />
+          <NavButton
+            icon={<Clock3 size={16} />}
+            label="Pendientes"
+            count={pendingCount}
+            active={inInbox && filter.kind === 'pending'}
+            onClick={() => onSelectFilter({ kind: 'pending' })}
+          />
+          <NavButton
+            icon={<CircleDashed size={16} />}
+            label="Sin asignar"
+            count={unassignedCount}
+            active={inInbox && filter.kind === 'unassigned'}
+            onClick={() => onSelectFilter({ kind: 'unassigned' })}
+          />
+          <NavButton
+            icon={<HeartHandshake size={16} />}
+            label="Apoyo"
+            count={supportCount}
+            active={inInbox && filter.kind === 'support'}
+            onClick={() => onSelectFilter({ kind: 'support' })}
+          />
+          <NavButton
+            icon={<History size={16} />}
+            label="Mis respuestas"
+            active={inInbox && filter.kind === 'my_history'}
+            onClick={() => onSelectFilter({ kind: 'my_history' })}
+          />
+          {isAdmin && (
+            <NavButton
+              icon={<AlarmClock size={16} />}
+              label="Pospuestas"
+              count={snoozedCount}
+              active={inInbox && filter.kind === 'snoozed'}
+              onClick={() => onSelectFilter({ kind: 'snoozed' })}
+            />
+          )}
+        </div>
+
+        <div>
+          <GroupHeader label="Canales" />
+          {channelNav.map((ch) => {
+            const active = inInbox && filter.channel === ch.id
+            const base: FilterValue = inInbox ? filter : { kind: 'all' }
+            return (
+              <NavButton
+                key={ch.id}
+                icon={<span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: ch.color }} />}
+                label={ch.label}
+                count={conversations.filter((c) => c.channel === ch.id).length}
+                active={active}
+                onClick={() =>
+                  onSelectFilter(
+                    active ? ({ ...base, channel: undefined } as FilterValue) : ({ ...base, channel: ch.id } as FilterValue),
+                  )
+                }
+              />
+            )
+          })}
+        </div>
+
+        <div>
+          <GroupHeader label="Equipo" />
+          {teams
+            .filter((team) => team !== 'Managers' || isAdmin)
+            .map((team) => (
+              <NavButton
+                key={team}
+                icon={<Users size={16} />}
+                label={team}
+                active={view === 'internal' && internalChannel === team}
+                onClick={() => onSelectTeamChat(team)}
+              />
+            ))}
+          <NavButton
+            icon={<Phone size={16} />}
+            label="Llamadas perdidas"
+            count={missedCallsCount}
+            active={view === 'missed-calls'}
+            onClick={onSelectMissedCalls}
+          />
+          <NavButton icon={<Users size={16} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
+          <select
+            aria-label="Ver la bandeja de otro operador"
+            value={filter.kind === 'operator' ? filter.operatorId : ''}
+            onChange={(e) => {
+              const id = e.target.value
+              if (id) onSelectFilter({ kind: 'operator', operatorId: id })
+            }}
+            className={`mt-1 w-full rounded-md border px-2 py-2 text-xs outline-none focus-visible:border-mustard ${
+              filter.kind === 'operator'
+                ? 'border-mustard bg-asphalt font-semibold text-cream'
+                : 'border-panel-light bg-asphalt text-muted'
+            }`}
+          >
+            <option value="">
+              {availableOperators.length === 0 ? 'Ver bandeja de otro operador (nadie disponible)' : 'Ver bandeja de otro operador…'}
+            </option>
+            {availableOperators.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.operator_code ? `${o.operator_code} · ` : ''}
+                {o.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="ui-usercard mt-auto flex items-center gap-2.5 border-t border-panel-light pt-3">
+          <span aria-hidden="true" className="ui-usercard-avatar">{meInitials}</span>
+          <span className="min-w-0 flex-1">
+            <strong className="block truncate text-xs text-cream">{meName}</strong>
+            <small className="block text-[11px] text-muted">{isAdmin ? 'Administrador' : 'Operador'}</small>
+          </span>
+          <button
+            onClick={toggleCollapsed}
+            className="rounded-md p-1.5 text-muted hover:bg-panel-light hover:text-mustard"
+            title="Contraer el menú"
+            aria-label="Contraer el menú"
+          >
+            <ChevronsLeft size={15} />
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-panel-light bg-panel px-3 py-4">
+    <aside className="ui-nav flex w-64 shrink-0 flex-col gap-5 overflow-y-auto border-r border-panel-light bg-panel px-3 py-4">
       <button
         onClick={toggleCollapsed}
         className="mb-1 flex items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs text-muted hover:bg-panel-light hover:text-mustard"

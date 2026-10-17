@@ -666,7 +666,7 @@ export default function Inbox({
   return (
     <div className="flex h-screen flex-col bg-asphalt text-cream">
       {/* Barra superior */}
-      <header className="flex items-center justify-between border-b border-panel-light bg-panel px-5 py-3">
+      <header className="ui-topbar flex items-center justify-between border-b border-panel-light bg-panel px-5 py-3">
         <div className="flex items-center gap-5">
           <button
             onClick={() => setShowMobileSidebar(true)}
@@ -676,10 +676,13 @@ export default function Inbox({
           </button>
 
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-mustard text-sm font-bold text-asphalt">
+            <span className="ui-logo flex h-8 w-8 items-center justify-center rounded-full bg-mustard text-sm font-bold text-asphalt">
               Q
             </span>
-            <span className="text-base font-bold uppercase tracking-wide text-cream">Qué tal?</span>
+            <span className="flex flex-col leading-tight">
+              <span className="ui-brand text-base font-bold uppercase tracking-wide text-cream">Qué tal?</span>
+              <span className="ui-only ui-brandsub">TAXI LASER · CRM</span>
+            </span>
           </div>
 
           <div className="hidden items-center gap-2 rounded-full border border-panel-light bg-asphalt px-3.5 py-2 md:flex">

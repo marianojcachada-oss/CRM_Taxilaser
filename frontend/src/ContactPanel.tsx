@@ -128,7 +128,7 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="mb-1 border-b border-panel-light pb-3 last:border-0">
+    <div className="ui-sec mb-1 border-b border-panel-light pb-3 last:border-0">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between py-1 text-left text-xs text-muted transition-colors hover:text-cream"
@@ -388,7 +388,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
   const hasName = conversation.name !== conversation.phone && conversation.name !== 'Sin nombre'
 
   return (
-    <aside className="w-72 shrink-0 overflow-y-auto border-l border-panel-light bg-panel px-4 py-4">
+    <aside className="ui-panel w-72 shrink-0 overflow-y-auto border-l border-panel-light bg-panel px-4 py-4">
       {onClose && (
         <button
           onClick={onClose}
@@ -400,7 +400,7 @@ export default function ContactPanel({ conversation, onClose }: Props) {
       {/* Identidad — siempre visible, no se pliega */}
       {!editing ? (
         <>
-          <div className="mb-3 flex items-center gap-3">
+          <div className="ui-ident mb-3 flex items-center gap-3">
             <span
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
               style={{ backgroundColor: hasName ? channelAvatarColor[conversation.channel] : '#4A4A4A' }}
@@ -449,19 +449,19 @@ export default function ContactPanel({ conversation, onClose }: Props) {
 
           <button
             onClick={toggleBlocked}
-            className={`mb-4 flex items-center gap-1 rounded-sm border px-2 py-1 text-xs transition-colors ${
+            className={`mb-4 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
               blocked
-                ? 'border-available/40 text-available hover:opacity-80'
-                : 'border-alert/40 text-alert hover:opacity-80'
+                ? 'border-available/40 bg-available/10 text-available hover:bg-available/20'
+                : 'border-alert/40 bg-alert/10 text-alert hover:bg-alert/20'
             }`}
           >
             {blocked ? (
               <>
-                <ShieldCheck size={12} /> Desbloquear
+                <ShieldCheck size={14} /> Desbloquear contacto
               </>
             ) : (
               <>
-                <Ban size={12} /> Bloquear
+                <Ban size={14} /> Bloquear contacto
               </>
             )}
           </button>

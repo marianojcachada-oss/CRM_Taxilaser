@@ -930,3 +930,141 @@ html[data-layout='espacio'] .ui-sec > button {
     margin: 0.25rem 0.5rem 0.5rem;
   }
 }
+
+/* ==========================================================================
+   Pantallas grandes / ultra anchas / bajas (ambas versiones)
+   - Tamaño de interfaz elegido en Configuración (data-scale en <html>).
+   - Burbujas más anchas en pantallas grandes.
+   ========================================================================== */
+html[data-scale='compact'] { font-size: 14px; }
+html[data-scale='normal'] { font-size: 16px; }
+html[data-scale='large'] { font-size: 18px; }
+html[data-scale='xlarge'] { font-size: 20px; }
+@media (min-width: 2400px) {
+  html:not([data-scale]) { font-size: 18px; }
+}
+
+/* El hilo ocupa todo el ancho: mensajes del cliente a la izquierda y de los
+   operadores a la derecha, sin columnas vacías a los costados. */
+@media (min-width: 1600px) {
+  .ui-thread .max-w-md {
+    max-width: 36rem;
+  }
+}
+@media (min-width: 1800px) {
+  aside.ui-list,
+  html[data-layout='espacio'] aside.ui-list {
+    width: 24rem;
+  }
+  .ui-panel,
+  html[data-layout='espacio'] .ui-panel {
+    width: 20rem;
+  }
+  html[data-layout='espacio'] aside.ui-nav:not(.ui-nav-collapsed) {
+    width: 16rem;
+  }
+}
+/* Pantallas bajas (monitor ultra ancho con barra del navegador): menú más compacto */
+@media (max-height: 900px) {
+  html[data-layout='espacio'] aside.ui-nav:not(.ui-nav-collapsed) {
+    gap: 0.5rem;
+    padding-block: 0.6rem;
+  }
+  html[data-layout='espacio'] .ui-nav button[data-nav='item'] {
+    padding-block: 0.3rem;
+  }
+  html[data-layout='espacio'] aside.ui-nav:not(.ui-nav-collapsed) > div > p {
+    padding-block: 0.15rem 0.25rem;
+  }
+  html[data-layout='espacio'] .ui-newsms {
+    padding-block: 0.45rem;
+  }
+}
+html[data-layout='espacio'] .ui-topbar-sms {
+  display: none;
+}
+
+/* ==========================================================================
+   Barra de scroll con personalidad (ambas versiones, todos los temas)
+   Usa los colores del tema: riel casi invisible, pulgar con el acento.
+   ========================================================================== */
+/* Chrome/Edge (desde la 121) ignoran los ::-webkit-scrollbar si se declaran
+   scrollbar-color/width: por eso la versión estándar va solo en Firefox. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-mustard) 55%, var(--color-panel-light)) transparent;
+  }
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--color-asphalt) 70%, transparent);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--color-mustard) 50%, var(--color-panel-light));
+  transition: background-color 0.15s;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-mustard);
+}
+*::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--color-mustard) 80%, var(--color-cream));
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ==========================================================================
+   Panel de administrador — interfaz "Espacio de trabajo"
+   ========================================================================== */
+html[data-layout='espacio'] .ui-adminnav {
+  width: 14.5rem;
+}
+html[data-layout='espacio'] .ui-adminnav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.75rem;
+}
+html[data-layout='espacio'] .ui-adminnav-list button[data-nav='item'] {
+  width: 100%;
+  padding-inline: 0.75rem;
+}
+html[data-layout='espacio'] .ui-adminnav-list button[data-nav='item'][data-active] {
+  color: var(--color-cream);
+}
+html[data-layout='espacio'] .ui-adminhead {
+  min-height: 4rem;
+}
+html[data-layout='espacio'] .ui-adminhead h1 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+html[data-layout='espacio'] .ui-admin-content {
+  max-width: 96rem;
+  margin-inline: auto;
+}
+html[data-layout='espacio'] .ui-admin-content .rounded-sm {
+  border-radius: 0.65rem;
+}
+html[data-layout='espacio'] .ui-admin-content .rounded-sm.border.bg-panel,
+html[data-layout='espacio'] .ui-admin-content .ui-tile {
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-asphalt) 45%, transparent);
+}
+html[data-layout='espacio'] .ui-admin-content table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+html[data-layout='espacio'] .ui-admin-content th {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}

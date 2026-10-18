@@ -6,6 +6,7 @@ import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation, applyConversationPatch } from './conversationsData'
 import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
+import { initNotificationSound, playNotificationSound } from './notificationSound'
 
 // Los 3 estados que elige el operador son Disponible / No disponible /
 // Apoyo. "No disponible" es el 'offline' de siempre (mismo valor que ya
@@ -17,23 +18,6 @@ export type Presence = 'available' | 'offline' | 'busy' | 'apoyo'
 // por inactividad. Si la actualización a "No disponible" no llegó a la base
 // (error, pestaña cerrada justo en ese momento), el próximo login la completa.
 const INACTIVITY_LOGOUT_FLAG = 'quetal_inactivity_logout_operator'
-
-function playNotificationSound() {
-  try {
-    const ctx = new AudioContext()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    gain.gain.setValueAtTime(0.15, ctx.currentTime)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.15)
-  } catch {
-    // Si el navegador bloquea el audio (sin interacción previa), no pasa nada.
-  }
-}
-
 
 // Todo lo que las rutas de router.tsx necesitan de la lógica global.
 // App lo pasa con <Outlet context>, y las rutas lo leen con useAppContext().
@@ -150,6 +134,7 @@ export default function App() {
         }
         if (data) {
           setOperatorId(data.id)
+          initNotificationSound(data.id)
           setOperatorName(data.full_name ?? 'Operador')
           setIsAdmin(data.is_admin ?? false)
           setIsSuperAdmin(data.is_superadmin ?? false)

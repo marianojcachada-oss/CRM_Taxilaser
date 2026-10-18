@@ -1,20 +1,77 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import { atlantaDateISO } from './atlantaTime'
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+// Command Center = el día de hoy (hora de Atlanta). Antes traía TODAS las
+// conversaciones, mensajes y contactos de la historia en cada carga: con el
+// volumen actual la pantalla se colgaba. Ahora cada consulta se limita al día
+// (o es un conteo en el servidor, sin traer filas) y las que traen filas están
+// paginadas y con tope.
+
+const ATLANTA_TZ = 'America/New_York'
+const SLA_MINUTES = 30 // umbral de "vencido" — ajustable más adelante desde acá
+const PAGE = 1000
+const MAX_PAGES = 8 // tope de seguridad: 8.000 filas por consulta
+
+// Instante UTC en que empezó el día de hoy en Atlanta (00:00 hora de Atlanta).
+function atlantaDayStart(): Date {
+  const dateStr = atlantaDateISO(new Date())
+  // A las 04:30 UTC todavía es "medianoche" del día de Atlanta en cualquier
+  // época del año, incluso en los días de cambio de horario (2 am).
+  const probe = new Date(`${dateStr}T04:30:00Z`)
+  const offset =
+    new Intl.DateTimeFormat('en-US', { timeZone: ATLANTA_TZ, timeZoneName: 'longOffset' })
+      .formatToParts(probe)
+      .find((p) => p.type === 'timeZoneName')?.value.replace('GMT', '') || '-05:00'
+  return new Date(`${dateStr}T00:00:00${offset}`)
+}
+
+function atlantaHour(iso: string): number {
+  const h = new Intl.DateTimeFormat('en-US', { timeZone: ATLANTA_TZ, hour: 'numeric', hourCycle: 'h23' }).format(
+    new Date(iso),
+  )
+  return parseInt(h, 10) % 24
+}
+
+async function fetchPaged<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  maxPages = MAX_PAGES,
+) {
+  const out: T[] = []
+  for (let i = 0; i < maxPages; i++) {
+    const { data, error } = await build(i * PAGE, i * PAGE + PAGE - 1)
+    if (error) throw error
+    const rows = data ?? []
+    out.push(...rows)
+    if (rows.length < PAGE) break
+  }
+  return out
+}
+
+function formatMinutes(mins: number | null): string {
+  if (mins === null) return 'Sin datos'
+  if (mins < 60) return `${Math.round(mins)}m`
+  const h = Math.floor(mins / 60)
+  const m = Math.round(mins % 60)
+  return `${h}h ${m}m`
+}
+
+function Tile({ label, value, hint, alert }: { label: string; value: string; hint?: string; alert?: boolean }) {
   return (
-    <div className="rounded-sm border border-panel-light bg-panel p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h2>
-      {children}
+    <div className="ui-tile rounded-sm border border-panel-light bg-panel p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
+      <p className={`mt-1 font-mono text-2xl font-semibold ${alert ? 'text-alert' : 'text-cream'}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-[11px] text-muted">{hint}</p>}
     </div>
   )
 }
 
-function StatRow({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-panel-light/60 py-2 last:border-0">
-      <span className="text-sm text-muted">{label}</span>
-      <span className={`font-mono text-sm ${alert ? 'text-alert' : 'text-cream'}`}>{value}</span>
+    <div className="ui-tile rounded-sm border border-panel-light bg-panel p-4">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h2>
+      {children}
     </div>
   )
 }
@@ -33,80 +90,258 @@ function Bar({ label, value, display }: { label: string; value: number; display:
   )
 }
 
-function formatMinutes(mins: number | null): string {
-  if (mins === null) return 'Sin datos'
-  if (mins < 60) return `${Math.round(mins)}m`
-  const h = Math.floor(mins / 60)
-  const m = Math.round(mins % 60)
-  return `${h}h ${m}m`
+const CAPACITY_KEY = 'ccMessagesPerOperatorHour'
+
+function readCapacity(): number {
+  try {
+    const n = Number(localStorage.getItem(CAPACITY_KEY))
+    if (Number.isFinite(n) && n >= 1 && n <= 500) return Math.round(n)
+  } catch { /* localStorage no disponible */ }
+  return 20
 }
 
-const SLA_MINUTES = 30 // umbral de "vencido" — ajustable más adelante desde acá
+// Mensajes ENTRANTES (de clientes) por hora de Atlanta. Sirve para decidir
+// cuántos operadores poner en cada franja: se define cuántos mensajes por hora
+// atiende un operador (editable, se recuerda en este navegador) y debajo de
+// cada barra queda el número de operadores que haría falta. El promedio de los
+// 7 días anteriores se carga solo si se pide (es la consulta más pesada).
+function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: number }) {
+  const [capacity, setCapacity] = useState(readCapacity)
+  const [week, setWeek] = useState<{ avg: number[]; capped: boolean } | null>(null)
+  const [weekLoading, setWeekLoading] = useState(false)
+  const [weekError, setWeekError] = useState<string | null>(null)
+
+  function changeCapacity(raw: string) {
+    const n = Math.min(500, Math.max(1, Math.round(Number(raw) || 1)))
+    setCapacity(n)
+    try {
+      localStorage.setItem(CAPACITY_KEY, String(n))
+    } catch { /* localStorage no disponible */ }
+  }
+
+  async function loadWeek() {
+    setWeekLoading(true)
+    setWeekError(null)
+    try {
+      const end = atlantaDayStart()
+      const start = new Date(end.getTime() - 7 * 24 * 3600_000)
+      const MAX_WEEK_PAGES = 20
+      const rows = await fetchPaged<{ created_at: string }>(
+        (from, to) =>
+          supabase
+            .from('messages')
+            .select('created_at')
+            .eq('sender_type', 'contact')
+            .gte('created_at', start.toISOString())
+            .lt('created_at', end.toISOString())
+            .order('created_at', { ascending: true })
+            .range(from, to),
+        MAX_WEEK_PAGES,
+      )
+      const sums = new Array<number>(24).fill(0)
+      for (const r of rows) sums[atlantaHour(r.created_at)]++
+      setWeek({ avg: sums.map((n) => n / 7), capped: rows.length >= PAGE * MAX_WEEK_PAGES })
+    } catch (err) {
+      setWeekError(err instanceof Error ? err.message : 'No se pudo cargar el promedio')
+    } finally {
+      setWeekLoading(false)
+    }
+  }
+
+  const total = hours.reduce((a, b) => a + b, 0)
+  const scaleMax = Math.max(1, ...hours, ...(week?.avg ?? []))
+  const peakValue = Math.max(...hours)
+  const peakHour = peakValue > 0 ? hours.indexOf(peakValue) : -1
+  const needed = (n: number) => (n > 0 ? Math.ceil(n / capacity) : 0)
+  const hourLabel = (h: number) => `${h}:00–${h}:59`
+
+  return (
+    <Panel title="Mensajes entrantes por hora (hoy, hora de Atlanta)">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+        <span>
+          Total hoy: <span className="font-mono text-cream">{total}</span>
+        </span>
+        <span>
+          Pico:{' '}
+          <span className="font-mono text-cream">
+            {peakHour >= 0 ? `${hourLabel(peakHour)} (${peakValue} msj → ${needed(peakValue)} op.)` : 'sin datos'}
+          </span>
+        </span>
+        <label className="flex items-center gap-1.5">
+          Un operador atiende ~
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={capacity}
+            onChange={(e) => changeCapacity(e.target.value)}
+            className="w-14 rounded-sm border border-panel-light bg-asphalt px-1.5 py-0.5 text-center font-mono text-cream focus:border-mustard focus:outline-none"
+          />
+          msj/hora
+        </label>
+        <button
+          onClick={loadWeek}
+          disabled={weekLoading}
+          className="rounded-sm border border-panel-light px-2 py-1 transition-colors hover:border-mustard hover:text-mustard disabled:opacity-50"
+        >
+          {weekLoading ? 'Cargando…' : week ? 'Recalcular promedio 7 días' : 'Comparar con promedio de 7 días'}
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-[3px]" role="img" aria-label="Mensajes entrantes por hora de hoy">
+        <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px] text-center font-mono text-[9px] text-cream">
+          {hours.map((n, h) => (
+            <span key={h}>{n > 0 ? n : ''}</span>
+          ))}
+        </div>
+        <div className="grid h-32 grid-cols-[repeat(24,minmax(0,1fr))] items-stretch gap-[3px]">
+          {hours.map((n, h) => (
+            <div
+              key={h}
+              className="relative flex flex-col justify-end"
+              title={`${hourLabel(h)} — ${n} entrantes${week ? ` · prom. 7 días: ${week.avg[h].toFixed(1)}` : ''}`}
+            >
+              <div
+                className={`w-full rounded-sm ${h === nowHour ? 'bg-mustard' : 'bg-mustard/55'}`}
+                style={{ height: `${Math.max(n > 0 ? 4 : 1, (n / scaleMax) * 100)}%` }}
+              />
+              {week && week.avg[h] > 0 && (
+                <div
+                  className="absolute inset-x-0 border-t-2 border-cream/80"
+                  style={{ bottom: `${(week.avg[h] / scaleMax) * 100}%` }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px] text-center font-mono text-[9px] text-muted">
+          {hours.map((_, h) => (
+            <span key={h}>{h % 3 === 0 ? h : ''}</span>
+          ))}
+        </div>
+        <div className="mt-1 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px] text-center font-mono text-[9px] text-mustard">
+          {hours.map((n, h) => (
+            <span key={h} title={`${hourLabel(h)}: ${needed(n)} operadores`}>
+              {needed(n) > 0 ? needed(n) : '·'}
+            </span>
+          ))}
+        </div>
+        <p className="text-[10px] text-muted">
+          Fila de arriba: mensajes entrantes. Fila dorada de abajo: operadores necesarios con {capacity} msj/hora por operador.
+          {week && ' La línea clara en cada barra es el promedio de los 7 días anteriores.'}
+        </p>
+        {week?.capped && (
+          <p className="text-[10px] text-alert">El promedio es aproximado: se llegó al tope de filas leídas.</p>
+        )}
+        {weekError && <p className="text-[10px] text-alert">Error: {weekError}</p>}
+      </div>
+    </Panel>
+  )
+}
+
+const channelNames: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  sms: 'SMS',
+  instagram: 'Instagram',
+  facebook: 'Messenger',
+}
+
+type Stats = {
+  active: number
+  unanswered: number
+  slaOverdue: number
+  newConversations: number
+  closedToday: number
+  inbound: number
+  outbound: number
+  avgResponse: number | null
+  avgResolution: number | null
+  channels: { id: string; count: number }[]
+  agents: { name: string; count: number }[]
+  hours: number[]
+  inboundHours: number[]
+  totalContacts: number
+  vipContacts: number
+  newContacts: number
+}
 
 export default function CommandCenterSection() {
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
-  const [activeCount, setActiveCount] = useState(0)
-  const [unansweredCount, setUnansweredCount] = useState(0)
-  const [slaOverdueCount, setSlaOverdueCount] = useState(0)
-  const [avgResponseMinutes, setAvgResponseMinutes] = useState<number | null>(null)
-  const [avgResolutionMinutes, setAvgResolutionMinutes] = useState<number | null>(null)
-  const [channelPct, setChannelPct] = useState<Record<string, number>>({})
-  const [channelCount, setChannelCount] = useState<Record<string, number>>({})
-  const [agentCounts, setAgentCounts] = useState<{ name: string; count: number }[]>([])
-  const [totalContacts, setTotalContacts] = useState(0)
-  const [vipContacts, setVipContacts] = useState(0)
-  const [avgReliability, setAvgReliability] = useState<number | null>(null)
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  async function load() {
-    setLoading(true)
+  const load = useCallback(async (initial: boolean) => {
+    if (initial) setLoading(true)
+    else setRefreshing(true)
     setError(null)
-
     try {
-      const [convRes, msgRes, opRes, contactRes] = await Promise.all([
-        supabase.from('conversations').select('id, channel, status, unread, created_at, closed_at, last_message_at, assigned_operator_id'),
-        supabase.from('messages').select('conversation_id, sender_type, sender_operator_id, created_at').order('created_at', { ascending: true }),
+      const startISO = atlantaDayStart().toISOString()
+      const slaISO = new Date(Date.now() - SLA_MINUTES * 60_000).toISOString()
+      const head = { count: 'exact' as const, head: true }
+
+      const [
+        activeRes,
+        unansweredRes,
+        slaRes,
+        newConvRes,
+        closedRes,
+        totalContactsRes,
+        vipRes,
+        newContactsRes,
+        todayMessages,
+        todayChannels,
+        todayClosedRows,
+        operatorsRes,
+      ] = await Promise.all([
+        supabase.from('conversations').select('id', head).neq('status', 'cerrada'),
+        supabase.from('conversations').select('id', head).eq('unread', true),
+        supabase.from('conversations').select('id', head).eq('unread', true).lt('last_message_at', slaISO),
+        supabase.from('conversations').select('id', head).gte('created_at', startISO),
+        supabase.from('conversations').select('id', head).gte('closed_at', startISO),
+        supabase.from('contacts').select('id', head),
+        supabase.from('contacts').select('id', head).eq('vip', true),
+        supabase.from('contacts').select('id', head).gte('created_at', startISO),
+        fetchPaged<{ conversation_id: string; sender_type: string; sender_operator_id: string | null; created_at: string }>(
+          (from, to) =>
+            supabase
+              .from('messages')
+              .select('conversation_id, sender_type, sender_operator_id, created_at')
+              .gte('created_at', startISO)
+              .order('created_at', { ascending: true })
+              .range(from, to),
+        ),
+        fetchPaged<{ channel: string }>((from, to) =>
+          supabase.from('conversations').select('channel').gte('last_message_at', startISO).range(from, to),
+        ),
+        fetchPaged<{ created_at: string; closed_at: string }>((from, to) =>
+          supabase
+            .from('conversations')
+            .select('created_at, closed_at')
+            .gte('closed_at', startISO)
+            .range(from, to),
+        ),
         supabase.from('operators').select('id, full_name'),
-        supabase.from('contacts').select('vip, servicios_completados, servicios_cancelados'),
       ])
 
-      if (convRes.error) throw convRes.error
-      if (msgRes.error) throw msgRes.error
-      if (opRes.error) throw opRes.error
-      if (contactRes.error) throw contactRes.error
+      for (const r of [
+        activeRes,
+        unansweredRes,
+        slaRes,
+        newConvRes,
+        closedRes,
+        totalContactsRes,
+        vipRes,
+        operatorsRes,
+      ]) {
+        if (r.error) throw r.error
+      }
 
-      const conversations = convRes.data ?? []
-      const messages = msgRes.data ?? []
-      const operators = opRes.data ?? []
-      const contacts = contactRes.data ?? []
-
-      // --- Operations ---
-      setActiveCount(conversations.filter((c) => c.status !== 'cerrada').length)
-      setUnansweredCount(conversations.filter((c) => c.unread).length)
-
-      const slaThreshold = Date.now() - SLA_MINUTES * 60_000
-      setSlaOverdueCount(
-        conversations.filter(
-          (c) => c.unread && c.last_message_at && new Date(c.last_message_at).getTime() < slaThreshold,
-        ).length,
-      )
-
-      const resolvedDurations = conversations
-        .filter((c) => c.status === 'cerrada' && c.closed_at)
-        .map((c) => (new Date(c.closed_at!).getTime() - new Date(c.created_at).getTime()) / 60_000)
-      setAvgResolutionMinutes(
-        resolvedDurations.length ? resolvedDurations.reduce((a, b) => a + b, 0) / resolvedDurations.length : null,
-      )
-
-      // Tiempo de primera respuesta: por cada conversación, el tiempo entre
-      // el primer mensaje del contacto y la primera respuesta del operador.
-      const byConversation = new Map<string, typeof messages>()
-      for (const m of messages) {
+      // Primera respuesta de HOY: por conversación, del primer mensaje del
+      // cliente de hoy a la primera respuesta de un operador después de él.
+      const byConversation = new Map<string, typeof todayMessages>()
+      for (const m of todayMessages) {
         const list = byConversation.get(m.conversation_id) ?? []
         list.push(m)
         byConversation.set(m.conversation_id, list)
@@ -119,104 +354,145 @@ export default function CommandCenterSection() {
           (m) => m.sender_type === 'operator' && new Date(m.created_at) > new Date(firstContact.created_at),
         )
         if (!firstReply) continue
-        responseDurations.push(
-          (new Date(firstReply.created_at).getTime() - new Date(firstContact.created_at).getTime()) / 60_000,
-        )
+        responseDurations.push((new Date(firstReply.created_at).getTime() - new Date(firstContact.created_at).getTime()) / 60_000)
       }
-      setAvgResponseMinutes(
-        responseDurations.length ? responseDurations.reduce((a, b) => a + b, 0) / responseDurations.length : null,
+
+      const resolution = todayClosedRows.map(
+        (c) => (new Date(c.closed_at).getTime() - new Date(c.created_at).getTime()) / 60_000,
       )
 
-      // --- Channels ---
-      const channels = ['whatsapp', 'instagram', 'facebook', 'sms']
-      const counts: Record<string, number> = {}
-      const pcts: Record<string, number> = {}
-      for (const ch of channels) {
-        const n = conversations.filter((c) => c.channel === ch).length
-        counts[ch] = n
-        pcts[ch] = conversations.length > 0 ? Math.round((n / conversations.length) * 100) : 0
+      const hours = new Array<number>(24).fill(0)
+      const inboundHours = new Array<number>(24).fill(0)
+      const perOperator = new Map<string, number>()
+      let inbound = 0
+      let outbound = 0
+      for (const m of todayMessages) {
+        hours[atlantaHour(m.created_at)]++
+        if (m.sender_type === 'contact') {
+          inbound++
+          inboundHours[atlantaHour(m.created_at)]++
+        } else if (m.sender_type === 'operator') {
+          outbound++
+          if (m.sender_operator_id) perOperator.set(m.sender_operator_id, (perOperator.get(m.sender_operator_id) ?? 0) + 1)
+        }
       }
-      setChannelCount(counts)
-      setChannelPct(pcts)
 
-      // --- Agents (mensajes enviados por operador) ---
-      const operatorMessageCounts = new Map<string, number>()
-      for (const m of messages) {
-        if (m.sender_type !== 'operator' || !m.sender_operator_id) continue
-        operatorMessageCounts.set(m.sender_operator_id, (operatorMessageCounts.get(m.sender_operator_id) ?? 0) + 1)
-      }
-      const agents = operators
-        .map((op) => ({ name: op.full_name, count: operatorMessageCounts.get(op.id) ?? 0 }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6)
-      setAgentCounts(agents)
+      const channelCounts = new Map<string, number>()
+      for (const c of todayChannels) channelCounts.set(c.channel, (channelCounts.get(c.channel) ?? 0) + 1)
 
-      // --- Business (lo que hoy podemos medir de verdad, sin TaxiCaller) ---
-      setTotalContacts(contacts.length)
-      setVipContacts(contacts.filter((c) => c.vip).length)
-      const reliabilities = contacts
-        .filter((c) => c.servicios_completados != null || c.servicios_cancelados != null)
-        .map((c) => {
-          const completados = c.servicios_completados ?? 0
-          const cancelados = c.servicios_cancelados ?? 0
-          const t = completados + cancelados
-          return t > 0 ? (completados / t) * 100 : null
-        })
-        .filter((v): v is number => v !== null)
-      setAvgReliability(reliabilities.length ? reliabilities.reduce((a, b) => a + b, 0) / reliabilities.length : null)
+      const nameById = new Map((operatorsRes.data ?? []).map((o) => [o.id as string, o.full_name as string]))
+
+      setStats({
+        active: activeRes.count ?? 0,
+        unanswered: unansweredRes.count ?? 0,
+        slaOverdue: slaRes.count ?? 0,
+        newConversations: newConvRes.count ?? 0,
+        closedToday: closedRes.count ?? 0,
+        inbound,
+        outbound,
+        avgResponse: responseDurations.length ? responseDurations.reduce((a, b) => a + b, 0) / responseDurations.length : null,
+        avgResolution: resolution.length ? resolution.reduce((a, b) => a + b, 0) / resolution.length : null,
+        channels: ['whatsapp', 'sms', 'instagram', 'facebook'].map((id) => ({ id, count: channelCounts.get(id) ?? 0 })),
+        agents: [...perOperator.entries()]
+          .map(([id, count]) => ({ name: nameById.get(id) ?? 'Operador', count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 8),
+        hours,
+        inboundHours,
+        totalContacts: totalContactsRes.count ?? 0,
+        vipContacts: vipRes.count ?? 0,
+        newContacts: newContactsRes.error ? 0 : (newContactsRes.count ?? 0),
+      })
+      setUpdatedAt(new Date())
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : typeof err === 'object' && err && 'message' in err ? String((err as { message: unknown }).message) : String(err))
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
-  }
+  }, [])
 
-  if (loading) return <p className="text-sm text-muted">Cargando...</p>
+  useEffect(() => {
+    load(true)
+    // Los conteos son livianos: se refresca solo cada minuto mientras la pestaña está abierta.
+    const id = setInterval(() => {
+      if (!document.hidden) load(false)
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [load])
+
+  if (loading) return <p className="text-sm text-muted">Cargando el día de hoy…</p>
   if (error) return <p className="text-sm text-alert">Error: {error}</p>
+  if (!stats) return null
 
-  const maxAgentCount = Math.max(1, ...agentCounts.map((a) => a.count))
+  const maxAgent = Math.max(1, ...stats.agents.map((a) => a.count))
+  const totalToday = stats.channels.reduce((a, c) => a + c.count, 0)
+  const nowHour = atlantaHour(new Date().toISOString())
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Panel title="Operations">
-        <StatRow label="Conversaciones activas" value={String(activeCount)} />
-        <StatRow label="Sin responder" value={String(unansweredCount)} alert={unansweredCount > 0} />
-        <StatRow
-          label={`SLA vencidos (>${SLA_MINUTES}m)`}
-          value={String(slaOverdueCount)}
-          alert={slaOverdueCount > 0}
-        />
-        <StatRow label="Tiempo de 1ª respuesta (prom.)" value={formatMinutes(avgResponseMinutes)} />
-        <StatRow label="Tiempo de resolución (prom.)" value={formatMinutes(avgResolutionMinutes)} />
-      </Panel>
-
-      <Panel title="Channels">
-        {Object.entries(channelPct).map(([ch, pct]) => (
-          <Bar key={ch} label={ch} value={pct} display={`${channelCount[ch] ?? 0} (${pct}%)`} />
-        ))}
-      </Panel>
-
-      <Panel title="Agents (mensajes enviados)">
-        {agentCounts.length === 0 && <p className="text-xs text-muted">Todavía no hay mensajes de operadores.</p>}
-        {agentCounts.map((a) => (
-          <Bar
-            key={a.name}
-            label={a.name}
-            value={Math.round((a.count / maxAgentCount) * 100)}
-            display={String(a.count)}
-          />
-        ))}
-      </Panel>
-
-      <Panel title="Business">
-        <StatRow label="Contactos totales" value={String(totalContacts)} />
-        <StatRow label="Contactos VIP" value={String(vipContacts)} />
-        <StatRow label="Fiabilidad promedio" value={avgReliability !== null ? `${Math.round(avgReliability)}%` : 'Sin datos'} />
-        <p className="mt-2 text-[11px] text-muted">
-          Leads, ventas y revenue necesitan la integración con TaxiCaller (todavía pendiente) para tener
-          datos reales — por eso no aparecen acá en vez de mostrar números inventados.
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted">
+          Hoy, hora de Atlanta
+          {updatedAt && ` · actualizado ${updatedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
         </p>
-      </Panel>
+        <button
+          onClick={() => load(false)}
+          disabled={refreshing}
+          className="flex items-center gap-1.5 rounded-sm border border-panel-light px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-50"
+        >
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Actualizar
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="Mensajes recibidos" value={String(stats.inbound)} hint="de clientes, hoy" />
+        <Tile label="Mensajes enviados" value={String(stats.outbound)} hint="de operadores, hoy" />
+        <Tile label="Conversaciones nuevas" value={String(stats.newConversations)} hint={`${stats.closedToday} cerradas hoy`} />
+        <Tile label="1ª respuesta (prom.)" value={formatMinutes(stats.avgResponse)} hint="de las conversaciones de hoy" />
+      </div>
+
+      <InboundHoursPanel hours={stats.inboundHours} nowHour={nowHour} />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Panel title="Ahora mismo">
+          <div className="grid grid-cols-3 gap-3">
+            <Tile label="Activas" value={String(stats.active)} />
+            <Tile label="Sin responder" value={String(stats.unanswered)} alert={stats.unanswered > 0} />
+            <Tile label={`SLA >${SLA_MINUTES}m`} value={String(stats.slaOverdue)} alert={stats.slaOverdue > 0} />
+          </div>
+          <p className="mt-3 text-[11px] text-muted">Resolución promedio de las cerradas hoy: {formatMinutes(stats.avgResolution)}</p>
+        </Panel>
+
+        <Panel title="Canales (conversaciones con actividad hoy)">
+          {stats.channels.map((c) => (
+            <Bar
+              key={c.id}
+              label={channelNames[c.id] ?? c.id}
+              value={totalToday ? Math.round((c.count / totalToday) * 100) : 0}
+              display={`${c.count}${totalToday ? ` (${Math.round((c.count / totalToday) * 100)}%)` : ''}`}
+            />
+          ))}
+        </Panel>
+
+        <Panel title="Operadores (mensajes enviados hoy)">
+          {stats.agents.length === 0 && <p className="text-xs text-muted">Todavía no hay mensajes de operadores hoy.</p>}
+          {stats.agents.map((a) => (
+            <Bar key={a.name} label={a.name} value={Math.round((a.count / maxAgent) * 100)} display={String(a.count)} />
+          ))}
+        </Panel>
+
+        <Panel title="Contactos">
+          <div className="grid grid-cols-3 gap-3">
+            <Tile label="Totales" value={stats.totalContacts.toLocaleString('es-AR')} />
+            <Tile label="VIP" value={String(stats.vipContacts)} />
+            <Tile label="Nuevos hoy" value={String(stats.newContacts)} />
+          </div>
+          <p className="mt-3 text-[11px] text-muted">
+            Leads, ventas y revenue necesitan la integración con TaxiCaller para tener datos reales.
+          </p>
+        </Panel>
+      </div>
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
+import { useLayout } from './layoutPreference'
 import type { Conversation } from './ConversationsView'
 import CommandCenterSection from './CommandCenterSection'
 import TeamSection from './TeamSection'
@@ -37,6 +38,13 @@ type Section =
   | 'channels'
   | 'integrations'
   | 'admin'
+
+// Grupos del menú en la interfaz "Espacio de trabajo" (en la clásica es una lista plana).
+const NAV_GROUPS: { label: string; ids: Section[] }[] = [
+  { label: 'Operación', ids: ['command-center', 'analytics', 'metrics', 'roundrobin', 'vehicles'] },
+  { label: 'Equipo y mensajes', ids: ['team', 'templates', 'channels', 'campaigns', 'automations', 'ai'] },
+  { label: 'Sistema', ids: ['integrations', 'integrationhealth', 'errors', 'reports', 'admin'] },
+]
 
 const navItems: { id: Section; emoji: string; label: string }[] = [
   { id: 'command-center', emoji: '🏠', label: 'Command Center' },
@@ -81,6 +89,7 @@ const ADMIN_ALLOWED_SECTIONS: Section[] = [
 ]
 
 export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuperAdmin, onBack, conversations }: Props) {
+  const layout = useLayout()
   const visibleNavItems = isSuperAdmin
     ? navItems
     : navItems.filter((item) => ADMIN_ALLOWED_SECTIONS.includes(item.id))
@@ -107,7 +116,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
     <div className="flex h-screen bg-asphalt text-cream">
       {/* Sidebar */}
       <div className={`${showMobileNav ? 'fixed inset-0 z-40 flex' : 'hidden'} md:static md:z-auto md:flex`}>
-        <aside className="flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
+        <aside className="ui-nav ui-adminnav flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
           <div className="border-b border-panel-light px-4 py-3">
             <button
               onClick={onBack}
@@ -118,10 +127,20 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
             <span className="text-sm font-semibold tracking-tight text-mustard">Panel Admin</span>
           </div>
 
-          <nav className="flex-1 overflow-y-auto py-2">
-            {visibleNavItems.map((item) => (
+          <nav className="ui-adminnav-list flex-1 overflow-y-auto py-2">
+            {(layout === 'espacio'
+              ? NAV_GROUPS.flatMap((g) => g.ids.map((id) => ({ group: g.label, item: visibleNavItems.find((n) => n.id === id) })))
+              : visibleNavItems.map((item) => ({ group: '', item }))
+            )
+              .filter((e): e is { group: string; item: (typeof navItems)[number] } => !!e.item)
+              .map(({ group, item }, idx, arr) => (
+              <div key={item.id} className="contents">
+                {layout === 'espacio' && group && group !== arr[idx - 1]?.group && (
+                  <p className="ui-navgroup px-3 pb-1 pt-3 text-[10px] font-extrabold uppercase tracking-[0.13em] text-muted">{group}</p>
+                )}
               <button
-                key={item.id}
+                data-nav="item"
+                data-active={active === item.id ? 'true' : undefined}
                 onClick={() => {
                   setActive(item.id)
                   setShowMobileNav(false)
@@ -135,6 +154,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
                 <span>{item.emoji}</span>
                 {item.label}
               </button>
+              </div>
             ))}
           </nav>
 
@@ -144,8 +164,8 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
       </div>
 
       {/* Contenido */}
-      <main className="flex-1 overflow-y-auto">
-        <header className="flex items-center justify-between border-b border-panel-light bg-panel px-4 py-3 md:px-6">
+      <main className="ui-admin flex-1 overflow-y-auto">
+        <header className="ui-adminhead flex items-center justify-between border-b border-panel-light bg-panel px-4 py-3 md:px-6">
           <div className="flex items-center gap-3">
             <button onClick={() => setShowMobileNav(true)} className="text-cream md:hidden">
               <Menu size={20} />
@@ -157,7 +177,7 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
           <ThemePicker theme={theme} onChangeTheme={onChangeTheme} />
         </header>
 
-        <div className="p-4 md:p-6">
+        <div className="ui-admin-content p-4 md:p-6">
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}

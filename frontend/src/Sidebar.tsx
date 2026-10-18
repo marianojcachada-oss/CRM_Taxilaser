@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   Users,
-  Phone,
   AlarmClock,
   UserCheck,
   CircleDashed,
@@ -12,6 +11,7 @@ import {
   Inbox as InboxIcon,
   List,
   HeartHandshake,
+  MessageSquarePlus,
 } from 'lucide-react'
 import type { Conversation, Channel, Operator } from './ConversationsView'
 import { useLayout } from './layoutPreference'
@@ -69,6 +69,8 @@ type Props = {
   // Precalculado en Inbox.tsx (no se puede sacar de "conversations" +
   // operatorId solo, hace falta cruzar con conversation_support).
   supportCount: number
+  // Interfaz "Espacio de trabajo": el botón Nuevo SMS vive arriba del menú.
+  onNewSms?: () => void
 }
 
 function GroupHeader({ label }: { label: string }) {
@@ -84,12 +86,10 @@ export default function Sidebar({
   onSelectFilter,
   view,
   internalChannel,
-  missedCallsCount,
   totalConversationsCount,
-  onSelectContacts,
   onSelectTeamChat,
-  onSelectMissedCalls,
   supportCount,
+  onNewSms,
 }: Props) {
   const newCount = conversations.filter((c) => c.unread).length
   const pendingCount = conversations.filter((c) => !c.unread && pendingStatuses.includes(c.status)).length
@@ -210,6 +210,17 @@ export default function Sidebar({
           <ChevronsRight size={16} />
         </button>
 
+        {layout === 'espacio' && onNewSms && (
+          <button
+            onClick={onNewSms}
+            title="Nuevo SMS"
+            aria-label="Nuevo SMS"
+            className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-mustard text-asphalt transition-opacity hover:opacity-90"
+          >
+            <MessageSquarePlus size={17} />
+          </button>
+        )}
+
         <NavButton
           icon={<InboxIcon size={17} />}
           label="Sin leer"
@@ -283,15 +294,6 @@ export default function Sidebar({
               onClick={() => onSelectFilter({ kind: 'snoozed' })}
             />
           )}
-          <NavButton
-            icon={<Phone size={17} />}
-            label="Llamadas perdidas"
-            count={missedCallsCount}
-            active={view === 'missed-calls'}
-            alwaysColor
-            onClick={onSelectMissedCalls}
-          />
-          <NavButton icon={<Users size={17} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
         </div>
       </aside>
     )
@@ -313,6 +315,14 @@ export default function Sidebar({
     const inInbox = view === 'inbox'
     return (
       <aside className="ui-nav flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r border-panel-light bg-panel px-3 py-4">
+        {onNewSms && (
+          <button
+            onClick={onNewSms}
+            className="ui-newsms flex w-full items-center justify-center gap-2 rounded-xl bg-mustard px-3 py-2.5 text-sm font-semibold text-asphalt transition-opacity hover:opacity-90"
+          >
+            <MessageSquarePlus size={16} /> Nuevo SMS
+          </button>
+        )}
         <div>
           <GroupHeader label="Espacio de trabajo" />
           <NavButton
@@ -384,7 +394,7 @@ export default function Sidebar({
                 key={ch.id}
                 icon={<span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: ch.color }} />}
                 label={ch.label}
-                count={conversations.filter((c) => c.channel === ch.id).length}
+                count={conversations.filter((c) => c.channel === ch.id && c.unread).length}
                 active={active}
                 onClick={() =>
                   onSelectFilter(
@@ -409,14 +419,6 @@ export default function Sidebar({
                 onClick={() => onSelectTeamChat(team)}
               />
             ))}
-          <NavButton
-            icon={<Phone size={16} />}
-            label="Llamadas perdidas"
-            count={missedCallsCount}
-            active={view === 'missed-calls'}
-            onClick={onSelectMissedCalls}
-          />
-          <NavButton icon={<Users size={16} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
           <select
             aria-label="Ver la bandeja de otro operador"
             value={filter.kind === 'operator' ? filter.operatorId : ''}
@@ -581,15 +583,6 @@ export default function Sidebar({
             onClick={() => onSelectFilter({ kind: 'snoozed' })}
           />
         )}
-        <NavButton
-          icon={<Phone size={15} />}
-          label="Llamadas perdidas"
-          count={missedCallsCount}
-          active={view === 'missed-calls'}
-          alwaysColor
-          onClick={onSelectMissedCalls}
-        />
-        <NavButton icon={<Users size={15} />} label="Contactos" active={view === 'contacts'} onClick={onSelectContacts} />
       </div>
     </aside>
   )

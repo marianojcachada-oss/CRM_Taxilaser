@@ -731,7 +731,7 @@ export default function Inbox({
           <button
             onClick={() => setShowStartConversation(true)}
             aria-label="Nuevo SMS"
-            className="flex items-center gap-1.5 rounded-full bg-mustard px-3.5 py-2 text-xs font-semibold text-asphalt transition-opacity hover:opacity-90"
+            className="ui-topbar-sms flex items-center gap-1.5 rounded-full bg-mustard px-3.5 py-2 text-xs font-semibold text-asphalt transition-opacity hover:opacity-90"
             title="Iniciar conversación nueva por SMS"
           >
             <MessageSquarePlus size={14} /> <span className="hidden sm:inline">Nuevo SMS</span>
@@ -882,6 +882,10 @@ export default function Inbox({
           } md:static md:z-auto md:flex`}
         >
           <Sidebar
+            onNewSms={() => {
+              setShowStartConversation(true)
+              setShowMobileSidebar(false)
+            }}
             conversations={conversations}
             operators={operators}
             operatorId={operatorId}

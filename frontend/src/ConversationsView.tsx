@@ -1446,7 +1446,7 @@ export default function ConversationsView({
                 asegura que cubra toda la pantalla visible aunque haya
                 pocos mensajes. */}
             <div className="flex-1 overflow-y-auto">
-            <div className={`chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
+            <div className={`ui-thread chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (

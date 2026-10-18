@@ -1,7 +1,13 @@
 import { useEffect } from 'react'
-import { X, Settings, Check } from 'lucide-react'
+import { X, Settings, Check, Play } from 'lucide-react'
 import { themes, chatPatterns, fonts } from './ThemePicker'
-import { layouts, setLayout, useLayout } from './layoutPreference'
+import { layouts, scales, setLayout, setScale, useLayout, useScale } from './layoutPreference'
+import {
+  notificationSounds,
+  playNotificationSound,
+  setNotificationSound,
+  useNotificationSound,
+} from './notificationSound'
 
 type Props = {
   theme: string
@@ -27,6 +33,8 @@ export default function SettingsModal({
   onClose,
 }: Props) {
   const layout = useLayout()
+  const scale = useScale()
+  const sound = useNotificationSound()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -85,6 +93,69 @@ export default function SettingsModal({
             ))}
           </div>
           <p className="mb-5 text-[10px] text-muted">Se guarda en este navegador. Los datos y los temas son los mismos.</p>
+
+          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted">Tamaño de la interfaz</p>
+          <div className="mb-1 flex flex-wrap gap-1.5">
+            {scales.map((sc) => (
+              <button
+                key={sc.id}
+                onClick={() => setScale(sc.id)}
+                aria-pressed={scale === sc.id}
+                className={`rounded-sm border px-2.5 py-1.5 text-xs transition-colors ${
+                  scale === sc.id
+                    ? 'border-mustard bg-panel-light text-mustard'
+                    : 'border-panel-light text-cream hover:bg-panel-light/60'
+                }`}
+              >
+                {sc.label}
+              </button>
+            ))}
+          </div>
+          <p className="mb-5 text-[10px] text-muted">
+            Para pantallas grandes o ultra anchas: agranda o achica todo. Automático ajusta solo en monitores muy anchos.
+          </p>
+
+          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted">Sonido de notificación</p>
+          <div className="mb-1 flex flex-col gap-1">
+            {notificationSounds.map((s) => (
+              <div
+                key={s.id}
+                className={`flex items-center gap-1.5 rounded-sm border pr-1.5 transition-colors ${
+                  sound === s.id ? 'border-mustard bg-panel-light' : 'border-panel-light hover:bg-panel-light/60'
+                }`}
+              >
+                <button
+                  onClick={() => {
+                    setNotificationSound(s.id)
+                    playNotificationSound(s.id)
+                  }}
+                  aria-pressed={sound === s.id}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left"
+                >
+                  <span className="flex h-3 w-3 shrink-0 items-center justify-center">
+                    {sound === s.id && <Check size={12} className="text-mustard" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block truncate text-xs font-medium ${sound === s.id ? 'text-mustard' : 'text-cream'}`}>
+                      {s.label}
+                    </span>
+                    <span className="block truncate text-[10px] text-muted">{s.description}</span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => playNotificationSound(s.id)}
+                  aria-label={`Escuchar ${s.label}`}
+                  title="Escuchar"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-panel-light text-muted transition-colors hover:border-mustard hover:text-mustard"
+                >
+                  <Play size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="mb-5 text-[10px] text-muted">
+            Es solo para tu usuario. Tocá el play para escuchar antes de elegir. Para silenciar todo usá el botón de notificaciones de la barra superior.
+          </p>
 
           <p className="mb-2 text-[10px] uppercase tracking-wide text-muted">Tema</p>
           <div className="mb-5 grid grid-cols-3 gap-1.5">

@@ -68,3 +68,69 @@ function subscribe(cb: () => void) {
 export function useLayout(): LayoutId {
   return useSyncExternalStore(subscribe, () => current, () => 'clasico' as LayoutId)
 }
+
+// ---------------------------------------------------------------------------
+// Tamaño de la interfaz (ambas versiones). Escala todo junto: Tailwind usa rem,
+// así que cambiar el tamaño de letra de <html> agranda o achica todo. "auto"
+// deja el tamaño normal y solo agranda un poco en pantallas muy anchas.
+// ---------------------------------------------------------------------------
+export type ScaleId = 'auto' | 'compact' | 'normal' | 'large' | 'xlarge'
+
+export const scales: { id: ScaleId; label: string }[] = [
+  { id: 'auto', label: 'Automático' },
+  { id: 'compact', label: 'Compacto' },
+  { id: 'normal', label: 'Normal' },
+  { id: 'large', label: 'Grande' },
+  { id: 'xlarge', label: 'Muy grande' },
+]
+
+const SCALE_KEY = 'uiScalePreference'
+const scaleListeners = new Set<() => void>()
+
+function readScale(): ScaleId {
+  try {
+    const v = localStorage.getItem(SCALE_KEY)
+    return scales.some((s) => s.id === v) ? (v as ScaleId) : 'auto'
+  } catch {
+    return 'auto'
+  }
+}
+
+let currentScale: ScaleId = readScale()
+
+function applyScale() {
+  if (typeof document === 'undefined') return
+  if (currentScale === 'auto') delete document.documentElement.dataset.scale
+  else document.documentElement.dataset.scale = currentScale
+}
+applyScale()
+
+export function setScale(id: ScaleId) {
+  currentScale = id
+  try {
+    localStorage.setItem(SCALE_KEY, id)
+  } catch {
+    // sin storage: vale hasta recargar
+  }
+  applyScale()
+  scaleListeners.forEach((l) => l())
+}
+
+function subscribeScale(cb: () => void) {
+  scaleListeners.add(cb)
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== SCALE_KEY) return
+    currentScale = readScale()
+    applyScale()
+    cb()
+  }
+  window.addEventListener('storage', onStorage)
+  return () => {
+    scaleListeners.delete(cb)
+    window.removeEventListener('storage', onStorage)
+  }
+}
+
+export function useScale(): ScaleId {
+  return useSyncExternalStore(subscribeScale, () => currentScale, () => 'auto' as ScaleId)
+}

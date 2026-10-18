@@ -259,21 +259,22 @@
   --color-muted: #9997B3;
 }
 
-/* Rosa — fucsia vívido sobre un fondo vino-rosado oscuro. Mismo espíritu
-   que "Bordo" y "Tamagotchi" pero llevado al extremo: acá el rosa es el
-   protagonista, no un detalle. */
+/* Rosa — rosa y blanco: fondo blanco rosado claro, paneles blancos y el
+   rosa fuerte como acento. Es un tema CLARO (texto oscuro vinoso). El acento
+   es un rosa profundo para que se lea sobre blanco (contraste >= 4.8:1) y el
+   texto sobre el acento es el blanco rosado de fondo. */
 [data-theme='rosa'] {
-  --color-asphalt: #1F0A14;
-  --color-panel: #2B0F1E;
-  --color-panel-light: #3D1527;
-  --color-mustard: #FF4FA3;
-  --color-tick-read: #0EA5B5;
-  --color-alert: #E85D6A;
-  --color-available: #6FD9A8;
-  --color-warning: #F2C14E;
-  --color-info: #7CA8E8;
-  --color-cream: #FBEBF2;
-  --color-muted: #A8829A;
+  --color-asphalt: #FFF3F8;
+  --color-panel: #FFFFFF;
+  --color-panel-light: #FFDDEA;
+  --color-mustard: #C8186B;
+  --color-tick-read: #0E7C8C;
+  --color-alert: #C62828;
+  --color-available: #1E8E5A;
+  --color-warning: #A86200;
+  --color-info: #2563A8;
+  --color-cream: #2A1020;
+  --color-muted: #7A5568;
 }
 
 /* Inspirado en el look de Zello: carbón ("Outer Space") de fondo y

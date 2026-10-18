@@ -197,6 +197,7 @@ function AdminRoute() {
       onChangeTheme={ctx.changeTheme}
       operatorName={ctx.operatorName}
       isSuperAdmin={ctx.isSuperAdmin}
+      canViewMetrics={ctx.canViewMetrics}
       onBack={() => navigate('/')}
       conversations={ctx.conversations}
     />

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Menu, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
 import { useLayout } from './layoutPreference'
 import type { Conversation } from './ConversationsView'
@@ -70,6 +70,8 @@ type Props = {
   onChangeTheme: (id: string) => void
   operatorName: string
   isSuperAdmin: boolean
+  // Si tiene el permiso de métricas, el panel muestra un acceso a /metrics.
+  canViewMetrics?: boolean
   onBack: () => void
   conversations: Conversation[]
 }
@@ -88,7 +90,15 @@ const ADMIN_ALLOWED_SECTIONS: Section[] = [
   'integrationhealth',
 ]
 
-export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuperAdmin, onBack, conversations }: Props) {
+export default function AdminPanel({
+  theme,
+  onChangeTheme,
+  operatorName,
+  isSuperAdmin,
+  canViewMetrics,
+  onBack,
+  conversations,
+}: Props) {
   const layout = useLayout()
   const visibleNavItems = isSuperAdmin
     ? navItems
@@ -124,6 +134,14 @@ export default function AdminPanel({ theme, onChangeTheme, operatorName, isSuper
             >
               <ArrowLeft size={13} /> Volver a mensajería
             </button>
+            {canViewMetrics && (
+              <button
+                onClick={() => navigate('/metrics')}
+                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-sm border border-mustard/50 px-2 py-1.5 text-xs font-medium text-mustard transition-colors hover:bg-mustard hover:text-asphalt"
+              >
+                <BarChart3 size={13} /> Ir a Métricas
+              </button>
+            )}
             <span className="text-sm font-semibold tracking-tight text-mustard">Panel Admin</span>
           </div>
 

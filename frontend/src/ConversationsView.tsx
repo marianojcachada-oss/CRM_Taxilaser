@@ -1736,7 +1736,7 @@ export default function ConversationsView({
                 <div className="absolute bottom-full left-4 z-10 mb-2">
                   <EmojiPicker
                     onEmojiClick={handleEmojiClick}
-                    theme={(theme === 'light' || theme === 'sand' ? 'light' : 'dark') as any}
+                    theme={(theme === 'light' || theme === 'sand' || theme === 'rosa' ? 'light' : 'dark') as any}
                   />
                 </div>
               )}

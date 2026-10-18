@@ -1,25 +1,27 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, BarChart3, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
-import { useLayout } from './layoutPreference'
 import type { Conversation } from './ConversationsView'
-import CommandCenterSection from './CommandCenterSection'
-import TeamSection from './TeamSection'
-import AdminSection from './AdminSection'
-import ChannelsSection from './ChannelsSection'
-import TemplatesSection from './TemplatesSection'
-import AnalyticsSection from './AnalyticsSection'
-import AISection from './AISection'
-import CampaignsSection from './CampaignsSection'
-import AutomationsSection from './AutomationsSection'
-import IntegrationsSection from './IntegrationsSection'
-import VehiclesSection from './VehiclesSection'
-import MessageMetricsSection from './MessageMetricsSection'
-import RoundRobinSection from './RoundRobinSection'
-import ErrorLogsSection from './ErrorLogsSection'
-import IntegrationHealthSection from './IntegrationHealthSection'
-import ReportsSection from './ReportsSection'
+import { lazyWithReload } from './lazyWithReload'
+
+// Cada sección se baja recién cuando se abre.
+const CommandCenterSection = lazyWithReload(() => import('./CommandCenterSection'))
+const TeamSection = lazyWithReload(() => import('./TeamSection'))
+const AdminSection = lazyWithReload(() => import('./AdminSection'))
+const ChannelsSection = lazyWithReload(() => import('./ChannelsSection'))
+const TemplatesSection = lazyWithReload(() => import('./TemplatesSection'))
+const AnalyticsSection = lazyWithReload(() => import('./AnalyticsSection'))
+const AISection = lazyWithReload(() => import('./AISection'))
+const CampaignsSection = lazyWithReload(() => import('./CampaignsSection'))
+const AutomationsSection = lazyWithReload(() => import('./AutomationsSection'))
+const IntegrationsSection = lazyWithReload(() => import('./IntegrationsSection'))
+const VehiclesSection = lazyWithReload(() => import('./VehiclesSection'))
+const MessageMetricsSection = lazyWithReload(() => import('./MessageMetricsSection'))
+const RoundRobinSection = lazyWithReload(() => import('./RoundRobinSection'))
+const ErrorLogsSection = lazyWithReload(() => import('./ErrorLogsSection'))
+const IntegrationHealthSection = lazyWithReload(() => import('./IntegrationHealthSection'))
+const ReportsSection = lazyWithReload(() => import('./ReportsSection'))
 
 type Section =
   | 'command-center'
@@ -39,7 +41,7 @@ type Section =
   | 'integrations'
   | 'admin'
 
-// Grupos del menú en la interfaz "Espacio de trabajo" (en la clásica es una lista plana).
+// Grupos del menú del panel.
 const NAV_GROUPS: { label: string; ids: Section[] }[] = [
   { label: 'Operación', ids: ['command-center', 'analytics', 'metrics', 'roundrobin', 'vehicles'] },
   { label: 'Equipo y mensajes', ids: ['team', 'templates', 'channels', 'campaigns', 'automations', 'ai'] },
@@ -99,7 +101,6 @@ export default function AdminPanel({
   onBack,
   conversations,
 }: Props) {
-  const layout = useLayout()
   const visibleNavItems = isSuperAdmin
     ? navItems
     : navItems.filter((item) => ADMIN_ALLOWED_SECTIONS.includes(item.id))
@@ -126,7 +127,7 @@ export default function AdminPanel({
     <div className="flex h-screen bg-asphalt text-cream">
       {/* Sidebar */}
       <div className={`${showMobileNav ? 'fixed inset-0 z-40 flex' : 'hidden'} md:static md:z-auto md:flex`}>
-        <aside className="ui-nav ui-adminnav flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
+        <aside className="ui-adminnav flex w-56 shrink-0 flex-col border-r border-panel-light bg-panel">
           <div className="border-b border-panel-light px-4 py-3">
             <button
               onClick={onBack}
@@ -146,14 +147,11 @@ export default function AdminPanel({
           </div>
 
           <nav className="ui-adminnav-list flex-1 overflow-y-auto py-2">
-            {(layout === 'espacio'
-              ? NAV_GROUPS.flatMap((g) => g.ids.map((id) => ({ group: g.label, item: visibleNavItems.find((n) => n.id === id) })))
-              : visibleNavItems.map((item) => ({ group: '', item }))
-            )
+            {NAV_GROUPS.flatMap((g) => g.ids.map((id) => ({ group: g.label, item: visibleNavItems.find((n) => n.id === id) })))
               .filter((e): e is { group: string; item: (typeof navItems)[number] } => !!e.item)
               .map(({ group, item }, idx, arr) => (
               <div key={item.id} className="contents">
-                {layout === 'espacio' && group && group !== arr[idx - 1]?.group && (
+                {group !== arr[idx - 1]?.group && (
                   <p className="ui-navgroup px-3 pb-1 pt-3 text-[10px] font-extrabold uppercase tracking-[0.13em] text-muted">{group}</p>
                 )}
               <button
@@ -196,6 +194,7 @@ export default function AdminPanel({
         </header>
 
         <div className="ui-admin-content p-4 md:p-6">
+          <Suspense fallback={<p className="text-sm text-muted">Cargando…</p>}>
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}
@@ -212,6 +211,7 @@ export default function AdminPanel({
           {active === 'integrationhealth' && <IntegrationHealthSection />}
           {active === 'reports' && <ReportsSection />}
           {active === 'admin' && <AdminSection />}
+          </Suspense>
         </div>
       </main>
     </div>

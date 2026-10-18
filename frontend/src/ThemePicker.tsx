@@ -23,6 +23,10 @@ export const themes = [
   { id: 'verde-negro', label: 'Verde y negro', asphalt: '#000000', mustard: '#39FF14' },
   { id: 'facebook', label: 'Facebook', asphalt: '#F0F2F5', mustard: '#1877F2' },
   { id: 'msn', label: 'MSN', asphalt: '#0A2A4D', mustard: '#8CC63F' },
+  { id: 'pantano', label: 'Pantano', asphalt: '#0F1610', mustard: '#A8BF4A' },
+  { id: 'psicodelico', label: 'Psicodélico', asphalt: '#12002A', mustard: '#FF3EC8' },
+  { id: 'ig', label: 'IG', asphalt: '#FAFAFA', mustard: '#C2287A' },
+  { id: 'tikitoki', label: 'Tikitoki', asphalt: '#000000', mustard: '#FE2C55' },
 ]
 
 // Patrones de fondo para el hilo de mensajes (ver index.css, clases

@@ -1,33 +1,34 @@
 import { SiWhatsapp, SiFacebook, SiInstagram } from '@icons-pack/react-simple-icons'
 import { MessageCircle } from 'lucide-react'
+import { channelIconColor } from './channelColors'
 
 const SUPABASE_PROJECT_REF = 'jamgimsrnoskwjiewjck'
 
 const channels = [
   {
     name: 'WhatsApp',
-    icon: <SiWhatsapp size={18} color="#25D366" />,
+    icon: <SiWhatsapp size={18} color={channelIconColor.whatsapp} />,
     status: 'connected' as const,
     detail: 'Vía Meta Cloud API, webhook unificado.',
     endpoint: `https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/meta-webhook`,
   },
   {
     name: 'Facebook Messenger',
-    icon: <SiFacebook size={18} color="#1877F2" />,
+    icon: <SiFacebook size={18} color={channelIconColor.facebook} />,
     status: 'connected' as const,
     detail: 'Vía Meta Cloud API, mismo webhook que WhatsApp.',
     endpoint: `https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/meta-webhook`,
   },
   {
     name: 'Instagram',
-    icon: <SiInstagram size={18} color="#E1306C" />,
+    icon: <SiInstagram size={18} color={channelIconColor.instagram} />,
     status: 'connected' as const,
     detail: 'Vía Meta Cloud API, mismo webhook que WhatsApp.',
     endpoint: `https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/meta-webhook`,
   },
   {
     name: 'SMS (RingCentral)',
-    icon: <MessageCircle size={18} color="#FF7A00" />,
+    icon: <MessageCircle size={18} color={channelIconColor.sms} />,
     status: 'pending' as const,
     detail: 'El webhook está desplegado, pero falta automatizar el refresh del token de RingCentral.',
     endpoint: `https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/ringcentral-webhook`,

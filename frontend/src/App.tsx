@@ -18,6 +18,8 @@ export type Presence = 'available' | 'offline' | 'busy' | 'apoyo'
 // por inactividad. Si la actualización a "No disponible" no llegó a la base
 // (error, pestaña cerrada justo en ese momento), el próximo login la completa.
 const INACTIVITY_LOGOUT_FLAG = 'quetal_inactivity_logout_operator'
+// Tope de conversaciones activas que trae la bandeja principal.
+const CONVERSATIONS_LIMIT = 300
 
 // Todo lo que las rutas de router.tsx necesitan de la lógica global.
 // App lo pasa con <Outlet context>, y las rutas lo leen con useAppContext().
@@ -97,6 +99,9 @@ export default function App() {
   // campos que ya vienen en el propio evento de Realtime. Ver el
   // handler de 'UPDATE' del canal 'conversations-list' más abajo.
   const conversationsRef = useRef<Conversation[]>([])
+  // `muted` como ref: el aviso de mensaje nuevo vive dentro del canal de
+  // conversations-list y no debe rearmarlo cuando se silencia.
+  const mutedRef = useRef(false)
   useEffect(() => {
     conversationsRef.current = conversations
   }, [conversations])
@@ -177,8 +182,8 @@ export default function App() {
 
   // Solo trae lo activo (no cerrado) — el trabajo del día a día. El
   // historial cerrado se consulta aparte, por contacto (panel de
-  // contacto) o por búsqueda, no de arranque acá. El límite de 300 es
-  // un techo de seguridad, no algo que se espere alcanzar en el uso normal.
+  // contacto) o por búsqueda, no de arranque acá. El límite
+  // (CONVERSATIONS_LIMIT) es un techo de seguridad: si se alcanza, avisa en consola.
   const loadConversations = useCallback(() => {
     if (!session) return
     supabase
@@ -186,19 +191,19 @@ export default function App() {
       .select(CONVERSATION_SELECT)
       .neq('status', 'cerrada')
       .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(1000)
+      .limit(CONVERSATIONS_LIMIT)
       .then(({ data, error }) => {
         if (error) {
           console.error('No se pudieron cargar las conversaciones:', error.message)
           return
         }
-        if ((data ?? []).length >= 1000) {
+        if ((data ?? []).length >= CONVERSATIONS_LIMIT) {
           // Si llegamos justo al techo, hay que asumir que se está
           // cortando algo real — con este volumen de operadores/
           // vehículos conviene pasar esta lista a un fetch por
           // operador en vez de una lista global compartida.
           console.warn(
-            'loadConversations llegó al límite de 1000 — puede haber conversaciones activas que no se estén mostrando. Conviene revisar el volumen real.',
+            `loadConversations llegó al límite de ${CONVERSATIONS_LIMIT} — puede haber conversaciones activas que no se estén mostrando. Conviene revisar el volumen real.`,
           )
         }
         setConversations((data ?? []).map(mapConversation))
@@ -215,7 +220,7 @@ export default function App() {
   }, [session?.user?.id])
 
   // Trae y aplica en memoria SOLO la conversación que cambió, en vez de
-  // recargar la lista entera (hasta 1000 filas, con contacto y operador
+  // recargar la lista entera (hasta 300 filas, con contacto y operador
   // asignado adentro) por cada evento.
   //
   // OJO — esto era el consumo más grande de los dos que encontramos en
@@ -225,7 +230,7 @@ export default function App() {
   // CADA mensaje nuevo, cada asignación de round robin, cada vez que se
   // marca como leída. Con varios operadores conectados a la vez, eso
   // eran cientos de recargas completas por minuto, cada una trayendo de
-  // vuelta hasta 1000 filas con join a contactos — la causa principal
+  // vuelta hasta 300 filas con join a contactos — la causa principal
   // de la suba descontrolada en Log Query y Realtime Messages. Acá se
   // pide solo la fila puntual que cambió (un id, no toda la tabla) y se
   // actualiza/inserta/saca del arreglo local a mano.
@@ -327,17 +332,39 @@ export default function App() {
     // TaxiCaller), sigue pidiendo la fila completa como siempre — ahí sí
     // puede haber cambiado el nombre del operador o los datos de viaje
     // activo del contacto.
+    // Sonido + notificación del navegador cuando llega un mensaje nuevo de
+    // un cliente en una conversación MÍA. Antes era un canal aparte con
+    // filtro assigned_operator_id; ahora se filtra acá, en el mismo canal.
+    // "last_contact_message_at" también cambia en updates que no son un
+    // mensaje nuevo (reasignación), por eso se exige que sea de los
+    // últimos 10 s.
+    function notifyIfMine(row: { assigned_operator_id?: string | null; last_contact_message_at?: string | null; last_message_preview?: string | null }) {
+      if (mutedRef.current) return
+      if (!operatorIdRef.current || row.assigned_operator_id !== operatorIdRef.current) return
+      const lastContactAt = row.last_contact_message_at
+      if (!lastContactAt) return
+      if (Date.now() - new Date(lastContactAt).getTime() > 10_000) return
+      playNotificationSound()
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Mensaje nuevo', { body: String(row.last_message_preview ?? '').slice(0, 120) })
+      }
+    }
+
     const channel = supabase
       .channel('conversations-list')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
         patchConversation((payload.new as { id: string }).id)
+        // El contador "Todos" (Inbox) se recalcula con este aviso.
+        window.dispatchEvent(new Event('conversations-count-dirty'))
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
         applyOrPatchConversation(payload.new as any)
+        notifyIfMine(payload.new as any)
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
         const oldRow = payload.old as { id: string }
         setConversations((prev) => prev.filter((c) => c.id !== oldRow.id))
+        window.dispatchEvent(new Event('conversations-count-dirty'))
       })
       .subscribe()
 
@@ -347,65 +374,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, loadConversations, patchConversation, applyOrPatchConversation])
 
-  // Sonido + notificación del navegador cuando llega un mensaje nuevo de un cliente
+  // Permiso de notificaciones del navegador. El sonido y el aviso de
+  // "mensaje nuevo" salen del canal 'conversations-list' de arriba (antes
+  // había un canal aparte filtrado por operador: era una suscripción más
+  // sobre la misma tabla).
   useEffect(() => {
     if (!session || !operatorId) return
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
-
-    // Antes esto escuchaba TODOS los mensajes de TODOS los clientes, sin
-    // filtrar, y por cada uno hacía una consulta aparte a "conversations"
-    // solo para chequear si era mío — con varios operadores conectados,
-    // cada mensaje de cualquier cliente generaba un evento de Realtime +
-    // una consulta a la base POR CADA operador conectado, casi todas
-    // descartadas al toque. Eso suma bastante al uso de Supabase sin
-    // necesidad.
-    //
-    // Ahora se filtra directo por "assigned_operator_id" — Realtime SÍ
-    // puede filtrar esto del lado del servidor porque es una columna
-    // propia de la tabla a la que nos suscribimos (no hace falta cruzar
-    // con "messages"), así que Supabase ya me manda solo lo que me toca,
-    // sin la consulta extra. "conversations.last_contact_message_at" se
-    // actualiza solo con cada mensaje real del cliente (trigger ya
-    // existente), así que alcanza con mirar ese campo.
-    const channel = supabase
-      .channel(`my-new-messages-${operatorId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'conversations',
-          filter: `assigned_operator_id=eq.${operatorId}`,
-        },
-        (payload) => {
-          if (muted) return
-
-          // "last_contact_message_at" puede venir en updates que no son
-          // un mensaje nuevo (por ejemplo, reasignación) — se chequea que
-          // sea reciente (últimos 10s) para no sonar de más en esos casos.
-          const lastContactAt = payload.new.last_contact_message_at as string | null
-          if (!lastContactAt) return
-          if (Date.now() - new Date(lastContactAt).getTime() > 10_000) return
-
-          playNotificationSound()
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Mensaje nuevo', {
-              body: String(payload.new.last_message_preview ?? '').slice(0, 120),
-            })
-          }
-        },
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-    // session?.user?.id, no "session" entero — mismo fix que en el canal
-    // de conversations-list de más arriba.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id, muted, operatorId])
+  }, [session?.user?.id, operatorId])
 
   useEffect(() => {
     // Sin sesión (login, o recién cerraste sesión) siempre va en oscuro,
@@ -505,6 +484,9 @@ export default function App() {
   useEffect(() => {
     operatorIdRef.current = operatorId
   }, [operatorId])
+  useEffect(() => {
+    mutedRef.current = muted
+  }, [muted])
   useEffect(() => {
     operatorPresenceRef.current = operatorPresence
   }, [operatorPresence])

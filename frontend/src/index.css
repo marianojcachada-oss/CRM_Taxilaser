@@ -1023,49 +1023,254 @@ html[data-layout='espacio'] .ui-topbar-sms {
 }
 
 /* ==========================================================================
-   Panel de administrador — interfaz "Espacio de trabajo"
+   Panel de administrador — un solo estilo (el nuevo), sea cual sea la
+   interfaz elegida en Configuración. Todo cuelga de .ui-admin* para no tocar
+   el resto de la app.
    ========================================================================== */
-html[data-layout='espacio'] .ui-adminnav {
+.ui-adminnav {
   width: 14.5rem;
 }
-html[data-layout='espacio'] .ui-adminnav-list {
+.ui-adminnav-list {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
   padding: 0.5rem 0.75rem;
 }
-html[data-layout='espacio'] .ui-adminnav-list button[data-nav='item'] {
+.ui-adminnav-list button[data-nav='item'] {
   width: 100%;
-  padding-inline: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.7rem;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
 }
-html[data-layout='espacio'] .ui-adminnav-list button[data-nav='item'][data-active] {
+.ui-adminnav-list button[data-nav='item']:hover {
+  background: color-mix(in srgb, var(--color-cream) 7%, transparent);
   color: var(--color-cream);
 }
-html[data-layout='espacio'] .ui-adminhead {
+.ui-adminnav-list button[data-nav='item'][data-active] {
+  background: color-mix(in srgb, var(--color-mustard) 15%, var(--color-panel));
+  color: var(--color-cream);
+  font-weight: 700;
+}
+.ui-adminhead {
   min-height: 4rem;
 }
-html[data-layout='espacio'] .ui-adminhead h1 {
+.ui-adminhead h1 {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
-html[data-layout='espacio'] .ui-admin-content {
+.ui-admin-content {
   max-width: 96rem;
   margin-inline: auto;
 }
-html[data-layout='espacio'] .ui-admin-content .rounded-sm {
+
+/* Tarjetas y paneles */
+.ui-admin-content .rounded-sm {
   border-radius: 0.65rem;
 }
-html[data-layout='espacio'] .ui-admin-content .rounded-sm.border.bg-panel,
-html[data-layout='espacio'] .ui-admin-content .ui-tile {
+.ui-admin-content .rounded-sm.border.bg-panel,
+.ui-admin-content .ui-tile {
   border-radius: 1rem;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--color-asphalt) 45%, transparent);
 }
-html[data-layout='espacio'] .ui-admin-content table {
-  border-collapse: separate;
-  border-spacing: 0;
+.ui-admin-content .rounded-sm.border:has(> table),
+.ui-admin-content .rounded-sm.border:has(> .overflow-x-auto) {
+  overflow: hidden;
 }
-html[data-layout='espacio'] .ui-admin-content th {
+
+/* Etiquetas (badges) como píldoras */
+.ui-admin-content .rounded-sm.px-1\.5.py-0\.5,
+.ui-admin-content .rounded-sm.px-2.py-0\.5 {
+  border-radius: 9999px;
+  padding-inline: 0.6rem;
+  font-weight: 600;
+}
+
+/* Campos de formulario */
+.ui-admin-content input:not([type='checkbox']):not([type='radio']),
+.ui-admin-content select,
+.ui-admin-content textarea {
+  border-radius: 0.65rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ui-admin-content input:not([type='checkbox']):not([type='radio']):focus,
+.ui-admin-content select:focus,
+.ui-admin-content textarea:focus {
+  border-color: var(--color-mustard);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-mustard) 22%, transparent);
+}
+
+/* Botones */
+.ui-admin-content button.rounded-sm {
+  border-radius: 0.65rem;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.ui-admin-content button.rounded-sm.bg-mustard {
+  font-weight: 700;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-mustard) 30%, transparent);
+}
+.ui-admin-content button.rounded-sm.bg-mustard:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: 1;
+}
+.ui-admin-content button.rounded-sm.border:not(.bg-mustard):hover:not(:disabled) {
+  border-color: var(--color-mustard);
+}
+
+/* Tablas: filas con separador fino y resaltado al pasar el mouse */
+.ui-admin-content table {
+  border-collapse: collapse;
+}
+.ui-admin-content th {
   font-size: 10px;
   letter-spacing: 0.1em;
+  background: color-mix(in srgb, var(--color-cream) 3%, transparent);
+}
+.ui-admin-content tbody tr {
+  transition: background-color 0.12s;
+}
+.ui-admin-content tbody tr:hover {
+  background: color-mix(in srgb, var(--color-mustard) 6%, transparent);
+}
+
+/* ---- Temas nuevos: Pantano, Psicodélico, IG, Tikitoki ---- */
+
+/* Pantano — verdes turbios de ciénaga: fondo casi negro verdoso, musgo y
+   alga como acento. Oscuro y de poco brillo, cómodo para turnos largos. */
+[data-theme='pantano'] {
+  --color-asphalt: #0F1610;
+  --color-panel: #18221A;
+  --color-panel-light: #243228;
+  --color-mustard: #A8BF4A;
+  --color-tick-read: #5FC9B4;
+  --color-alert: #E0715A;
+  --color-available: #6FCB7F;
+  --color-warning: #E3B341;
+  --color-info: #6FA8C9;
+  --color-cream: #E8EDD8;
+  --color-muted: #8C9C7E;
+}
+
+/* Psicodélico — violeta profundo con magenta eléctrico y cian ácido. */
+[data-theme='psicodelico'] {
+  --color-asphalt: #12002A;
+  --color-panel: #1E0840;
+  --color-panel-light: #34146B;
+  --color-mustard: #FF3EC8;
+  --color-tick-read: #2DE2E6;
+  --color-alert: #FF5C7A;
+  --color-available: #5CFFB0;
+  --color-warning: #FFD23F;
+  --color-info: #2DE2E6;
+  --color-cream: #F6EBFF;
+  --color-muted: #A58BC9;
+}
+html[data-theme='psicodelico'] *::-webkit-scrollbar-thumb {
+  background-image: linear-gradient(#FF3EC8, #2DE2E6);
+}
+html[data-layout='espacio'][data-theme='psicodelico'] .ui-logo {
+  background: conic-gradient(from 200deg, #FF3EC8, #FFD23F, #5CFFB0, #2DE2E6, #FF3EC8);
+  box-shadow: 0 5px 14px color-mix(in srgb, #FF3EC8 45%, transparent);
+}
+
+/* IG — estética Instagram: fondo blanco, texto casi negro, magenta de
+   Instagram como acento (algo más profundo para leerse sobre blanco). */
+[data-theme='ig'] {
+  --color-asphalt: #FAFAFA;
+  --color-panel: #FFFFFF;
+  --color-panel-light: #EFEFF1;
+  --color-mustard: #C2287A;
+  --color-tick-read: #0095F6;
+  --color-alert: #ED4956;
+  --color-available: #1F9D55;
+  --color-warning: #B7791F;
+  --color-info: #0074CC;
+  --color-cream: #1B1B1F;
+  --color-muted: #6E6E78;
+}
+html[data-layout='espacio'][data-theme='ig'] .ui-logo {
+  background: linear-gradient(45deg, #FEDA75 0%, #FA7E1E 25%, #D62976 50%, #962FBF 75%, #4F5BD5 100%);
+  box-shadow: 0 5px 12px rgba(214, 41, 118, 0.3);
+}
+
+/* Tikitoki — estética TikTok: negro puro, rojo-rosa de TikTok como acento y
+   cian como segundo color (el "glitch" de dos colores desfasados). */
+[data-theme='tikitoki'] {
+  --color-asphalt: #000000;
+  --color-panel: #121212;
+  --color-panel-light: #232326;
+  --color-mustard: #FE2C55;
+  --color-tick-read: #25F4EE;
+  --color-alert: #FF5A5F;
+  --color-available: #25F4EE;
+  --color-warning: #FFC83D;
+  --color-info: #25F4EE;
+  --color-cream: #FFFFFF;
+  --color-muted: #8F9096;
+}
+html[data-layout='espacio'][data-theme='tikitoki'] .ui-logo {
+  background: #FE2C55;
+  box-shadow: -2px -2px 0 #25F4EE, 2px 2px 0 rgba(254, 44, 85, 0.5);
+}
+html[data-layout='espacio'][data-theme='tikitoki'] .ui-brand {
+  text-shadow: 1.5px 0 #25F4EE, -1.5px 0 #FE2C55;
+}
+
+/* ---- Animaciones de la pantalla de login ----
+   Solo CSS. Los cuadrados ¿ ? entran y después flotan suave, el texto y el
+   formulario aparecen escalonados, la franja de cuadros se desplaza despacio
+   y el cartel de error vibra una vez. Se apagan con "reducir movimiento". */
+@keyframes lg-in-a {
+  from { opacity: 0; transform: translate(-30px, -26px) rotate(-14deg) scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-in-b {
+  from { opacity: 0; transform: translate(30px, 26px) rotate(14deg) scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-float-a {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
+}
+@keyframes lg-float-b {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 5px; }
+}
+@keyframes lg-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-glow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes lg-drift {
+  from { background-position-x: 0; }
+  to { background-position-x: 36px; }
+}
+@keyframes lg-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+.lg-tile-a { animation: lg-in-a 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.25) both, lg-float-a 6s ease-in-out 1s infinite; }
+.lg-tile-b { animation: lg-in-b 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.25) 0.12s both, lg-float-b 7s ease-in-out 1.2s infinite; }
+.lg-glow { animation: lg-glow 7s ease-in-out infinite; }
+.lg-checker { animation: lg-drift 6s linear infinite; }
+.lg-shake { animation: lg-shake 0.4s ease-in-out both; }
+.lg-rise { animation: lg-rise 0.6s ease-out 0.7s both; }
+.lg-stagger > *:not([role='alert']) { animation: lg-rise 0.55s ease-out both; }
+.lg-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.lg-stagger > *:nth-child(2) { animation-delay: 0.15s; }
+.lg-stagger > *:nth-child(3) { animation-delay: 0.25s; }
+.lg-stagger > *:nth-child(4) { animation-delay: 0.35s; }
+.lg-stagger > *:nth-child(5) { animation-delay: 0.45s; }
+/* El texto de la marca espera a que terminen de entrar los cuadrados. */
+.lg-stagger.lg-late > :nth-child(1) { animation-delay: 0.45s; }
+.lg-stagger.lg-late > :nth-child(2) { animation-delay: 0.6s; }
+@media (prefers-reduced-motion: reduce) {
+  .lg-anim, .lg-stagger > * { animation: none !important; }
 }

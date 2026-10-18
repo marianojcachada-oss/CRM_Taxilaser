@@ -157,10 +157,6 @@ export default function Inbox({
   function goTo(path: string) {
     if (location.pathname !== path) navigate(path)
   }
-  const [missedCallsCount, setMissedCallsCount] = useState(0)
-  // Interruptor de Integraciones (MISSED_CALLS_COUNTER_ENABLED). null = todavía
-  // no se leyó; si no hay valor guardado, el contador queda ACTIVADO.
-  const [missedCallsCounterEnabled, setMissedCallsCounterEnabled] = useState<boolean | null>(null)
   const [totalConversationsCount, setTotalConversationsCount] = useState(0)
   const [filter, setFilter] = useState<FilterValue>({ kind: 'mine' })
   // Reportar un problema/idea al superadmin (ver ReportProblemModal) y, solo
@@ -241,51 +237,6 @@ export default function Inbox({
     }
   }, [])
 
-  useEffect(() => {
-    supabase
-      .from('integration_settings')
-      .select('value')
-      .eq('key', 'MISSED_CALLS_COUNTER_ENABLED')
-      .maybeSingle()
-      .then(({ data }) => setMissedCallsCounterEnabled(data?.value !== 'false'))
-  }, [])
-
-  useEffect(() => {
-    // Todavía no se sabe si está activado: no consultar nada todavía.
-    if (missedCallsCounterEnabled === null) return
-    // Apagado desde Integraciones: sin consulta de conteo y sin canal de
-    // Realtime (así tampoco consume mensajes de Realtime por este motivo).
-    if (!missedCallsCounterEnabled) {
-      setMissedCallsCount(0)
-      return
-    }
-
-    function loadMissedCallsCount() {
-      supabase
-        .from('missed_calls')
-        .select('id', { count: 'exact', head: true })
-        .eq('acknowledged', false)
-        .then(({ count }) => setMissedCallsCount(count ?? 0))
-    }
-    loadMissedCallsCount()
-
-    // Debounce: marcar N llamadas como vistas genera N eventos de Realtime;
-    // con esto se hace UNA sola consulta de conteo cuando se calma la ráfaga.
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const channel = supabase
-      .channel('missed-calls-count')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_calls' }, () => {
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(loadMissedCallsCount, 1000)
-      })
-      .subscribe()
-
-    return () => {
-      if (timer) clearTimeout(timer)
-      supabase.removeChannel(channel)
-    }
-  }, [missedCallsCounterEnabled])
-
   // "Todos" es el histórico completo de verdad — a diferencia de la
   // lista principal (que a propósito solo trae lo activo, para que la
   // bandeja cargue rápido), esto consulta sin importar el estado.
@@ -299,7 +250,7 @@ export default function Inbox({
   // de Log Query y de Realtime Messages del proyecto sin necesidad.
   // El total de conversaciones SOLO cambia cuando se crea o se borra
   // una — así que ahora se recalcula nada más en esos dos eventos,
-  // igual que ya hace missedCallsCount arriba.
+  // ya no hay contador de llamadas perdidas (se sacó del menú).
   useEffect(() => {
     function loadTotalConversationsCount() {
       supabase
@@ -309,14 +260,11 @@ export default function Inbox({
     }
     loadTotalConversationsCount()
 
-    const channel = supabase
-      .channel('total-conversations-count')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, loadTotalConversationsCount)
-      .subscribe()
-
+    // App avisa (evento) cuando se crea o se borra una conversación, desde
+    // su canal 'conversations-list': no hace falta un canal propio acá.
+    window.addEventListener('conversations-count-dirty', loadTotalConversationsCount)
     return () => {
-      supabase.removeChannel(channel)
+      window.removeEventListener('conversations-count-dirty', loadTotalConversationsCount)
     }
   }, [])
 
@@ -900,7 +848,6 @@ export default function Inbox({
             }}
             view={view}
             internalChannel={internalChannel}
-            missedCallsCount={missedCallsCounterEnabled === false ? undefined : missedCallsCount}
             totalConversationsCount={totalConversationsCount}
             supportCount={supportCount}
             onSelectContacts={() => {

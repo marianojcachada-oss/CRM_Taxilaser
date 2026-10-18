@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMatch, useNavigate } from 'react-router-dom'
 import {
   Send, X, CheckCircle2, RotateCcw, Check, CheckCheck, ArrowLeft, Info,
   MessageCircle, Smile, Paperclip, Mic, Square, Languages, Loader2, FileText, Lock, Ban, Copy,
   Search, ChevronDown, Sparkles, Reply,
 } from 'lucide-react'
-import EmojiPicker from 'emoji-picker-react'
+import { Suspense } from 'react'
+import { lazyWithReload } from './lazyWithReload'
+import { channelBrandColor, channelIconColor } from './channelColors'
 import twemoji from 'twemoji'
 import { SiWhatsapp, SiFacebook, SiInstagram } from '@icons-pack/react-simple-icons'
 import ContactPanel from './ContactPanel'
@@ -14,6 +16,9 @@ import { useToast } from './Toast'
 import { getFunctionErrorMessage } from './functionsError'
 import { phoneForCopy } from './phone'
 import { atlantaDateISO, formatMessageTime } from './atlantaTime'
+
+// El selector de emojis pesa bastante: se baja la primera vez que se abre.
+const EmojiPicker = lazyWithReload(() => import('emoji-picker-react'))
 
 export type Channel = 'whatsapp' | 'facebook' | 'instagram' | 'sms'
 
@@ -43,12 +48,7 @@ export const channelLabel: Record<Channel, string> = {
 
 const allChannels: Channel[] = ['whatsapp', 'facebook', 'instagram', 'sms']
 
-export const channelAvatarColor: Record<Channel, string> = {
-  whatsapp: '#25D366',
-  facebook: '#1877F2',
-  instagram: '#E1306C',
-  sms: '#6B6459',
-}
+export const channelAvatarColor: Record<Channel, string> = channelBrandColor
 
 // Iniciales para el avatar de la lista: primera letra del primer nombre y,
 // si el segundo "nombre" empieza con una letra, también esa. Si el nombre es
@@ -86,13 +86,13 @@ const channelShort: Record<Channel, string> = {
 export function ChannelIcon({ channel, size = 14, color }: { channel: Channel; size?: number; color?: string }) {
   switch (channel) {
     case 'whatsapp':
-      return <SiWhatsapp size={size} color={color ?? '#25D366'} />
+      return <SiWhatsapp size={size} color={color ?? channelIconColor.whatsapp} />
     case 'facebook':
-      return <SiFacebook size={size} color={color ?? '#1877F2'} />
+      return <SiFacebook size={size} color={color ?? channelIconColor.facebook} />
     case 'instagram':
-      return <SiInstagram size={size} color={color ?? '#E1306C'} />
+      return <SiInstagram size={size} color={color ?? channelIconColor.instagram} />
     case 'sms':
-      return <MessageCircle size={size} color={color ?? '#FF7A00'} />
+      return <MessageCircle size={size} color={color ?? channelIconColor.sms} />
   }
 }
 
@@ -118,7 +118,7 @@ function AudioAttachment({ url, name }: { url: string; name: string }) {
           download
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 rounded-sm border border-black/10 bg-black/10 px-2 py-1 hover:opacity-80"
+          className="flex items-center gap-1.5 rounded-sm border border-cream/10 bg-cream/10 px-2 py-1 hover:opacity-80"
         >
           <Mic size={13} /> Descargar audio ({name})
         </a>
@@ -233,6 +233,10 @@ export type Message = {
   senderOperatorId?: string
   // Mensaje al que este responde (cita, como en WhatsApp) — id interno de messages.
   replyToId?: string
+  // Fecha/hora exacta (ISO) — se usa para pedir los mensajes anteriores a este.
+  createdAt?: string
+  // El cliente citó un mensaje que no tenemos guardado: se muestra la cita sin texto.
+  replyUnresolved?: boolean
   time: string
   date?: string
   // 'delivered'/'read' solo aplican a WhatsApp (es lo único que manda esos
@@ -281,6 +285,9 @@ const filterTitle: Record<string, string> = {
   snoozed: 'Pospuestas',
 }
 
+// Cuántos mensajes se cargan por tramo en el chat abierto.
+const THREAD_PAGE = 20
+
 export default function ConversationsView({
   conversations,
   setConversations,
@@ -325,6 +332,18 @@ export default function ConversationsView({
   )
   const [thread, setThread] = useState<Message[]>([])
   const threadEndRef = useRef<HTMLDivElement>(null)
+  // Hilo por tramos: al abrir un chat se cargan solo los últimos THREAD_PAGE
+  // mensajes, y al subir se piden los anteriores de a THREAD_PAGE.
+  const threadScrollRef = useRef<HTMLDivElement>(null)
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const restoreScrollRef = useRef<{ height: number; top: number } | null>(null)
+  const skipAutoScrollRef = useRef(false)
+  const loadingOlderRef = useRef(false)
+  const selectedIdRef = useRef<string | null>(null)
+  // Mensajes citados que quedaron fuera del tramo cargado (para mostrar la cita igual).
+  const [extraQuoted, setExtraQuoted] = useState<Record<string, Message>>({})
+  const triedQuotedRef = useRef<Set<string>>(new Set())
   const [draft, setDraft] = useState('')
   // Mensaje que se está citando para la próxima respuesta (solo WhatsApp).
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -478,7 +497,9 @@ export default function ConversationsView({
       sentViaChannel: m.sent_via_channel ?? null,
       senderOperatorId: m.sender_operator_id ?? undefined,
       replyToId: m.reply_to_message_id ?? undefined,
+      replyUnresolved: !m.reply_to_message_id && !!m.reply_to_external_id,
       time: formatMessageTime(m.created_at),
+      createdAt: m.created_at,
       date: atlantaDateISO(m.created_at), // yyyy-mm-dd en calendario de Atlanta, para agrupar por día de forma confiable
       attachment: m.attachment_url
         ? { url: m.attachment_url, name: m.attachment_name ?? 'archivo', kind: (m.attachment_kind ?? 'file') as AttachmentKind }
@@ -492,6 +513,13 @@ export default function ConversationsView({
   }
 
   useEffect(() => {
+    setHasOlder(false)
+    setLoadingOlder(false)
+    loadingOlderRef.current = false
+    setExtraQuoted({})
+    triedQuotedRef.current = new Set()
+    restoreScrollRef.current = null
+    skipAutoScrollRef.current = false
     if (!selectedId) {
       setThread([])
       return
@@ -502,16 +530,19 @@ export default function ConversationsView({
 
     supabase
       .from('messages')
-      .select('id, sender_type, sender_operator_id, content, created_at, attachment_url, attachment_name, attachment_kind, sent_via_channel, delivery_status, reply_to_message_id')
+      .select('*')
       .eq('conversation_id', selectedId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(THREAD_PAGE)
       .then(({ data, error }) => {
         if (cancelled) return
         if (error) {
           console.error('Error cargando mensajes:', error.message)
           return
         }
-        setThread((data ?? []).map(mapRow))
+        const rows = data ?? []
+        setHasOlder(rows.length >= THREAD_PAGE)
+        setThread(rows.slice().reverse().map(mapRow))
       })
 
     const channel = supabase
@@ -547,8 +578,90 @@ export default function ConversationsView({
   // Al abrir un chat, o al llegar un mensaje nuevo, va directo al final
   // del hilo — no tiene que scrollear a mano para ver el último mensaje.
   useEffect(() => {
+    // Al sumar mensajes ANTERIORES arriba no hay que saltar al final.
+    if (skipAutoScrollRef.current) {
+      skipAutoScrollRef.current = false
+      return
+    }
     threadEndRef.current?.scrollIntoView({ block: 'end' })
   }, [selectedId, thread.length])
+
+  selectedIdRef.current = selectedId
+
+  // Después de sumar mensajes arriba, mantiene en pantalla lo que se estaba leyendo.
+  useLayoutEffect(() => {
+    const saved = restoreScrollRef.current
+    const el = threadScrollRef.current
+    if (saved && el) {
+      el.scrollTop = saved.top + (el.scrollHeight - saved.height)
+      restoreScrollRef.current = null
+    }
+  }, [thread])
+
+  async function loadOlder() {
+    const forId = selectedId
+    const oldest = thread[0]?.createdAt
+    if (!forId || !oldest || loadingOlderRef.current || !hasOlder) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', forId)
+      .lt('created_at', oldest)
+      .order('created_at', { ascending: false })
+      .limit(THREAD_PAGE)
+    loadingOlderRef.current = false
+    if (selectedIdRef.current !== forId) return // cambió de chat mientras tanto
+    setLoadingOlder(false)
+    if (error) {
+      console.error('Error cargando mensajes anteriores:', error.message)
+      return
+    }
+    const rows = data ?? []
+    setHasOlder(rows.length >= THREAD_PAGE)
+    const known = new Set(thread.map((m) => m.id))
+    const fresh = rows.slice().reverse().filter((r) => !known.has(r.id)).map(mapRow)
+    if (fresh.length === 0) return
+    const el = threadScrollRef.current
+    if (el) restoreScrollRef.current = { height: el.scrollHeight, top: el.scrollTop }
+    skipAutoScrollRef.current = true
+    setThread((prev) => {
+      const ids = new Set(prev.map((m) => m.id))
+      return [...fresh.filter((m) => !ids.has(m.id)), ...prev]
+    })
+  }
+
+  // Si un mensaje cita a otro que quedó fuera del tramo cargado, se lo trae
+  // aparte para poder mostrar la cita (autor y texto) igual.
+  useEffect(() => {
+    const inThread = new Set(thread.map((m) => m.id))
+    const missing = [
+      ...new Set(
+        thread
+          .map((m) => m.replyToId)
+          .filter((id): id is string => !!id && !inThread.has(id) && !triedQuotedRef.current.has(id)),
+      ),
+    ]
+    if (missing.length === 0) return
+    missing.forEach((id) => triedQuotedRef.current.add(id))
+    let cancelled = false
+    supabase
+      .from('messages')
+      .select('*')
+      .in('id', missing)
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setExtraQuoted((prev) => {
+          const next = { ...prev }
+          for (const r of data) next[r.id] = mapRow(r)
+          return next
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [thread])
 
   // El canal de envío arranca en selected.channel (fijo, el que tenía
   // la conversación al crearse), pero como SMS y WhatsApp comparten una
@@ -1445,8 +1558,26 @@ export default function ConversationsView({
                 con los mensajes como corresponde. min-h-full además
                 asegura que cubra toda la pantalla visible aunque haya
                 pocos mensajes. */}
-            <div className="flex-1 overflow-y-auto">
+            <div
+              ref={threadScrollRef}
+              onScroll={(e) => {
+                if (e.currentTarget.scrollTop < 150) void loadOlder()
+              }}
+              className="flex-1 overflow-y-auto"
+            >
             <div className={`ui-thread chat-pattern-${chatPattern || 'dots'} relative min-h-full px-6 py-4`}>
+              {hasOlder && (
+                <div className="flex justify-center pb-3">
+                  <button
+                    type="button"
+                    onClick={() => void loadOlder()}
+                    disabled={loadingOlder}
+                    className="rounded-full border border-panel-light bg-panel px-3 py-1 text-[11px] text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-60"
+                  >
+                    {loadingOlder ? 'Cargando…' : 'Ver mensajes anteriores'}
+                  </button>
+                </div>
+              )}
               {thread.map((m, i) => {
                 const showDaySeparator = m.date && m.date !== thread[i - 1]?.date
                 return (
@@ -1485,8 +1616,9 @@ export default function ConversationsView({
                         🤖 Mensaje automático
                       </p>
                     )}
-                    {m.replyToId && (() => {
-                      const quoted = thread.find((x) => x.id === m.replyToId)
+                    {(m.replyToId || m.replyUnresolved) && (() => {
+                      const quoted = m.replyToId ? (thread.find((x) => x.id === m.replyToId) ?? extraQuoted[m.replyToId]) : undefined
+                      const quotedInThread = !!m.replyToId && thread.some((x) => x.id === m.replyToId)
                       const quotedAuthor = !quoted
                         ? null
                         : quoted.from === 'contact'
@@ -1495,7 +1627,7 @@ export default function ConversationsView({
                             ? (operators.find((o) => o.id === quoted.senderOperatorId)?.full_name ?? 'Operador')
                             : 'Mensaje automático'
                       const quotedPreview = !quoted
-                        ? 'Mensaje no disponible'
+                        ? 'Respondió a un mensaje anterior (no se pudo recuperar el texto)'
                         : quoted.text
                           ? quoted.text
                           : quoted.attachment?.kind === 'image'
@@ -1508,14 +1640,14 @@ export default function ConversationsView({
                       return (
                         <button
                           type="button"
-                          disabled={!quoted}
+                          disabled={!quotedInThread}
                           onClick={() =>
                             document
                               .getElementById(`msg-${m.replyToId}`)
                               ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
                           }
-                          title={quoted ? 'Ir al mensaje citado' : undefined}
-                          className="mb-1.5 block w-full rounded-sm border-l-2 border-mustard bg-black/15 px-2 py-1 text-left"
+                          title={quotedInThread ? 'Ir al mensaje citado' : undefined}
+                          className="mb-1.5 block w-full rounded-sm border-l-2 border-mustard bg-cream/10 px-2 py-1 text-left"
                         >
                           {quotedAuthor && (
                             <span className="block text-[10px] font-semibold text-mustard">{quotedAuthor}</span>
@@ -1545,7 +1677,7 @@ export default function ConversationsView({
                             href={m.attachment.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-1.5 rounded-sm border border-black/10 bg-black/10 px-2 py-1 text-xs hover:opacity-80"
+                            className="flex items-center gap-1.5 rounded-sm border border-cream/10 bg-cream/10 px-2 py-1 text-xs hover:opacity-80"
                           >
                             <FileText size={13} /> {m.attachment.name}
                           </a>
@@ -1554,7 +1686,7 @@ export default function ConversationsView({
                     )}
 
                     {translations[m.id] && (
-                      <p className="mt-1 border-t border-black/10 pt-1 text-xs italic opacity-80">
+                      <p className="mt-1 border-t border-cream/10 pt-1 text-xs italic opacity-80">
                         {translations[m.id]}
                       </p>
                     )}
@@ -1584,7 +1716,7 @@ export default function ConversationsView({
                           {m.status === 'delivered' && <CheckCheck size={10} />}
                           {/* Doble check celeste: el cliente ya lo leyó — mismo color
                               que usa WhatsApp para esto. */}
-                          {m.status === 'read' && <CheckCheck size={10} className="text-sky-400" />}
+                          {m.status === 'read' && <CheckCheck size={10} className="text-tick-read" />}
                         </p>
                       )}
                       {sendChannel === 'whatsapp' && m.status !== 'sending' && m.status !== 'failed' && !m.id.startsWith('temp-') && (
@@ -1734,10 +1866,12 @@ export default function ConversationsView({
             >
               {showEmoji && (
                 <div className="absolute bottom-full left-4 z-10 mb-2">
-                  <EmojiPicker
-                    onEmojiClick={handleEmojiClick}
-                    theme={(theme === 'light' || theme === 'sand' || theme === 'rosa' ? 'light' : 'dark') as any}
-                  />
+                  <Suspense fallback={null}>
+                    <EmojiPicker
+                      onEmojiClick={handleEmojiClick}
+                      theme={(theme === 'light' || theme === 'sand' || theme === 'rosa' || theme === 'ig' ? 'light' : 'dark') as any}
+                    />
+                  </Suspense>
                 </div>
               )}
 

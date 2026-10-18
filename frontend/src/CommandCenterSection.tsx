@@ -49,6 +49,37 @@ async function fetchPaged<T>(
   return out
 }
 
+type TodayMessage = {
+  conversation_id: string
+  sender_type: string
+  sender_operator_id: string | null
+  created_at: string
+}
+
+// Mensajes de hoy. Se traen por separado los de clientes y los de operadores
+// (antes era una sola consulta con tope de 8.000 filas: en un día movido se
+// cortaba a media jornada y el gráfico por hora quedaba vacío desde ahí).
+// Cada una tiene su propio tope, y se ordena también por id para que la
+// paginación no repita ni se salte filas con la misma hora exacta.
+async function fetchTodayMessages(startISO: string): Promise<TodayMessage[]> {
+  const MAX = 30 // hasta 30.000 filas por tipo
+  const bySender = (sender: 'contact' | 'operator') =>
+    fetchPaged<TodayMessage>(
+      (from, to) =>
+        supabase
+          .from('messages')
+          .select('conversation_id, sender_type, sender_operator_id, created_at')
+          .eq('sender_type', sender)
+          .gte('created_at', startISO)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      MAX,
+    )
+  const [fromContacts, fromOperators] = await Promise.all([bySender('contact'), bySender('operator')])
+  return [...fromContacts, ...fromOperators].sort((x, y) => x.created_at.localeCompare(y.created_at))
+}
+
 function formatMinutes(mins: number | null): string {
   if (mins === null) return 'Sin datos'
   if (mins < 60) return `${Math.round(mins)}m`
@@ -100,12 +131,13 @@ function readCapacity(): number {
   return 20
 }
 
-// Mensajes ENTRANTES (de clientes) por hora de Atlanta. Sirve para decidir
-// cuántos operadores poner en cada franja: se define cuántos mensajes por hora
-// atiende un operador (editable, se recuerda en este navegador) y debajo de
-// cada barra queda el número de operadores que haría falta. El promedio de los
+// CONVERSACIONES con mensajes entrantes (de clientes) por hora de Atlanta: cada
+// conversación cuenta UNA vez por hora, sin importar cuántos mensajes mande.
+// Sirve para decidir cuántos operadores poner en cada franja: se define cuántas
+// conversaciones por hora atiende un operador (editable, se recuerda en este
+// navegador) y debajo de cada barra queda el número de operadores que haría falta. El promedio de los
 // 7 días anteriores se carga solo si se pide (es la consulta más pesada).
-function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: number }) {
+function InboundHoursPanel({ hours, nowHour, uniqueTotal }: { hours: number[]; nowHour: number; uniqueTotal: number }) {
   const [capacity, setCapacity] = useState(readCapacity)
   const [week, setWeek] = useState<{ avg: number[]; capped: boolean } | null>(null)
   const [weekLoading, setWeekLoading] = useState(false)
@@ -126,11 +158,11 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
       const end = atlantaDayStart()
       const start = new Date(end.getTime() - 7 * 24 * 3600_000)
       const MAX_WEEK_PAGES = 20
-      const rows = await fetchPaged<{ created_at: string }>(
+      const rows = await fetchPaged<{ conversation_id: string; created_at: string }>(
         (from, to) =>
           supabase
             .from('messages')
-            .select('created_at')
+            .select('conversation_id, created_at')
             .eq('sender_type', 'contact')
             .gte('created_at', start.toISOString())
             .lt('created_at', end.toISOString())
@@ -139,7 +171,14 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
         MAX_WEEK_PAGES,
       )
       const sums = new Array<number>(24).fill(0)
-      for (const r of rows) sums[atlantaHour(r.created_at)]++
+      // Una conversación cuenta una vez por hora de cada día.
+      const seen = new Set<string>()
+      for (const r of rows) {
+        const key = `${atlantaDateISO(new Date(r.created_at))}|${atlantaHour(r.created_at)}|${r.conversation_id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        sums[atlantaHour(r.created_at)]++
+      }
       setWeek({ avg: sums.map((n) => n / 7), capped: rows.length >= PAGE * MAX_WEEK_PAGES })
     } catch (err) {
       setWeekError(err instanceof Error ? err.message : 'No se pudo cargar el promedio')
@@ -148,7 +187,7 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
     }
   }
 
-  const total = hours.reduce((a, b) => a + b, 0)
+  const total = uniqueTotal
   const scaleMax = Math.max(1, ...hours, ...(week?.avg ?? []))
   const peakValue = Math.max(...hours)
   const peakHour = peakValue > 0 ? hours.indexOf(peakValue) : -1
@@ -156,15 +195,15 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
   const hourLabel = (h: number) => `${h}:00–${h}:59`
 
   return (
-    <Panel title="Mensajes entrantes por hora (hoy, hora de Atlanta)">
+    <Panel title="Conversaciones con mensajes entrantes por hora (hoy, hora de Atlanta)">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
         <span>
-          Total hoy: <span className="font-mono text-cream">{total}</span>
+          Conversaciones distintas hoy: <span className="font-mono text-cream">{total}</span>
         </span>
         <span>
           Pico:{' '}
           <span className="font-mono text-cream">
-            {peakHour >= 0 ? `${hourLabel(peakHour)} (${peakValue} msj → ${needed(peakValue)} op.)` : 'sin datos'}
+            {peakHour >= 0 ? `${hourLabel(peakHour)} (${peakValue} conv. → ${needed(peakValue)} op.)` : 'sin datos'}
           </span>
         </span>
         <label className="flex items-center gap-1.5">
@@ -177,7 +216,7 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
             onChange={(e) => changeCapacity(e.target.value)}
             className="w-14 rounded-sm border border-panel-light bg-asphalt px-1.5 py-0.5 text-center font-mono text-cream focus:border-mustard focus:outline-none"
           />
-          msj/hora
+          conversaciones/hora
         </label>
         <button
           onClick={loadWeek}
@@ -188,7 +227,7 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
         </button>
       </div>
 
-      <div className="flex flex-col gap-[3px]" role="img" aria-label="Mensajes entrantes por hora de hoy">
+      <div className="flex flex-col gap-[3px]" role="img" aria-label="Conversaciones con mensajes entrantes por hora de hoy">
         <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px] text-center font-mono text-[9px] text-cream">
           {hours.map((n, h) => (
             <span key={h}>{n > 0 ? n : ''}</span>
@@ -199,7 +238,7 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
             <div
               key={h}
               className="relative flex flex-col justify-end"
-              title={`${hourLabel(h)} — ${n} entrantes${week ? ` · prom. 7 días: ${week.avg[h].toFixed(1)}` : ''}`}
+              title={`${hourLabel(h)} — ${n} conversaciones${week ? ` · prom. 7 días: ${week.avg[h].toFixed(1)}` : ''}`}
             >
               <div
                 className={`w-full rounded-sm ${h === nowHour ? 'bg-mustard' : 'bg-mustard/55'}`}
@@ -227,7 +266,7 @@ function InboundHoursPanel({ hours, nowHour }: { hours: number[]; nowHour: numbe
           ))}
         </div>
         <p className="text-[10px] text-muted">
-          Fila de arriba: mensajes entrantes. Fila dorada de abajo: operadores necesarios con {capacity} msj/hora por operador.
+          Fila de arriba: conversaciones distintas que escribieron en esa hora (una conversación cuenta una vez por hora, mande los mensajes que mande). Fila dorada de abajo: operadores necesarios con {capacity} conversaciones/hora por operador.
           {week && ' La línea clara en cada barra es el promedio de los 7 días anteriores.'}
         </p>
         {week?.capped && (
@@ -246,6 +285,118 @@ const channelNames: Record<string, string> = {
   facebook: 'Messenger',
 }
 
+type DayAggregates = {
+  inbound: number
+  inboundConversations: number | null // conversaciones distintas con mensaje entrante hoy
+  outbound: number
+  inboundHours: number[]
+  agents: [string, number][] // [operator_id, mensajes enviados]
+  avgResponse: number | null
+  avgResolution: number | null
+  channelCounts: Record<string, number>
+}
+
+// Camino rápido: una sola función en la base (command_center_day, ver
+// command_center_day.sql) cuenta todo del día y devuelve solo los números.
+// Si esa función todavía no existe en la base, se usa el camino de respaldo
+// de abajo, que trae las filas y cuenta en el navegador (más lento).
+async function loadDayAggregates(startISO: string): Promise<DayAggregates> {
+  const { data, error } = await supabase.rpc('command_center_day', { p_start: startISO })
+  if (!error && data && typeof data === 'object') {
+    const d = data as {
+      inbound?: number
+      inbound_conversations?: number
+      outbound?: number
+      inbound_hours?: number[]
+      agents?: { id: string; count: number }[]
+      avg_response_min?: number | null
+      avg_resolution_min?: number | null
+      channels?: Record<string, number>
+    }
+    const hours = new Array<number>(24).fill(0)
+    ;(d.inbound_hours ?? []).slice(0, 24).forEach((n, i) => (hours[i] = Number(n) || 0))
+    return {
+      inbound: Number(d.inbound) || 0,
+      inboundConversations: d.inbound_conversations == null ? null : Number(d.inbound_conversations),
+      outbound: Number(d.outbound) || 0,
+      inboundHours: hours,
+      agents: (d.agents ?? []).map((a) => [a.id, Number(a.count) || 0] as [string, number]),
+      avgResponse: d.avg_response_min == null ? null : Number(d.avg_response_min),
+      avgResolution: d.avg_resolution_min == null ? null : Number(d.avg_resolution_min),
+      channelCounts: d.channels ?? {},
+    }
+  }
+  return loadDayAggregatesClientSide(startISO)
+}
+
+async function loadDayAggregatesClientSide(startISO: string): Promise<DayAggregates> {
+  const [messages, channelRows, closedRows] = await Promise.all([
+    fetchTodayMessages(startISO),
+    fetchPaged<{ channel: string }>((from, to) =>
+      supabase.from('conversations').select('channel').gte('last_message_at', startISO).range(from, to),
+    ),
+    fetchPaged<{ created_at: string; closed_at: string }>((from, to) =>
+      supabase.from('conversations').select('created_at, closed_at').gte('closed_at', startISO).range(from, to),
+    ),
+  ])
+
+  // Primera respuesta de HOY: por conversación, del primer mensaje del
+  // cliente de hoy a la primera respuesta de un operador después de él.
+  const byConversation = new Map<string, TodayMessage[]>()
+  for (const m of messages) {
+    const list = byConversation.get(m.conversation_id) ?? []
+    list.push(m)
+    byConversation.set(m.conversation_id, list)
+  }
+  const responseDurations: number[] = []
+  for (const list of byConversation.values()) {
+    const firstContact = list.find((m) => m.sender_type === 'contact')
+    if (!firstContact) continue
+    const firstReply = list.find(
+      (m) => m.sender_type === 'operator' && new Date(m.created_at) > new Date(firstContact.created_at),
+    )
+    if (!firstReply) continue
+    responseDurations.push((new Date(firstReply.created_at).getTime() - new Date(firstContact.created_at).getTime()) / 60_000)
+  }
+  const resolution = closedRows.map((c) => (new Date(c.closed_at).getTime() - new Date(c.created_at).getTime()) / 60_000)
+
+  const inboundHours = new Array<number>(24).fill(0)
+  const seenHourConv = new Set<string>()
+  const seenConv = new Set<string>()
+  const perOperator = new Map<string, number>()
+  let inbound = 0
+  let outbound = 0
+  for (const m of messages) {
+    if (m.sender_type === 'contact') {
+      inbound++
+      seenConv.add(m.conversation_id)
+      const h = atlantaHour(m.created_at)
+      const key = `${h}|${m.conversation_id}`
+      if (!seenHourConv.has(key)) {
+        seenHourConv.add(key)
+        inboundHours[h]++
+      }
+    } else if (m.sender_type === 'operator') {
+      outbound++
+      if (m.sender_operator_id) perOperator.set(m.sender_operator_id, (perOperator.get(m.sender_operator_id) ?? 0) + 1)
+    }
+  }
+  const channelCounts: Record<string, number> = {}
+  for (const c of channelRows) channelCounts[c.channel] = (channelCounts[c.channel] ?? 0) + 1
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+
+  return {
+    inbound,
+    inboundConversations: seenConv.size,
+    outbound,
+    inboundHours,
+    agents: [...perOperator.entries()],
+    avgResponse: avg(responseDurations),
+    avgResolution: avg(resolution),
+    channelCounts,
+  }
+}
+
 type Stats = {
   active: number
   unanswered: number
@@ -253,12 +404,12 @@ type Stats = {
   newConversations: number
   closedToday: number
   inbound: number
+  inboundConversations: number
   outbound: number
   avgResponse: number | null
   avgResolution: number | null
   channels: { id: string; count: number }[]
   agents: { name: string; count: number }[]
-  hours: number[]
   inboundHours: number[]
   totalContacts: number
   vipContacts: number
@@ -290,9 +441,7 @@ export default function CommandCenterSection() {
         totalContactsRes,
         vipRes,
         newContactsRes,
-        todayMessages,
-        todayChannels,
-        todayClosedRows,
+        day,
         operatorsRes,
       ] = await Promise.all([
         supabase.from('conversations').select('id', head).neq('status', 'cerrada'),
@@ -303,25 +452,7 @@ export default function CommandCenterSection() {
         supabase.from('contacts').select('id', head),
         supabase.from('contacts').select('id', head).eq('vip', true),
         supabase.from('contacts').select('id', head).gte('created_at', startISO),
-        fetchPaged<{ conversation_id: string; sender_type: string; sender_operator_id: string | null; created_at: string }>(
-          (from, to) =>
-            supabase
-              .from('messages')
-              .select('conversation_id, sender_type, sender_operator_id, created_at')
-              .gte('created_at', startISO)
-              .order('created_at', { ascending: true })
-              .range(from, to),
-        ),
-        fetchPaged<{ channel: string }>((from, to) =>
-          supabase.from('conversations').select('channel').gte('last_message_at', startISO).range(from, to),
-        ),
-        fetchPaged<{ created_at: string; closed_at: string }>((from, to) =>
-          supabase
-            .from('conversations')
-            .select('created_at, closed_at')
-            .gte('closed_at', startISO)
-            .range(from, to),
-        ),
+        loadDayAggregates(startISO),
         supabase.from('operators').select('id, full_name'),
       ])
 
@@ -338,48 +469,6 @@ export default function CommandCenterSection() {
         if (r.error) throw r.error
       }
 
-      // Primera respuesta de HOY: por conversación, del primer mensaje del
-      // cliente de hoy a la primera respuesta de un operador después de él.
-      const byConversation = new Map<string, typeof todayMessages>()
-      for (const m of todayMessages) {
-        const list = byConversation.get(m.conversation_id) ?? []
-        list.push(m)
-        byConversation.set(m.conversation_id, list)
-      }
-      const responseDurations: number[] = []
-      for (const list of byConversation.values()) {
-        const firstContact = list.find((m) => m.sender_type === 'contact')
-        if (!firstContact) continue
-        const firstReply = list.find(
-          (m) => m.sender_type === 'operator' && new Date(m.created_at) > new Date(firstContact.created_at),
-        )
-        if (!firstReply) continue
-        responseDurations.push((new Date(firstReply.created_at).getTime() - new Date(firstContact.created_at).getTime()) / 60_000)
-      }
-
-      const resolution = todayClosedRows.map(
-        (c) => (new Date(c.closed_at).getTime() - new Date(c.created_at).getTime()) / 60_000,
-      )
-
-      const hours = new Array<number>(24).fill(0)
-      const inboundHours = new Array<number>(24).fill(0)
-      const perOperator = new Map<string, number>()
-      let inbound = 0
-      let outbound = 0
-      for (const m of todayMessages) {
-        hours[atlantaHour(m.created_at)]++
-        if (m.sender_type === 'contact') {
-          inbound++
-          inboundHours[atlantaHour(m.created_at)]++
-        } else if (m.sender_type === 'operator') {
-          outbound++
-          if (m.sender_operator_id) perOperator.set(m.sender_operator_id, (perOperator.get(m.sender_operator_id) ?? 0) + 1)
-        }
-      }
-
-      const channelCounts = new Map<string, number>()
-      for (const c of todayChannels) channelCounts.set(c.channel, (channelCounts.get(c.channel) ?? 0) + 1)
-
       const nameById = new Map((operatorsRes.data ?? []).map((o) => [o.id as string, o.full_name as string]))
 
       setStats({
@@ -388,17 +477,18 @@ export default function CommandCenterSection() {
         slaOverdue: slaRes.count ?? 0,
         newConversations: newConvRes.count ?? 0,
         closedToday: closedRes.count ?? 0,
-        inbound,
-        outbound,
-        avgResponse: responseDurations.length ? responseDurations.reduce((a, b) => a + b, 0) / responseDurations.length : null,
-        avgResolution: resolution.length ? resolution.reduce((a, b) => a + b, 0) / resolution.length : null,
-        channels: ['whatsapp', 'sms', 'instagram', 'facebook'].map((id) => ({ id, count: channelCounts.get(id) ?? 0 })),
-        agents: [...perOperator.entries()]
+        inbound: day.inbound,
+        // Si la función vieja de la base no manda el total, se aproxima con la suma de las horas.
+        inboundConversations: day.inboundConversations ?? day.inboundHours.reduce((a, b) => a + b, 0),
+        outbound: day.outbound,
+        avgResponse: day.avgResponse,
+        avgResolution: day.avgResolution,
+        channels: ['whatsapp', 'sms', 'instagram', 'facebook'].map((id) => ({ id, count: day.channelCounts[id] ?? 0 })),
+        agents: day.agents
           .map(([id, count]) => ({ name: nameById.get(id) ?? 'Operador', count }))
           .sort((a, b) => b.count - a.count)
           .slice(0, 8),
-        hours,
-        inboundHours,
+        inboundHours: day.inboundHours,
         totalContacts: totalContactsRes.count ?? 0,
         vipContacts: vipRes.count ?? 0,
         newContacts: newContactsRes.error ? 0 : (newContactsRes.count ?? 0),
@@ -452,7 +542,7 @@ export default function CommandCenterSection() {
         <Tile label="1ª respuesta (prom.)" value={formatMinutes(stats.avgResponse)} hint="de las conversaciones de hoy" />
       </div>
 
-      <InboundHoursPanel hours={stats.inboundHours} nowHour={nowHour} />
+      <InboundHoursPanel hours={stats.inboundHours} nowHour={nowHour} uniqueTotal={stats.inboundConversations} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Panel title="Ahora mismo">

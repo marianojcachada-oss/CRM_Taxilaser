@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import type { Conversation, Channel, Operator } from './ConversationsView'
 import { useLayout } from './layoutPreference'
+import { channelIconColor } from './channelColors'
 
 export type FilterValue =
   | { kind: 'all'; channel?: Channel }
@@ -43,10 +44,10 @@ function byOperatorCode(a: Operator, b: Operator) {
 const teams = ['Dispatchers', 'Managers']
 
 const channelNav: { id: Channel; label: string; color: string }[] = [
-  { id: 'whatsapp', label: 'WhatsApp', color: '#25D366' },
-  { id: 'sms', label: 'SMS', color: '#6B6459' },
-  { id: 'instagram', label: 'Instagram', color: '#E1306C' },
-  { id: 'facebook', label: 'Messenger', color: '#1877F2' },
+  { id: 'whatsapp', label: 'WhatsApp', color: channelIconColor.whatsapp },
+  { id: 'sms', label: 'SMS', color: channelIconColor.sms },
+  { id: 'instagram', label: 'Instagram', color: channelIconColor.instagram },
+  { id: 'facebook', label: 'Messenger', color: channelIconColor.facebook },
 ]
 
 const pendingStatuses = ['esperando_operador', 'esperando_informacion', 'reclamo']

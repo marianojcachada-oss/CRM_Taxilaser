@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2, MessageSquare, BarChart3, CircleAlert } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import LoginScene from './LoginScene'
 
 type LoginIntent = 'mensajeria' | 'administracion'
 
@@ -27,13 +28,13 @@ function BrandMark({ scale = 1 }: { scale?: number }) {
   return (
     <div aria-hidden="true" className="relative shrink-0" style={{ width: 132 * scale, height: 112 * scale }}>
       <div
-        className="absolute left-0 top-0 flex items-center justify-center bg-mustard font-bold text-asphalt transition-colors duration-300"
+        className="lg-anim lg-tile-a absolute left-0 top-0 flex items-center justify-center bg-mustard font-bold text-asphalt transition-colors duration-300"
         style={common}
       >
         ¿
       </div>
       <div
-        className="absolute bottom-0 right-0 flex items-center justify-center bg-cream font-bold text-asphalt"
+        className="lg-anim lg-tile-b absolute bottom-0 right-0 flex items-center justify-center bg-cream font-bold text-asphalt"
         style={{ ...common, border: `${4 * scale}px solid var(--color-panel)`, boxSizing: 'content-box', margin: `0 ${-4 * scale}px ${-4 * scale}px 0` }}
       >
         ?
@@ -54,7 +55,7 @@ const fieldInput =
   'h-full min-w-0 flex-1 bg-transparent text-base text-cream placeholder-muted/60 outline-none md:text-[15px] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--color-cream)] [&:-webkit-autofill]:shadow-[inset_0_0_0_40px_var(--color-asphalt)]'
 const labelCls = 'text-[13px] font-semibold text-cream/80'
 const primaryBtn =
-  'flex h-12 items-center justify-center gap-2 rounded-[10px] bg-mustard text-base font-bold text-asphalt transition-[filter,opacity] hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mustard disabled:opacity-50'
+  'flex h-12 items-center justify-center gap-2 rounded-[10px] bg-mustard text-base font-bold text-asphalt transition-[filter,opacity,transform] hover:brightness-105 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mustard disabled:opacity-50'
 
 export default function Login({ onIntentChange }: Props) {
   const [email, setEmail] = useState('')
@@ -144,21 +145,15 @@ export default function Login({ onIntentChange }: Props) {
               'radial-gradient(60% 50% at 50% 42%, color-mix(in srgb, var(--color-mustard) 7%, transparent), transparent 70%)',
           }}
         />
-        <BrandMark />
-        <div className="relative text-center">
-          <h1 className="text-[44px] font-bold uppercase leading-none tracking-[0.06em] text-cream">Qué tal?</h1>
-          <p className="mt-3 text-[17px] text-cream/75">
-            {isAdmin ? 'Métricas y reportes — acceso restringido' : 'Mensajería y despacho para operadores'}
-          </p>
-        </div>
-        <p className="absolute inset-x-0 bottom-[92px] text-center font-mono text-xs font-medium tracking-[0.08em] text-muted">
-          TAXI LASER SERVICE · ATLANTA, GA
-        </p>
+        <h1 className="sr-only">Qué tal?</h1>
+        <LoginScene
+          subtitle={isAdmin ? 'Métricas y reportes — acceso restringido' : 'Mensajería y despacho para operadores'}
+        />
       </section>
 
       {/* Panel del formulario */}
       <main className="flex w-full flex-col items-center px-5 pb-7 pt-10 md:w-[540px] md:max-w-full md:shrink-0 md:justify-center md:px-10 md:py-12">
-        <div className="flex w-full max-w-[380px] flex-1 flex-col gap-5 md:flex-none">
+        <div className="lg-stagger flex w-full max-w-[380px] flex-1 flex-col gap-5 md:flex-none">
           {/* Marca compacta — solo en celular */}
           <div className="flex flex-col items-center gap-3.5 pt-2 md:hidden">
             <BrandMark scale={0.66} />
@@ -247,7 +242,7 @@ export default function Login({ onIntentChange }: Props) {
                 {error && (
                   <div
                     role="alert"
-                    className="flex items-start gap-2.5 rounded-[10px] border border-alert bg-alert/10 px-3.5 py-3 text-sm text-cream"
+                    className="lg-anim lg-shake flex items-start gap-2.5 rounded-[10px] border border-alert bg-alert/10 px-3.5 py-3 text-sm text-cream"
                   >
                     <CircleAlert size={18} aria-hidden="true" className="mt-px shrink-0 text-alert" />
                     <span>{error}</span>

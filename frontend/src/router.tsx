@@ -3,15 +3,19 @@
 // solo lugar. Lo único que se pierde es el Fast Refresh de ESTE archivo
 // en desarrollo (al editarlo, Vite recarga la página entera).
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation, useMatch, useNavigate, useOutletContext } from 'react-router-dom'
 import App, { type AppContext } from './App'
 import Login from './Login'
 import ResetPassword from './ResetPassword'
 import Inbox from './Inbox'
-import AdminPanel from './AdminPanel'
-import MetricsPage from './MetricsPage'
+import { lazyWithReload } from './lazyWithReload'
 import { supabase } from './supabaseClient'
+
+// Admin y Métricas se bajan recién cuando alguien entra (los operadores
+// que solo usan mensajería no descargan ese código).
+const AdminPanel = lazyWithReload(() => import('./AdminPanel'))
+const MetricsPage = lazyWithReload(() => import('./MetricsPage'))
 
 // Router centralizado. App (la ruta raíz) tiene toda la lógica global —
 // sesión, operador, Realtime, inactividad — y se la pasa a estas rutas
@@ -192,15 +196,17 @@ function AdminRoute() {
   const ctx = useAppContext()
   const navigate = useNavigate()
   return (
-    <AdminPanel
-      theme={ctx.theme}
-      onChangeTheme={ctx.changeTheme}
-      operatorName={ctx.operatorName}
-      isSuperAdmin={ctx.isSuperAdmin}
-      canViewMetrics={ctx.canViewMetrics}
-      onBack={() => navigate('/')}
-      conversations={ctx.conversations}
-    />
+    <Suspense fallback={<FullScreenLoader />}>
+      <AdminPanel
+        theme={ctx.theme}
+        onChangeTheme={ctx.changeTheme}
+        operatorName={ctx.operatorName}
+        isSuperAdmin={ctx.isSuperAdmin}
+        canViewMetrics={ctx.canViewMetrics}
+        onBack={() => navigate('/')}
+        conversations={ctx.conversations}
+      />
+    </Suspense>
   )
 }
 
@@ -208,11 +214,13 @@ function MetricsRoute() {
   const ctx = useAppContext()
   const navigate = useNavigate()
   return (
-    <MetricsPage
-      operatorName={ctx.operatorName}
-      onSignOut={() => supabase.auth.signOut()}
-      onBackToInbox={() => navigate('/')}
-    />
+    <Suspense fallback={<FullScreenLoader />}>
+      <MetricsPage
+        operatorName={ctx.operatorName}
+        onSignOut={() => supabase.auth.signOut()}
+        onBackToInbox={() => navigate('/')}
+      />
+    </Suspense>
   )
 }
 

@@ -636,7 +636,7 @@ async function handleIncomingMessage(opts: {
   // 4. Insertar el mensaje — sent_via_channel guarda el canal REAL de
   // este mensaje puntual, que puede no coincidir con conversations.channel
   // una vez que sms/whatsapp comparten conversación.
-  await supabase.from("messages").insert({
+  const messageRow = {
     conversation_id: conversationId,
     sender_type: "contact",
     content: text || null,
@@ -646,7 +646,19 @@ async function handleIncomingMessage(opts: {
     attachment_kind: attachment?.kind ?? null,
     sent_via_channel: channel,
     reply_to_message_id: replyToMessageId,
+  };
+  // Si el cliente citó un mensaje que NO está en nuestra base (mandado desde
+  // otro lado, anterior al sistema, etc.) igual se guarda el id externo, para
+  // que el CRM muestre que respondió a algo en vez de ocultar la cita. La
+  // columna reply_to_external_id viene del SQL aparte: si todavía no existe,
+  // se reintenta sin ella para no perder el mensaje.
+  const { error: insertError } = await supabase.from("messages").insert({
+    ...messageRow,
+    reply_to_external_id: replyToMessageId ? null : (replyToExternalId ?? null),
   });
+  if (insertError && /reply_to_external_id/.test(insertError.message ?? "")) {
+    await supabase.from("messages").insert(messageRow);
+  }
 
   // (Antes había un paso 5 que volvía a actualizar last_message_at acá.
   // Sobraba: el trigger trg_update_conversation_preview ya lo pone al

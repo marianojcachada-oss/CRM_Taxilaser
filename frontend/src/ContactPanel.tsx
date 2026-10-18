@@ -402,8 +402,8 @@ export default function ContactPanel({ conversation, onClose }: Props) {
         <>
           <div className="ui-ident mb-3 flex items-center gap-3">
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
-              style={{ backgroundColor: hasName ? channelAvatarColor[conversation.channel] : '#4A4A4A' }}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${hasName ? 'text-white' : 'text-cream'}`}
+              style={{ backgroundColor: hasName ? channelAvatarColor[conversation.channel] : 'var(--color-panel-light)' }}
             >
               {hasName ? <ChannelIcon channel={conversation.channel} size={18} color="white" /> : '?'}
             </span>

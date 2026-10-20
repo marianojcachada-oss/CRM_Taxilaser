@@ -1203,7 +1203,13 @@ export default function ConversationsView({
       body: { action: 'status', conversationId: forId },
     })
     if (selectedIdRef.current !== forId) return
-    setNeural(error || !data?.ok ? null : data)
+    // Si la consulta falla (cortes de red, función arrancando) se conserva el
+    // último estado conocido en vez de esconder los controles de la IA.
+    if (error || !data?.ok) {
+      console.warn('ai-dispatch status falló:', error?.message ?? data?.error)
+      return
+    }
+    setNeural(data)
   }
 
   // Con Neuralpreneur prendida, el botón le pide la respuesta a la IA externa
@@ -1540,7 +1546,7 @@ export default function ConversationsView({
                       />
                     </div>
                     <div className="max-h-64 overflow-y-auto">
-                      {neural && neural.mode !== 'off' && (reassignSearch.trim() === '' || 'valeria ia'.includes(reassignSearch.trim().toLowerCase())) && (
+                      {(!neural || neural.mode !== 'off') && (reassignSearch.trim() === '' || 'valeria ia'.includes(reassignSearch.trim().toLowerCase())) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1549,7 +1555,7 @@ export default function ConversationsView({
                             setReassignSearch('')
                           }}
                           className={`mb-1 flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs transition-colors ${
-                            neural.assigned && !neural.paused && !neural.humanReplied
+                            neural?.assigned && !neural.paused && !neural.humanReplied
                               ? 'bg-panel-light text-mustard'
                               : 'text-cream hover:bg-panel-light/60'
                           }`}

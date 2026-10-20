@@ -200,12 +200,12 @@ export default function AdminPanel({
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}
-          {active === 'ai' && <AISection readOnly={!isSuperAdmin || !canEditAdmin('ai')} />}
+          {active === 'ai' && <AISection readOnly={!canEditAdmin('ai')} />}
           {active === 'analytics' && <AnalyticsSection conversations={conversations} />}
           {active === 'team' && <TeamSection isSuperAdmin={isSuperAdmin} />}
           {active === 'templates' && <TemplatesSection />}
           {active === 'channels' && <ChannelsSection />}
-          {active === 'integrations' && <IntegrationsSection readOnly={!isSuperAdmin || !canEditAdmin('integrations')} />}
+          {active === 'integrations' && <IntegrationsSection readOnly={!canEditAdmin('integrations')} />}
           {active === 'vehicles' && <VehiclesSection />}
           {active === 'metrics' && <MessageMetricsSection />}
           {active === 'roundrobin' && <RoundRobinSection />}

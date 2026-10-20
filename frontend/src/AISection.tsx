@@ -47,7 +47,7 @@ const CHANNELS = [
 
 const CAPABILITIES: ToggleDef[] = [
   { key: 'NEURAL_CAN_QUOTE', label: 'Puede cotizar una carrera' },
-  { key: 'NEURAL_CAN_BOOK', label: 'Puede tomar una reserva' },
+  { key: 'NEURAL_CAN_BOOK', label: 'Puede tomar una reserva', defaultOn: true },
   { key: 'NEURAL_CAN_TRIP_STATUS', label: 'Puede dar el estado de un viaje', defaultOn: true },
   { key: 'NEURAL_CAN_FAQ', label: 'Puede contestar preguntas frecuentes', defaultOn: true },
 ]
@@ -282,6 +282,7 @@ export default function AISection({ readOnly = false }: { readOnly?: boolean }) 
             {revealed ? 'Ocultar' : 'Mostrar'}
           </button>
           <CopyButton text={values[key] ?? ''} label={label} />
+          {!values[key] && (
           <button
             type="button"
             onClick={() => generate(key, prefix)}
@@ -291,8 +292,9 @@ export default function AISection({ readOnly = false }: { readOnly?: boolean }) 
                 : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
             }`}
           >
-            {confirmKey === key ? 'Confirmar: corta la conexión actual' : values[key] ? 'Rotar' : 'Generar'}
+            Generar
           </button>
+          )}
         </div>
       </div>
     )

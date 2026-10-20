@@ -59,7 +59,8 @@ Modos (se elige en el panel):
     "id": "3f2a91bc-....",
     "status": "esperando_operador",
     "created_at": "2026-10-20T14:03:10.100Z",
-    "channels_available": ["whatsapp"]
+    "channels_available": ["whatsapp"],
+    "assigned_to_ai": false
   },
   "contact": {
     "id": "b1c2....",
@@ -92,7 +93,7 @@ Modos (se elige en el panel):
   "policy": {
     "language": "auto",
     "languages": ["es", "en"],
-    "capabilities": { "quote_ride": false, "book_ride": false, "trip_status": true, "faq": true },
+    "capabilities": { "quote_ride": false, "book_ride": true, "trip_status": true, "faq": true },
     "instructions": "…texto configurable…",
     "forbidden": "…texto configurable…",
     "schedule": "always"

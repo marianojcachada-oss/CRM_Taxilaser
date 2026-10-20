@@ -99,8 +99,7 @@ export default function PermissionsSection() {
       <p className="rounded-sm border border-panel-light bg-panel px-3 py-2 text-xs text-muted">
         Elegí qué puede ver y hacer cada rol. El <span className="text-cream">Superadmin</span> siempre puede todo.
         Los cambios se aplican la próxima vez que cada persona recarga o inicia sesión. Los permisos se aplican en la
-        pantalla: la base de datos tiene sus propias reglas (por ejemplo, las claves de Integraciones y AI solo las
-        lee y escribe un admin/superadmin), así que darle a un rol algo que la base no le permite no lo hace funcionar.
+        pantalla: la base de datos tiene sus propias reglas (por ejemplo, un Operador no puede leer las claves de Integraciones aunque le des "Ver"), así que darle a un rol algo que la base no le permite no lo hace funcionar.
       </p>
       {error && <p className="rounded-sm border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">{error}</p>}
 
@@ -155,7 +154,6 @@ export default function PermissionsSection() {
         <ul className="flex flex-col gap-1 text-xs text-muted">
           <li>• Esta pantalla de Permisos.</li>
           <li>• Borrar varias conversaciones a la vez y recibir el aviso de problemas reportados.</li>
-          <li>• Guardar cambios en Integraciones y AI (la base de datos solo se lo permite al Superadmin).</li>
           <li>• Convertir a alguien en Superadmin.</li>
         </ul>
       </Group>

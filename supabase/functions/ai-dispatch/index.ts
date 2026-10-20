@@ -421,7 +421,7 @@ async function buildPayload(
       languages: ["es", "en"],
       capabilities: {
         quote_ride: s.NEURAL_CAN_QUOTE === "true",
-        book_ride: s.NEURAL_CAN_BOOK === "true",
+        book_ride: s.NEURAL_CAN_BOOK !== "false",
         trip_status: s.NEURAL_CAN_TRIP_STATUS !== "false",
         faq: s.NEURAL_CAN_FAQ !== "false",
       },

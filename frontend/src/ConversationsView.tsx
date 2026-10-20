@@ -14,6 +14,7 @@ import ContactPanel from './ContactPanel'
 import { supabase } from './supabaseClient'
 import { useToast } from './Toast'
 import { getFunctionErrorMessage } from './functionsError'
+import { usePermissions } from './permissions'
 import { phoneForCopy } from './phone'
 import { atlantaDateISO, formatMessageTime } from './atlantaTime'
 
@@ -359,6 +360,10 @@ export default function ConversationsView({
   // superadmin (ver ia-configurable-clientes.md en el proyecto).
   const [aiResponding, setAiResponding] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  // IA externa (Neuralpreneur): estado de la conversación abierta. null = la
+  // función todavía no está desplegada o no respondió -> se usa el botón de antes.
+  const { can } = usePermissions()
+  const [neural, setNeural] = useState<{ mode: string; paused: boolean; humanReplied: boolean; escalated: boolean; assigned: boolean } | null>(null)
   const [translations, setTranslations] = useState<Record<string, string>>({})
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const [translatingDraft, setTranslatingDraft] = useState(false)
@@ -587,6 +592,17 @@ export default function ConversationsView({
   }, [selectedId, thread.length])
 
   selectedIdRef.current = selectedId
+
+  // Estado de la IA externa en la conversación abierta (se refresca al abrirla
+  // y cada vez que llega o sale un mensaje, porque un operador que responde la
+  // deja en silencio).
+  useEffect(() => {
+    if (!selectedId) {
+      setNeural(null)
+      return
+    }
+    loadNeuralState(selectedId)
+  }, [selectedId, thread.length])
 
   // Después de sumar mensajes arriba, mantiene en pantalla lo que se estaba leyendo.
   useLayoutEffect(() => {
@@ -842,6 +858,9 @@ export default function ConversationsView({
       onRefreshConversations?.()
       return
     }
+
+    // Si la tenía Valeria, al pasársela a una persona la IA deja de atenderla.
+    if (neural?.assigned) handleReleaseAi()
 
     // La reasignación manual también mueve carga real entre operadores —
     // si no ajustamos esto acá, el contador de "carga actual" que usa el
@@ -1179,6 +1198,84 @@ export default function ConversationsView({
   // lo envía por el canal que corresponda y lo guarda en el historial).
   // Acá solo se llama a la función y se muestra el resultado/error — el
   // mensaje nuevo llega solo por la suscripción de Realtime de siempre.
+  async function loadNeuralState(forId: string) {
+    const { data, error } = await supabase.functions.invoke('ai-dispatch', {
+      body: { action: 'status', conversationId: forId },
+    })
+    if (selectedIdRef.current !== forId) return
+    setNeural(error || !data?.ok ? null : data)
+  }
+
+  // Con Neuralpreneur prendida, el botón le pide la respuesta a la IA externa
+  // (ai-dispatch con force) en vez de usar el motor anterior (ai-respond). La
+  // respuesta llega sola por Realtime cuando la IA contesta.
+  const NEURAL_REASONS: Record<string, string> = {
+    test_mode_not_whitelisted: 'Modo prueba activo: este número no está en la lista de prueba.',
+    channel_disabled: 'La IA no está habilitada para el canal de este cliente.',
+    contact_blocked: 'Contacto bloqueado o dado de baja.',
+    no_webhook_url: 'Falta cargar la URL del webhook en AI (Valeria).',
+    mode_off: 'La IA está apagada.',
+    not_inbound: 'No hay un mensaje del cliente para responder.',
+  }
+
+  async function handleNeuralRequest() {
+    if (!selectedId || aiResponding) return
+    setAiError(null)
+    setAiResponding(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-dispatch', {
+        body: { conversationId: selectedId, force: true },
+      })
+      if (error || !data?.ok) {
+        setAiError(data?.reason ? (NEURAL_REASONS[data.reason] ?? data.reason) : await getFunctionErrorMessage(error, data))
+      } else {
+        toast.success('Pedido enviado a la IA: la respuesta aparece en unos segundos.')
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAiResponding(false)
+    }
+  }
+
+  // "Valeria (IA)" en el menú "Asignada a": la IA toma la conversación y atiende
+  // lo que escriba el cliente hasta que un operador la retome o se la suelte.
+  async function handleAssignToAi() {
+    if (!selectedId) return
+    const { data, error } = await supabase.functions.invoke('ai-dispatch', {
+      body: { action: 'assign_ai', conversationId: selectedId },
+    })
+    if (error || !data?.ok) {
+      toast.error(await getFunctionErrorMessage(error, data))
+      return
+    }
+    toast.success(
+      data.dispatched
+        ? 'Asignada a Valeria: la IA ya está respondiendo.'
+        : 'Asignada a Valeria: responderá al próximo mensaje del cliente.',
+    )
+    loadNeuralState(selectedId)
+  }
+
+  async function handleReleaseAi() {
+    if (!selectedId) return
+    await supabase.functions.invoke('ai-dispatch', { body: { action: 'release_ai', conversationId: selectedId } })
+    loadNeuralState(selectedId)
+  }
+
+  async function handleNeuralPause(action: 'pause' | 'resume') {
+    if (!selectedId) return
+    setAiError(null)
+    const { data, error } = await supabase.functions.invoke('ai-dispatch', {
+      body: { action, conversationId: selectedId },
+    })
+    if (error || !data?.ok) {
+      setAiError(await getFunctionErrorMessage(error, data))
+      return
+    }
+    loadNeuralState(selectedId)
+  }
+
   async function handleAiRespond() {
     if (!selectedId || aiResponding) return
     setAiError(null)
@@ -1422,9 +1519,11 @@ export default function ConversationsView({
                   className="flex items-center gap-1.5 rounded-full border border-panel-light bg-asphalt px-3 py-1.5 text-xs text-cream outline-none transition-colors hover:border-mustard focus:border-mustard"
                 >
                   <span className="ui-lbl text-muted">Asignada a</span>
-                  {selected.assignedOperatorId
-                    ? (operators.find((o) => o.id === selected.assignedOperatorId)?.full_name ?? 'Asignado')
-                    : 'Sin asignar'}
+                  {neural?.assigned && !neural.paused && !neural.humanReplied
+                    ? 'Valeria (IA)'
+                    : selected.assignedOperatorId
+                      ? (operators.find((o) => o.id === selected.assignedOperatorId)?.full_name ?? 'Asignado')
+                      : 'Sin asignar'}
                   <ChevronDown size={12} className="text-muted" />
                 </button>
 
@@ -1441,6 +1540,23 @@ export default function ConversationsView({
                       />
                     </div>
                     <div className="max-h-64 overflow-y-auto">
+                      {neural && neural.mode !== 'off' && (reassignSearch.trim() === '' || 'valeria ia'.includes(reassignSearch.trim().toLowerCase())) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleAssignToAi()
+                            setShowReassignMenu(false)
+                            setReassignSearch('')
+                          }}
+                          className={`mb-1 flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-xs transition-colors ${
+                            neural.assigned && !neural.paused && !neural.humanReplied
+                              ? 'bg-panel-light text-mustard'
+                              : 'text-cream hover:bg-panel-light/60'
+                          }`}
+                        >
+                          <Sparkles size={12} className="shrink-0 text-mustard" /> Valeria (IA)
+                        </button>
+                      )}
                       {operators
                         .filter((op) => {
                           const q = reassignSearch.trim().toLowerCase()
@@ -1519,7 +1635,7 @@ export default function ConversationsView({
                 >
                   <span aria-hidden="true">👁️</span><span className="ui-lbl">Visto</span>
                 </button>
-                {isAdmin && (
+                {can('act.conv_delete') && (
                   <button
                     onClick={handleDelete}
                     data-act="delete"
@@ -1840,7 +1956,51 @@ export default function ConversationsView({
             {/* Etapa 1 de la IA configurable — testing controlado, solo
                 vos lo ves. Manda la respuesta de verdad al cliente (no es
                 un borrador) — ver ia-configurable-clientes.md. */}
-            {isSuperAdmin && !selected.blocked && (
+            {neural && neural.mode !== 'off' && !selected.blocked && (
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-panel-light bg-panel px-4 pt-2">
+                <span className="mr-auto text-[11px] text-muted">
+                  {neural.paused
+                    ? neural.escalated
+                      ? 'IA: escaló la conversación, espera a un operador'
+                      : 'IA: pausada en esta conversación'
+                    : neural.humanReplied
+                      ? 'IA: en silencio, un operador ya respondió'
+                      : neural.assigned
+                        ? 'IA: Valeria atiende esta conversación'
+                        : neural.mode === 'all'
+                        ? 'IA: activa en esta conversación'
+                        : 'IA: disponible bajo pedido'}
+                </span>
+                {neural.assigned && (
+                  <button
+                    onClick={handleReleaseAi}
+                    className="rounded-full border border-panel-light px-3 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-mustard hover:text-mustard"
+                  >
+                    Quitar a Valeria
+                  </button>
+                )}
+                {neural.mode === 'all' && (
+                  <button
+                    onClick={() => handleNeuralPause(neural.paused || neural.humanReplied ? 'resume' : 'pause')}
+                    className="rounded-full border border-panel-light px-3 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-mustard hover:text-mustard"
+                  >
+                    {neural.paused || neural.humanReplied ? 'Devolver a la IA' : 'Pausar IA'}
+                  </button>
+                )}
+                <button
+                  onClick={handleNeuralRequest}
+                  disabled={aiResponding}
+                  title="Le pide a la IA que responda a este cliente ahora"
+                  aria-label="Pedir respuesta a la IA"
+                  className="flex items-center gap-1.5 rounded-full border border-mustard/40 px-3 py-1.5 text-[11px] font-medium text-mustard transition-colors hover:bg-mustard/10 disabled:opacity-50"
+                >
+                  {aiResponding ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {aiResponding ? 'Pidiendo...' : 'Pedir respuesta a la IA'}
+                </button>
+              </div>
+            )}
+
+            {isSuperAdmin && !selected.blocked && !(neural && neural.mode !== 'off') && (
               <div className="flex items-center justify-end border-t border-panel-light bg-panel px-4 pt-2">
                 <button
                   onClick={handleAiRespond}

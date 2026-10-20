@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import type { Conversation, Channel, Operator } from './ConversationsView'
 import { useLayout } from './layoutPreference'
+import { usePermissions } from './permissions'
 import { channelIconColor } from './channelColors'
 
 export type FilterValue =
@@ -92,6 +93,7 @@ export default function Sidebar({
   supportCount,
   onNewSms,
 }: Props) {
+  const { can } = usePermissions()
   const newCount = conversations.filter((c) => c.unread).length
   const pendingCount = conversations.filter((c) => !c.unread && pendingStatuses.includes(c.status)).length
   const mineCount = conversations.filter(
@@ -274,7 +276,7 @@ export default function Sidebar({
         <div className="my-2 h-px w-8 bg-panel-light" />
 
         {teams
-          .filter((team) => team !== 'Managers' || isAdmin)
+          .filter((team) => team !== 'Managers' || can('crm.managers'))
           .map((team) => (
             <NavButton
               key={team}
@@ -286,7 +288,7 @@ export default function Sidebar({
           ))}
 
         <div className="mt-auto flex flex-col items-center gap-1">
-          {isAdmin && (
+          {can('crm.snoozed') && (
             <NavButton
               icon={<AlarmClock size={17} />}
               label="Pospuestas"
@@ -374,7 +376,7 @@ export default function Sidebar({
             active={inInbox && filter.kind === 'my_history'}
             onClick={() => onSelectFilter({ kind: 'my_history' })}
           />
-          {isAdmin && (
+          {can('crm.snoozed') && (
             <NavButton
               icon={<AlarmClock size={16} />}
               label="Pospuestas"
@@ -410,7 +412,7 @@ export default function Sidebar({
         <div>
           <GroupHeader label="Equipo" />
           {teams
-            .filter((team) => team !== 'Managers' || isAdmin)
+            .filter((team) => team !== 'Managers' || can('crm.managers'))
             .map((team) => (
               <NavButton
                 key={team}
@@ -538,7 +540,7 @@ export default function Sidebar({
           onClick={() => onSelectFilter({ kind: 'support' })}
         />
         {teams
-          .filter((team) => team !== 'Managers' || isAdmin)
+          .filter((team) => team !== 'Managers' || can('crm.managers'))
           .map((team) => (
             <NavButton
               key={team}
@@ -575,7 +577,7 @@ export default function Sidebar({
 
       <div className="mt-auto border-t border-panel-light pt-3">
         <GroupHeader label="Más" />
-        {isAdmin && (
+        {can('crm.snoozed') && (
           <NavButton
             icon={<AlarmClock size={15} />}
             label="Pospuestas"

@@ -5,6 +5,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { Suspense, useState } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation, useMatch, useNavigate, useOutletContext } from 'react-router-dom'
+import { usePermissions } from './permissions'
 import App, { type AppContext } from './App'
 import Login from './Login'
 import ResetPassword from './ResetPassword'
@@ -73,8 +74,9 @@ function RequireAuth() {
 // manda a / con el aviso de acceso denegado.
 function RequirePermission({ permission }: { permission: 'admin' | 'metrics' }) {
   const ctx = useAppContext()
-  if (!ctx.operatorReady) return <FullScreenLoader />
-  const allowed = permission === 'admin' ? ctx.isAdmin : ctx.canViewMetrics
+  const perms = usePermissions()
+  if (!ctx.operatorReady || !perms.ready) return <FullScreenLoader />
+  const allowed = permission === 'admin' ? perms.canAccessAdminPanel : ctx.canViewMetrics
   if (!allowed) {
     const state: RouteState = {
       accessDenied:
@@ -160,10 +162,11 @@ function InboxRoute() {
   const ctx = useAppContext()
   const navigate = useNavigate()
   const managersChat = useMatch('/chat-interno/managers')
+  const perms = usePermissions()
 
   // El canal de Managers es solo para admins. Se decide recién con los
   // permisos cargados — antes isAdmin es false para todos.
-  if (managersChat && ctx.operatorReady && !ctx.isAdmin) return <Navigate to="/" replace />
+  if (managersChat && ctx.operatorReady && perms.ready && !perms.can('crm.managers')) return <Navigate to="/" replace />
 
   return (
     <>

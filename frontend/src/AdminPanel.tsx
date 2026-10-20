@@ -4,6 +4,7 @@ import { ArrowLeft, BarChart3, Menu, X } from 'lucide-react'
 import ThemePicker from './ThemePicker'
 import type { Conversation } from './ConversationsView'
 import { lazyWithReload } from './lazyWithReload'
+import { usePermissions } from './permissions'
 
 // Cada sección se baja recién cuando se abre.
 const CommandCenterSection = lazyWithReload(() => import('./CommandCenterSection'))
@@ -22,6 +23,7 @@ const RoundRobinSection = lazyWithReload(() => import('./RoundRobinSection'))
 const ErrorLogsSection = lazyWithReload(() => import('./ErrorLogsSection'))
 const IntegrationHealthSection = lazyWithReload(() => import('./IntegrationHealthSection'))
 const ReportsSection = lazyWithReload(() => import('./ReportsSection'))
+const PermissionsSection = lazyWithReload(() => import('./PermissionsSection'))
 
 type Section =
   | 'command-center'
@@ -31,6 +33,7 @@ type Section =
   | 'errors'
   | 'integrationhealth'
   | 'reports'
+  | 'permissions'
   | 'campaigns'
   | 'automations'
   | 'ai'
@@ -45,7 +48,7 @@ type Section =
 const NAV_GROUPS: { label: string; ids: Section[] }[] = [
   { label: 'Operación', ids: ['command-center', 'analytics', 'metrics', 'roundrobin', 'vehicles'] },
   { label: 'Equipo y mensajes', ids: ['team', 'templates', 'channels', 'campaigns', 'automations', 'ai'] },
-  { label: 'Sistema', ids: ['integrations', 'integrationhealth', 'errors', 'reports', 'admin'] },
+  { label: 'Sistema', ids: ['integrations', 'integrationhealth', 'errors', 'reports', 'permissions', 'admin'] },
 ]
 
 const navItems: { id: Section; emoji: string; label: string }[] = [
@@ -64,6 +67,7 @@ const navItems: { id: Section; emoji: string; label: string }[] = [
   { id: 'errors', emoji: '🐞', label: 'Errores' },
   { id: 'integrationhealth', emoji: '💓', label: 'Salud de integraciones' },
   { id: 'reports', emoji: '🛟', label: 'Problemas reportados' },
+  { id: 'permissions', emoji: '🔐', label: 'Permisos' },
   { id: 'admin', emoji: '🛡️', label: 'Admin' },
 ]
 
@@ -78,20 +82,6 @@ type Props = {
   conversations: Conversation[]
 }
 
-// Un admin común (no superadmin) solo ve estas secciones — el resto
-// queda reservado para superadmin. Integrations se ve pero en modo
-// solo lectura (se resuelve dentro de IntegrationsSection).
-const ADMIN_ALLOWED_SECTIONS: Section[] = [
-  'analytics',
-  'team',
-  'templates',
-  'roundrobin',
-  'errors',
-  'metrics',
-  'integrations',
-  'integrationhealth',
-]
-
 export default function AdminPanel({
   theme,
   onChangeTheme,
@@ -101,16 +91,22 @@ export default function AdminPanel({
   onBack,
   conversations,
 }: Props) {
-  const visibleNavItems = isSuperAdmin
-    ? navItems
-    : navItems.filter((item) => ADMIN_ALLOWED_SECTIONS.includes(item.id))
+  // Qué secciones ve cada rol sale de la pantalla Permisos (el Superadmin ve
+  // todo). 'permissions' es solo del Superadmin.
+  const { canViewAdmin, canEditAdmin } = usePermissions()
+  const visibleNavItems = navItems.filter((item) =>
+    item.id === 'permissions' ? isSuperAdmin : isSuperAdmin || canViewAdmin(item.id),
+  )
 
   // La sección sale de la URL (/admin/<sección>) en vez de un useState —
   // F5, atrás/adelante y links directos caen en la misma sección.
   const navigate = useNavigate()
   const { section } = useParams<{ section?: string }>()
-  const defaultSection: Section = isSuperAdmin ? 'command-center' : 'analytics'
+  const defaultSection: Section = isSuperAdmin ? 'command-center' : (visibleNavItems[0]?.id ?? 'analytics')
   const active = (section ?? defaultSection) as Section
+  // Secciones sin modo lectura propio: si el rol no puede editarlas, se bloquean
+  // los botones y campos de adentro.
+  const lockedReadOnly = !isSuperAdmin && active !== 'ai' && active !== 'integrations' && !canEditAdmin(active)
   const setActive = (next: Section) => {
     if (next !== active) navigate(`/admin/${next}`)
   }
@@ -194,16 +190,22 @@ export default function AdminPanel({
         </header>
 
         <div className="ui-admin-content p-4 md:p-6">
+          {lockedReadOnly && (
+            <p className="mb-4 rounded-sm border border-alert/30 bg-alert/10 px-3 py-2 text-xs text-alert">
+              Solo lectura — tu rol puede ver esta sección pero no modificarla.
+            </p>
+          )}
+          <fieldset disabled={lockedReadOnly} className="m-0 min-w-0 border-0 p-0">
           <Suspense fallback={<p className="text-sm text-muted">Cargando…</p>}>
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}
-          {active === 'ai' && <AISection readOnly={!isSuperAdmin} />}
+          {active === 'ai' && <AISection readOnly={!isSuperAdmin || !canEditAdmin('ai')} />}
           {active === 'analytics' && <AnalyticsSection conversations={conversations} />}
           {active === 'team' && <TeamSection isSuperAdmin={isSuperAdmin} />}
           {active === 'templates' && <TemplatesSection />}
           {active === 'channels' && <ChannelsSection />}
-          {active === 'integrations' && <IntegrationsSection readOnly={!isSuperAdmin} />}
+          {active === 'integrations' && <IntegrationsSection readOnly={!isSuperAdmin || !canEditAdmin('integrations')} />}
           {active === 'vehicles' && <VehiclesSection />}
           {active === 'metrics' && <MessageMetricsSection />}
           {active === 'roundrobin' && <RoundRobinSection />}
@@ -211,7 +213,9 @@ export default function AdminPanel({
           {active === 'integrationhealth' && <IntegrationHealthSection />}
           {active === 'reports' && <ReportsSection />}
           {active === 'admin' && <AdminSection />}
+          {active === 'permissions' && <PermissionsSection />}
           </Suspense>
+          </fieldset>
         </div>
       </main>
     </div>

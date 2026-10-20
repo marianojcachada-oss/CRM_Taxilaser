@@ -26,7 +26,7 @@ const COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_MESSAGE =
   "Gracias por escribirnos a Taxi Laser. En este momento estamos fuera de nuestro horario de atención — te vamos a responder apenas abramos.";
 
-async function isWithinBusinessHours(): Promise<boolean> {
+export async function isWithinBusinessHours(): Promise<boolean> {
   const start = (await getSetting("BUSINESS_HOURS_START")) || "08:00";
   const end = (await getSetting("BUSINESS_HOURS_END")) || "22:00";
   const timezone = (await getSetting("BUSINESS_HOURS_TIMEZONE")) || "America/New_York";

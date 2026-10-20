@@ -66,7 +66,17 @@ export function useIntegrationSettings(readOnly: boolean) {
     await supabase.from('integration_settings').upsert({ key: t.key, value: next, updated_at: new Date().toISOString() })
   }
 
-  return { values, setValues, loading, error, savingKey, savedKey, saveValue, isOn, flip }
+  // Guarda de una vez un valor puntual (selectores, casillas, claves generadas).
+  async function setAndSave(key: string, value: string) {
+    if (readOnly) return
+    setValues((prev) => ({ ...prev, [key]: value }))
+    const { error } = await supabase
+      .from('integration_settings')
+      .upsert({ key, value, updated_at: new Date().toISOString() })
+    if (error) toast.error('No se pudo guardar: ' + error.message)
+  }
+
+  return { values, setValues, loading, error, savingKey, savedKey, saveValue, isOn, flip, setAndSave }
 }
 
 export function SaveButton({ label, saving, saved, onClick }: { label: string; saving: boolean; saved: boolean; onClick: () => void }) {
@@ -142,5 +152,111 @@ export function Fields({ fields, values, setValues, savingKey, savedKey, saveVal
         </div>
       ))}
     </div>
+  )
+}
+
+export function Segmented({
+  label,
+  options,
+  value,
+  onChange,
+  tone,
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (v: string) => void
+  tone?: (v: string) => 'neutral' | 'alert'
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-muted">{label}</p>
+      <div role="radiogroup" aria-label={label} className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">
+        {options.map((o) => {
+          const selected = value === o.value
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(o.value)}
+              className={`rounded-sm border px-2 py-2 text-xs transition-colors ${
+                selected
+                  ? tone?.(o.value) === 'alert'
+                    ? 'border-alert/60 bg-alert/10 text-alert'
+                    : 'border-available/60 bg-available/10 text-available'
+                  : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+              }`}
+            >
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function TextAreaField({
+  id,
+  label,
+  rows = 5,
+  value,
+  onChange,
+  onSave,
+  saving,
+  saved,
+  placeholder,
+}: {
+  id: string
+  label: string
+  rows?: number
+  value: string
+  onChange: (v: string) => void
+  onSave: () => void
+  saving: boolean
+  saved: boolean
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs text-muted">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className={`${INPUT_CLASS} mb-2`}
+      />
+      <SaveButton label={label} saving={saving} saved={saved} onClick={onSave} />
+    </div>
+  )
+}
+
+export function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      disabled={!text}
+      aria-label={`Copiar ${label}`}
+      title="Copiar"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          /* sin permiso de portapapeles: no pasa nada */
+        }
+      }}
+      className="flex h-[30px] shrink-0 items-center justify-center rounded-sm border border-panel-light px-2 text-[11px] text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-40"
+    >
+      {copied ? 'Copiado' : 'Copiar'}
+    </button>
   )
 }

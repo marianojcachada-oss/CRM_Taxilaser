@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useLocation, useMatch, useNavigate } from 'react-router-dom'
 import { Search, Bell, MessageSquarePlus, Menu, X, ShieldCheck, LifeBuoy } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import { usePermissions } from './permissions'
 import ConversationsView, { type Conversation, type Operator } from './ConversationsView'
 import ContactsView from './ContactsView'
 import Sidebar, { type FilterValue } from './Sidebar'
@@ -142,6 +143,7 @@ export default function Inbox({
   // Las rutas están declaradas en App.tsx (todas renderizan este Inbox).
   const navigate = useNavigate()
   const location = useLocation()
+  const { can, canAccessAdminPanel } = usePermissions()
   const internalMatch = useMatch('/chat-interno/:canal')
   const view: 'inbox' | 'contacts' | 'internal' | 'missed-calls' =
     location.pathname === '/contactos'
@@ -735,7 +737,7 @@ export default function Inbox({
             </button>
           </div>
 
-          {isAdmin && (
+          {canAccessAdminPanel && (
             <button
               onClick={onOpenAdmin}
               className="hidden items-center gap-1.5 rounded-full border border-mustard/40 px-3 py-2 text-xs font-medium text-mustard transition-colors hover:bg-mustard/10 sm:flex"
@@ -883,13 +885,15 @@ export default function Inbox({
             onRefreshConversations={onRefreshConversations}
           />
         )}
-        {view === 'contacts' && <ContactsView isAdmin={isAdmin} />}
+        {view === 'contacts' &&
+          (can('crm.contacts') ? <ContactsView isAdmin={isAdmin} /> : <Navigate to="/" replace />)}
         {/* Managers solo con isAdmin ya confirmado: mientras cargan los
             permisos no se muestra, para no dejar ver ese canal ni un instante. */}
-        {view === 'internal' && internalChannel && (internalChannel !== 'Managers' || isAdmin) && (
+        {view === 'internal' && internalChannel && (internalChannel !== 'Managers' || can('crm.managers')) && (
           <InternalChat channelName={internalChannel} operatorId={operatorId} operatorName={operatorName} />
         )}
-        {view === 'missed-calls' && <MissedCallsView />}
+        {view === 'missed-calls' &&
+          (can('crm.missed_calls') ? <MissedCallsView /> : <Navigate to="/" replace />)}
       </div>
 
       {showReport && (

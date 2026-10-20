@@ -6,6 +6,7 @@ import type { Conversation } from './ConversationsView'
 import { CONVERSATION_SELECT, mapConversation, applyConversationPatch } from './conversationsData'
 import { fonts } from './ThemePicker'
 import { ToastProvider } from './Toast'
+import { loadPermissions, resetPermissions, roleFromFlags } from './permissions'
 import { initNotificationSound, playNotificationSound } from './notificationSound'
 
 // Los 3 estados que elige el operador son Disponible / No disponible /
@@ -119,6 +120,22 @@ export default function App() {
 
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  // Permisos por rol (pantalla Permisos). Se cargan una vez que se sabe el
+  // rol de esta sesión, y de nuevo al volver a la pestaña.
+  useEffect(() => {
+    if (!session || operatorLoadedFor !== session.user.id) {
+      resetPermissions()
+      return
+    }
+    const role = roleFromFlags(isAdmin, isSuperAdmin)
+    loadPermissions(role)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadPermissions(role)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [session, operatorLoadedFor, isAdmin, isSuperAdmin])
 
   useEffect(() => {
     if (!session) return

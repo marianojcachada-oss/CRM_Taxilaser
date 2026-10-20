@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Search, Copy, Check, Star, GitMerge } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import { usePermissions } from './permissions'
 import { ChannelIcon, type Channel } from './ConversationsView'
 import { phoneForCopy } from './phone'
 
@@ -14,7 +15,9 @@ type Contact = {
 
 type Props = { isAdmin: boolean }
 
-export default function ContactsView({ isAdmin }: Props) {
+export default function ContactsView({ isAdmin: _isAdmin }: Props) {
+  const { can } = usePermissions()
+  const canMerge = can('act.contacts_merge')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -124,7 +127,7 @@ export default function ContactsView({ isAdmin }: Props) {
           />
         </div>
 
-        {isAdmin && selected.length === 2 && (
+        {canMerge && selected.length === 2 && (
           <button
             onClick={handleMerge}
             disabled={merging}
@@ -142,7 +145,7 @@ export default function ContactsView({ isAdmin }: Props) {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-panel-light text-xs text-muted">
-              {isAdmin && <th className="pb-2 font-normal"></th>}
+              {canMerge && <th className="pb-2 font-normal"></th>}
               <th className="pb-2 font-normal">Nombre</th>
               <th className="pb-2 font-normal">Teléfono</th>
               <th className="pb-2 font-normal">Se contactó por</th>
@@ -152,7 +155,7 @@ export default function ContactsView({ isAdmin }: Props) {
           <tbody>
             {filteredContacts.length === 0 && (
               <tr>
-                <td colSpan={isAdmin ? 5 : 4} className="py-4 text-muted">
+                <td colSpan={canMerge ? 5 : 4} className="py-4 text-muted">
                   {contacts.length === 0
                     ? 'Todavía no hay contactos — van a aparecer solos apenas alguien escriba por primera vez.'
                     : 'Sin resultados.'}
@@ -161,7 +164,7 @@ export default function ContactsView({ isAdmin }: Props) {
             )}
             {filteredContacts.map((c) => (
               <tr key={c.id} className="border-b border-panel-light/60">
-                {isAdmin && (
+                {canMerge && (
                   <td className="py-2.5">
                     <input
                       type="checkbox"
@@ -205,7 +208,7 @@ export default function ContactsView({ isAdmin }: Props) {
         </table>
       )}
 
-      {isAdmin && (
+      {canMerge && (
         <p className="mt-4 text-xs text-muted">
           Tildá dos contactos para fusionarlos (útil si el mismo cliente quedó duplicado con dos números).
         </p>

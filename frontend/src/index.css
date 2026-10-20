@@ -1274,3 +1274,54 @@ html[data-layout='espacio'][data-theme='tikitoki'] .ui-brand {
 @media (prefers-reduced-motion: reduce) {
   .lg-anim, .lg-stagger > * { animation: none !important; }
 }
+
+/* ==========================================================================
+   Panel de administrador — jerarquía de títulos (3 niveles)
+   1) Título de pantalla  .ui-adminhead h1  (ya existía)
+   2) Título de bloque    h2 de cada tarjeta principal
+   3) Subtítulo           h2 de una tarjeta dentro de otra (ej. estado de Meta)
+   Solo CSS: no toca ninguna sección. Para volver atrás, borrar este bloque.
+   ========================================================================== */
+.ui-adminhead h1 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+/* 2) Título de bloque: legible, con una marca de acento a la izquierda */
+.ui-admin-content h2.uppercase,
+.ui-admin-content h2.text-lg {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--color-cream);
+}
+.ui-admin-content h2.uppercase::before,
+.ui-admin-content h2.text-lg::before {
+  content: '';
+  flex: none;
+  width: 0.22rem;
+  height: 1.05em;
+  border-radius: 999px;
+  background: var(--color-mustard);
+}
+
+/* 3) Subtítulo: tarjeta dentro de otra tarjeta */
+.ui-admin-content .rounded-sm .rounded-sm h2.uppercase {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.ui-admin-content .rounded-sm .rounded-sm h2.uppercase::before {
+  display: none;
+}
+
+/* Etiquetas de campo: un paso por debajo del título, no gris sobre gris */
+.ui-admin-content label.text-xs {
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-cream) 72%, var(--color-muted));
+}

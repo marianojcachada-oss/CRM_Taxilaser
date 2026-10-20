@@ -52,7 +52,7 @@ const navItems: { id: Section; emoji: string; label: string }[] = [
   { id: 'command-center', emoji: '🏠', label: 'Command Center' },
   { id: 'campaigns', emoji: '📣', label: 'Campaigns' },
   { id: 'automations', emoji: '🔄', label: 'Automations' },
-  { id: 'ai', emoji: '🤖', label: 'AI' },
+  { id: 'ai', emoji: '🤖', label: 'AI (Valeria)' },
   { id: 'analytics', emoji: '📊', label: 'Analytics' },
   { id: 'team', emoji: '👨‍💼', label: 'Team' },
   { id: 'templates', emoji: '🧩', label: 'Templates' },
@@ -198,7 +198,7 @@ export default function AdminPanel({
           {active === 'command-center' && <CommandCenterSection />}
           {active === 'campaigns' && <CampaignsSection />}
           {active === 'automations' && <AutomationsSection />}
-          {active === 'ai' && <AISection />}
+          {active === 'ai' && <AISection readOnly={!isSuperAdmin} />}
           {active === 'analytics' && <AnalyticsSection conversations={conversations} />}
           {active === 'team' && <TeamSection isSuperAdmin={isSuperAdmin} />}
           {active === 'templates' && <TemplatesSection />}

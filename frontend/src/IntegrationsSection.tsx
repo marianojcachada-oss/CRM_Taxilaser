@@ -1,271 +1,87 @@
-import { useEffect, useState } from 'react'
-import { Save, Check, Power } from 'lucide-react'
 import { supabase } from './supabaseClient'
-import { useToast } from './Toast'
+import { Fields, Group, Toggle, type Field, type ToggleDef, useIntegrationSettings } from './settingsUi'
 import RingCentralStatusCard from './RingCentralStatusCard'
 import MetaStatusCard from './MetaStatusCard'
 
-type Setting = { key: string; value: string | null; updated_at: string }
+// Credenciales y datos de cada servicio. Los nombres de las claves no cambian
+// (las leen las Edge Functions); solo se acortaron los textos.
+const FIELDS: Record<string, Field[]> = {
+  meta: [
+    { key: 'META_ACCESS_TOKEN', label: 'Access Token', secret: true },
+    { key: 'META_APP_SECRET', label: 'App Secret', secret: true },
+    { key: 'META_VERIFY_TOKEN', label: 'Verify Token' },
+    { key: 'META_WABA_ID', label: 'WhatsApp Business Account ID' },
+    { key: 'META_PHONE_NUMBER_ID', label: 'Phone Number ID' },
+  ],
+  ringcentral: [
+    { key: 'RINGCENTRAL_SERVER_URL', label: 'Server URL' },
+    { key: 'RINGCENTRAL_CLIENT_ID', label: 'Client ID' },
+    { key: 'RINGCENTRAL_CLIENT_SECRET', label: 'Client Secret', secret: true },
+    { key: 'RINGCENTRAL_JWT', label: 'JWT', secret: true },
+    { key: 'RINGCENTRAL_EXTENSION_ID', label: 'Extension ID', placeholder: '~ = tu propia extensión' },
+    { key: 'RINGCENTRAL_FROM_NUMBER', label: 'Número que envía SMS', placeholder: '+14045968232' },
+    { key: 'RINGCENTRAL_STATUS_WEBHOOK_URL', label: 'Estado de entrega — URL', wide: true },
+    { key: 'RINGCENTRAL_STATUS_WEBHOOK_SECRET', label: 'Estado de entrega — secreto', secret: true },
+    { key: 'RINGCENTRAL_METRICS_SYNC_SECRET', label: 'Métricas — secreto', secret: true },
+  ],
+  taxicaller: [
+    { key: 'TAXICALLER_BASE_URL', label: 'Base URL' },
+    { key: 'TAXICALLER_API_KEY', label: 'API Key', secret: true },
+    { key: 'TAXICALLER_WEBHOOK_SECRET', label: 'Secreto del webhook', secret: true },
+    {
+      key: 'TAXICALLER_PASSENGER_LOOKUP_PATH',
+      label: 'Ruta para buscar pasajero',
+      placeholder: '/api/v1/passengers/search?phone={phone}',
+      wide: true,
+    },
+  ],
+  horario: [
+    { key: 'BUSINESS_HOURS_START', label: 'Apertura', placeholder: '08:00' },
+    { key: 'BUSINESS_HOURS_END', label: 'Cierre', placeholder: '22:00' },
+    { key: 'BUSINESS_HOURS_TIMEZONE', label: 'Zona horaria', placeholder: 'America/New_York' },
+    { key: 'BUSINESS_HOURS_MESSAGE', label: 'Mensaje fuera de horario', wide: true },
+  ],
+  traduccion: [
+    { key: 'DEEPL_API_KEY', label: 'DeepL — API Key', secret: true },
+    { key: 'AZURE_TRANSLATOR_KEY', label: 'Azure — Key', secret: true },
+    { key: 'AZURE_TRANSLATOR_REGION', label: 'Azure — Región', placeholder: 'eastus' },
+    { key: 'LIBRETRANSLATE_URL', label: 'LibreTranslate — URL' },
+    { key: 'LIBRETRANSLATE_API_KEY', label: 'LibreTranslate — API Key', secret: true },
+    { key: 'MYMEMORY_EMAIL', label: 'MyMemory — email' },
+  ],
+}
 
-const groups: { title: string; keys: { key: string; label: string; secret?: boolean }[] }[] = [
-  {
-    title: 'Meta (WhatsApp / Facebook / Instagram)',
-    keys: [
-      { key: 'META_VERIFY_TOKEN', label: 'Verify Token del webhook' },
-      { key: 'META_APP_SECRET', label: 'App Secret (verifica que el webhook venga de Meta)', secret: true },
-      { key: 'META_WABA_ID', label: 'WhatsApp Business Account ID' },
-      { key: 'META_PHONE_NUMBER_ID', label: 'Phone Number ID (para enviar)' },
-      { key: 'META_ACCESS_TOKEN', label: 'Access Token (System User — cubre WhatsApp, Facebook e Instagram)', secret: true },
-    ],
-  },
-  {
-    title: 'RingCentral (SMS)',
-    keys: [
-      { key: 'RINGCENTRAL_SERVER_URL', label: 'Server URL' },
-      { key: 'RINGCENTRAL_CLIENT_ID', label: 'Client ID' },
-      { key: 'RINGCENTRAL_CLIENT_SECRET', label: 'Client Secret', secret: true },
-      { key: 'RINGCENTRAL_JWT', label: 'JWT Credential', secret: true },
-      { key: 'RINGCENTRAL_EXTENSION_ID', label: 'Extension ID (la que recibe los SMS de clientes; "~" = tu propia extensión)' },
-      { key: 'RINGCENTRAL_FROM_NUMBER', label: 'Número de teléfono para ENVIAR SMS (ej: +14045968232)' },
-      {
-        key: 'RINGCENTRAL_STATUS_WEBHOOK_URL',
-        label:
-          'Confirmación de entrega de SMS — URL pública de ringcentral-status-webhook (ej: https://TU-PROYECTO.supabase.co/functions/v1/ringcentral-status-webhook). OJO: esto es aparte del webhook que ya recibe los SMS entrantes — no confundir.',
-      },
-      {
-        key: 'RINGCENTRAL_STATUS_WEBHOOK_SECRET',
-        label: 'Confirmación de entrega de SMS — secreto (elegís vos un valor — se agrega solo como ?secret= en la URL que se registra en RingCentral)',
-        secret: true,
-      },
-      {
-        key: 'RINGCENTRAL_METRICS_SYNC_SECRET',
-        label: 'Métricas — secreto para ringcentral-metrics-sync (elegís vos un valor — va como header X-Webhook-Secret desde el cron)',
-        secret: true,
-      },
-    ],
-  },
-  {
-    title: 'TaxiCaller',
-    keys: [
-      { key: 'TAXICALLER_BASE_URL', label: 'Base URL de la API' },
-      { key: 'TAXICALLER_API_KEY', label: 'API Key', secret: true },
-      {
-        key: 'TAXICALLER_PASSENGER_LOOKUP_PATH',
-        label: 'Path para buscar pasajero por teléfono (usá {phone} donde va el número — ej: /api/v1/passengers/search?phone={phone})',
-      },
-      { key: 'TAXICALLER_WEBHOOK_SECRET', label: 'Secreto del webhook (elegís vos un valor, va también como header en TaxiCaller)', secret: true },
-    ],
-  },
-  {
-    title: 'Horario de atención',
-    keys: [
-      { key: 'BUSINESS_HOURS_START', label: 'Hora de apertura (formato 24hs, ej: 08:00)' },
-      { key: 'BUSINESS_HOURS_END', label: 'Hora de cierre (formato 24hs, ej: 22:00)' },
-      { key: 'BUSINESS_HOURS_TIMEZONE', label: 'Zona horaria (ej: America/New_York)' },
-      { key: 'BUSINESS_HOURS_MESSAGE', label: 'Mensaje automático fuera de horario' },
-    ],
-  },
-  {
-    title: 'Llamadas perdidas — respuesta automática',
-    keys: [],
-  },
-  {
-    title: 'Claude (IA)',
-    keys: [
-      { key: 'CLAUDE_API_KEY', label: 'API Key de Anthropic (console.anthropic.com)', secret: true },
-      { key: 'CLAUDE_MODEL', label: 'Modelo (ej: claude-haiku-4-5 — para probar uno más grande sin tocar código)' },
-    ],
-  },
-  {
-    title: 'Traducción',
-    keys: [
-      {
-        key: 'DEEPL_API_KEY',
-        label: 'DeepL API Key (mejor calidad, pero el gratis es 1M de caracteres ÚNICA VEZ, no por mes)',
-        secret: true,
-      },
-      { key: 'AZURE_TRANSLATOR_KEY', label: 'Azure Translator — Key (2M caracteres/mes gratis, se renueva)', secret: true },
-      { key: 'AZURE_TRANSLATOR_REGION', label: 'Azure Translator — Región (ej: eastus)' },
-      { key: 'LIBRETRANSLATE_URL', label: 'LibreTranslate — URL de la instancia (opcional)' },
-      { key: 'LIBRETRANSLATE_API_KEY', label: 'LibreTranslate — API Key (si la instancia la pide)', secret: true },
-      { key: 'MYMEMORY_EMAIL', label: 'MyMemory — tu email (gratis, sube el límite de 5k a 50k palabras/día)' },
-    ],
-  },
-]
+// Interruptores.
+const TOGGLES: Record<string, ToggleDef[]> = {
+  taxicaller: [
+    { key: 'TAXICALLER_AUTO_MESSAGE_ENABLED', label: 'Aviso: esperando al pasajero', defaultOn: true },
+    { key: 'TAXICALLER_CANCEL_MESSAGE_ENABLED', label: 'Aviso: cancelado por la empresa', defaultOn: true },
+    { key: 'TAXICALLER_FINISHED_MESSAGE_ENABLED', label: 'Aviso: servicio terminado', defaultOn: true },
+    { key: 'TAXICALLER_ASSIGNED_TRACKING_ENABLED', label: 'Seguimiento "en camino" (sin SMS)', defaultOn: true },
+  ],
+  horario: [{ key: 'BUSINESS_HOURS_ENABLED', label: 'Aviso fuera de horario' }],
+  llamadas: [
+    { key: 'MISSED_CALLS_COUNTER_ENABLED', label: 'Contador en el menú', defaultOn: true },
+    { key: 'MISSED_CALL_AUTO_REPLY_WHATSAPP_ENABLED', label: 'Respuesta automática por WhatsApp' },
+    { key: 'MISSED_CALL_AUTO_REPLY_RINGCENTRAL_ENABLED', label: 'Respuesta automática por SMS' },
+  ],
+}
 
 type AutomatedMode = 'sms' | 'whatsapp' | 'last_channel' | 'none'
 
-const AUTOMATED_MODE_OPTIONS: { value: AutomatedMode; label: string; hint: string }[] = [
-  { value: 'sms', label: 'Enviar los mensajes automáticos por SMS', hint: 'Siempre por RingCentral, sin importar por dónde escribió el cliente.' },
-  { value: 'whatsapp', label: 'Enviar los mensajes automáticos solo por WhatsApp', hint: 'Nada sale por SMS. Si el cliente nunca usó WhatsApp, igual se intenta por ahí.' },
-  { value: 'last_channel', label: 'Enviar los mensajes automáticos por donde escribió el cliente la última vez', hint: 'SMS o WhatsApp según su último mensaje (más Facebook/Instagram si el contacto los tiene tildados).' },
-  { value: 'none', label: 'No enviar mensajes automáticos', hint: 'Los avisos de llegó / cancelado / terminado no salen por ningún canal.' },
+const AUTOMATED_MODE_OPTIONS: { value: AutomatedMode; label: string }[] = [
+  { value: 'sms', label: 'SMS' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'last_channel', label: 'Último canal del cliente' },
+  { value: 'none', label: 'No enviar' },
 ]
 
 export default function IntegrationsSection({ readOnly = false }: { readOnly?: boolean }) {
-  const toast = useToast()
-  const [values, setValues] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [savingKey, setSavingKey] = useState<string | null>(null)
-  const [savedKey, setSavedKey] = useState<string | null>(null)
+  const { values, setValues, loading, error, savingKey, savedKey, saveValue, isOn, flip } = useIntegrationSettings(readOnly)
 
-  useEffect(() => {
-    supabase
-      .from('integration_settings')
-      .select('key, value')
-      .then(({ data, error }) => {
-        if (error) {
-          setError(error.message)
-        } else {
-          const map: Record<string, string> = {}
-          for (const row of (data as Setting[]) ?? []) map[row.key] = row.value ?? ''
-          setValues(map)
-        }
-        setLoading(false)
-      })
-  }, [])
-
-  async function saveValue(key: string) {
-    if (readOnly) return
-    setSavingKey(key)
-    const { error } = await supabase
-      .from('integration_settings')
-      .upsert({ key, value: values[key] ?? '', updated_at: new Date().toISOString() })
-
-    setSavingKey(null)
-    if (error) {
-      toast.error('No se pudo guardar: ' + error.message)
-      return
-    }
-    setSavedKey(key)
-    setTimeout(() => setSavedKey(null), 1500)
-  }
-
-  async function toggleTaxiCallerMessages() {
-    if (readOnly) return
-    const current = values['TAXICALLER_AUTO_MESSAGE_ENABLED']
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, TAXICALLER_AUTO_MESSAGE_ENABLED: next }))
-    await supabase
-      .from('integration_settings')
-      .upsert({ key: 'TAXICALLER_AUTO_MESSAGE_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleTaxiCallerCancelMessages() {
-    if (readOnly) return
-    const current = values['TAXICALLER_CANCEL_MESSAGE_ENABLED']
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, TAXICALLER_CANCEL_MESSAGE_ENABLED: next }))
-    await supabase
-      .from('integration_settings')
-      .upsert({ key: 'TAXICALLER_CANCEL_MESSAGE_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleTaxiCallerFinishedMessages() {
-    if (readOnly) return
-    const current = values['TAXICALLER_FINISHED_MESSAGE_ENABLED']
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, TAXICALLER_FINISHED_MESSAGE_ENABLED: next }))
-    await supabase
-      .from('integration_settings')
-      .upsert({ key: 'TAXICALLER_FINISHED_MESSAGE_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleTaxiCallerAssignedTracking() {
-    if (readOnly) return
-    const current = values['TAXICALLER_ASSIGNED_TRACKING_ENABLED']
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, TAXICALLER_ASSIGNED_TRACKING_ENABLED: next }))
-    await supabase
-      .from('integration_settings')
-      .upsert({ key: 'TAXICALLER_ASSIGNED_TRACKING_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleBusinessHours() {
-    if (readOnly) return
-    const current = values['BUSINESS_HOURS_ENABLED']
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, BUSINESS_HOURS_ENABLED: next }))
-    await supabase.from('integration_settings').upsert({
-      key: 'BUSINESS_HOURS_ENABLED',
-      value: next,
-      updated_at: new Date().toISOString(),
-    })
-  }
-
-  // Llave maestra de la IA — mientras esté apagada, el botón "Responder
-  // con IA" del superadmin ni siquiera llega a llamar a la API de
-  // Claude (ai-respond corta de entrada). Default "apagada".
-  async function toggleAiEnabled() {
-    if (readOnly) return
-    const current = values['AI_ENABLED']
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, AI_ENABLED: next }))
-    await supabase.from('integration_settings').upsert({ key: 'AI_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  // Todavía no está conectado a nada (ver ia-configurable-clientes.md) —
-  // queda preparado para cuando se conecte el modo automático en los
-  // webhooks de entrada. Prenderlo hoy no cambia nada en la práctica.
-  async function toggleAiAutoReplyAll() {
-    if (readOnly) return
-    const current = values['AI_AUTO_REPLY_ALL']
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, AI_AUTO_REPLY_ALL: next }))
-    await supabase.from('integration_settings').upsert({ key: 'AI_AUTO_REPLY_ALL', value: next, updated_at: new Date().toISOString() })
-  }
-
-  // Etapa 3 (crear/cancelar viajes en TaxiCaller) — TODAVÍA NO EXISTE
-  // ninguna Edge Function que cree ni cancele nada, así que estos dos
-  // switches, por ahora, no tienen ningún efecto: quedan guardados en
-  // integration_settings, listos para el día que se arme esa etapa, en
-  // vez de agregarlos recién en ese momento. Default "apagado" en los
-  // dos — ninguno habilita nada solo por tildarlo hoy.
-  async function toggleAiCanCreateRides() {
-    if (readOnly) return
-    const current = values['AI_CAN_CREATE_RIDES']
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, AI_CAN_CREATE_RIDES: next }))
-    await supabase.from('integration_settings').upsert({ key: 'AI_CAN_CREATE_RIDES', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleAiCanCancelRides() {
-    if (readOnly) return
-    const current = values['AI_CAN_CANCEL_RIDES']
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, AI_CAN_CANCEL_RIDES: next }))
-    await supabase.from('integration_settings').upsert({ key: 'AI_CAN_CANCEL_RIDES', value: next, updated_at: new Date().toISOString() })
-  }
-
-  // Muestra u oculta el NÚMERO de llamadas perdidas sin ver (sidebar). Apagado,
-  // los operadores no hacen la consulta de conteo ni escuchan Realtime de
-  // missed_calls. Las llamadas se siguen registrando y la pantalla "Llamadas
-  // perdidas" sigue andando. Default "activado" si nunca se guardó nada.
-  async function toggleMissedCallsCounter() {
-    if (readOnly) return
-    const current = values['MISSED_CALLS_COUNTER_ENABLED']
-    const next = current === 'false' ? 'true' : 'false'
-    setValues((prev) => ({ ...prev, MISSED_CALLS_COUNTER_ENABLED: next }))
-    await supabase
-      .from('integration_settings')
-      .upsert({ key: 'MISSED_CALLS_COUNTER_ENABLED', value: next, updated_at: new Date().toISOString() })
-  }
-
-  async function toggleMissedCallAutoReply(channel: 'WHATSAPP' | 'RINGCENTRAL') {
-    if (readOnly) return
-    const key = `MISSED_CALL_AUTO_REPLY_${channel}_ENABLED`
-    const current = values[key]
-    const next = current === 'true' ? 'false' : 'true'
-    setValues((prev) => ({ ...prev, [key]: next }))
-    await supabase.from('integration_settings').upsert({ key, value: next, updated_at: new Date().toISOString() })
-  }
-
-  // Selector de los 3 avisos automáticos de TaxiCaller (esperando
-  // pasajero / cancelado / terminado): por dónde salen. Se guarda en
-  // AUTOMATED_MESSAGES_MODE y lo leen las Edge Functions directamente.
-  // Si nunca se eligió, se muestra lo que deducen ellas de los dos
-  // interruptores viejos, así la pantalla refleja lo que realmente pasa.
+  // Por dónde salen los avisos automáticos de TaxiCaller (AUTOMATED_MESSAGES_MODE).
+  // Si nunca se eligió, se muestra lo que deducen las Edge Functions de los
+  // dos interruptores viejos, así la pantalla refleja lo que realmente pasa.
   function currentAutomatedMode(): AutomatedMode {
     const saved = values['AUTOMATED_MESSAGES_MODE']
     if (saved === 'sms' || saved === 'whatsapp' || saved === 'last_channel' || saved === 'none') return saved
@@ -285,6 +101,14 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
       .upsert({ key: 'AUTOMATED_MESSAGES_MODE', value: mode, updated_at: new Date().toISOString() })
   }
 
+  function renderToggles(name: string) {
+    return (TOGGLES[name] ?? []).map((t) => <Toggle key={t.key} label={t.label} on={isOn(t)} onClick={() => flip(t)} />)
+  }
+
+  function renderFields(name: string) {
+    return <Fields fields={FIELDS[name]} values={values} setValues={setValues} savingKey={savingKey} savedKey={savedKey} saveValue={saveValue} />
+  }
+
   if (loading) return <p className="text-sm text-muted">Cargando...</p>
   if (error) return <p className="text-sm text-alert">Error: {error}</p>
 
@@ -295,321 +119,57 @@ export default function IntegrationsSection({ readOnly = false }: { readOnly?: b
           Solo lectura — pedile a un Superadmin que edite Integraciones.
         </p>
       )}
-      <p className="rounded-sm border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
-        Lo que guardes acá lo leen las Edge Functions directamente (con respaldo en los secrets de la CLI
-        si dejás algo vacío) — no hace falta redesplegar nada para que tome un valor nuevo.
-      </p>
 
-      <fieldset disabled={readOnly} className={readOnly ? 'opacity-60' : ''}>
-      {groups.map((group) => (
-        <div key={group.title} className="rounded-sm border border-panel-light bg-panel p-4">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{group.title}</h2>
+      <fieldset disabled={readOnly} className={`flex flex-col gap-4 ${readOnly ? 'opacity-60' : ''}`}>
+        <Group title="Meta (WhatsApp / Facebook / Instagram)">
+          <MetaStatusCard />
+          {renderFields('meta')}
+        </Group>
 
-          {group.title === 'RingCentral (SMS)' && (
-            <div className="mb-4">
-              <RingCentralStatusCard />
+        <Group title="RingCentral (SMS)">
+          <RingCentralStatusCard />
+          {renderFields('ringcentral')}
+        </Group>
+
+        <Group title="TaxiCaller">
+          {renderFields('taxicaller')}
+          <div className="flex flex-col gap-2">{renderToggles('taxicaller')}</div>
+          <div>
+            <p className="mb-1 text-xs text-muted">Los avisos salen por</p>
+            <div role="radiogroup" aria-label="Canal de los avisos automáticos" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {AUTOMATED_MODE_OPTIONS.map((opt) => {
+                const selected = currentAutomatedMode() === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setAutomatedMode(opt.value)}
+                    className={`rounded-sm border px-2 py-2 text-xs transition-colors ${
+                      selected
+                        ? opt.value === 'none'
+                          ? 'border-alert/60 bg-alert/10 text-alert'
+                          : 'border-available/60 bg-available/10 text-available'
+                        : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
             </div>
-          )}
-
-          {group.title === 'Meta (WhatsApp / Facebook / Instagram)' && (
-            <div className="mb-4">
-              <MetaStatusCard />
-            </div>
-          )}
-
-          {group.title === 'Claude (IA)' && (
-            <>
-              <p className="mb-3 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
-                Etapa 1: el botón "Responder con IA" lo ve y lo usa solo el superadmin, dentro de cada
-                conversación — nunca manda nada sola. Mientras "IA activada" esté apagado, ese botón ni
-                siquiera llega a llamar a la API de Claude.
-              </p>
-              <button
-                onClick={toggleAiEnabled}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AI_ENABLED'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                IA activada: {values['AI_ENABLED'] === 'true' ? 'Activado' : 'Desactivado'}
-              </button>
-              <button
-                onClick={toggleAiAutoReplyAll}
-                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AI_AUTO_REPLY_ALL'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                IA responde sola en todos los chats: {values['AI_AUTO_REPLY_ALL'] === 'true' ? 'Activado' : 'Desactivado'}
-              </button>
-              <p className="mb-4 text-[11px] text-muted">
-                Este último todavía no hace nada — queda preparado para cuando se conecte el modo
-                automático (Etapa 2). Por ahora, prenderlo o apagarlo no cambia nada en la práctica.
-              </p>
-
-              <button
-                onClick={toggleAiCanCreateRides}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AI_CAN_CREATE_RIDES'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                Permitir a la IA crear servicios: {values['AI_CAN_CREATE_RIDES'] === 'true' ? 'Activado' : 'Desactivado'}
-              </button>
-              <button
-                onClick={toggleAiCanCancelRides}
-                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['AI_CAN_CANCEL_RIDES'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                Permitir a la IA cancelar servicios: {values['AI_CAN_CANCEL_RIDES'] === 'true' ? 'Activado' : 'Desactivado'}
-              </button>
-              <p className="mb-4 text-[11px] text-muted">
-                Estos dos todavía no hacen nada — todavía no existe el código que crea ni cancela viajes en
-                TaxiCaller (Etapa 3, sin empezar). Quedan preparados para cuando se arme esa parte, para no
-                tener que volver a este panel a agregarlos en ese momento. Mientras tanto, tildarlos o no da
-                exactamente lo mismo.
-              </p>
-
-              <label className="mb-1 block text-xs text-muted">
-                Personalidad y reglas de la IA — qué SÍ y qué NO puede hacer
-              </label>
-              <p className="mb-2 text-[11px] text-muted">
-                Esto es lo que le "explica" a la IA cómo comportarse, en texto simple, como si se lo
-                estuvieras escribiendo a un empleado nuevo: quién es, en qué tono responde, y sobre todo
-                qué cosas tiene PROHIBIDO hacer (ej: cancelar un viaje, inventar una tarifa). Editalo las
-                veces que quieras — se aplica al toque, sin redesplegar nada. Si lo dejás vacío, la IA usa
-                un texto por defecto conservador (nunca cancela, nunca cotiza, deriva todo lo que no sepa).
-              </p>
-              <textarea
-                value={values['AI_SYSTEM_PROMPT'] ?? ''}
-                onChange={(e) => setValues((prev) => ({ ...prev, AI_SYSTEM_PROMPT: e.target.value }))}
-                rows={14}
-                className="mb-2 w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 font-mono text-xs text-cream outline-none focus:border-mustard"
-              />
-              <button
-                onClick={() => saveValue('AI_SYSTEM_PROMPT')}
-                disabled={savingKey === 'AI_SYSTEM_PROMPT'}
-                className="mb-4 flex items-center gap-1 rounded-sm border border-panel-light px-2 py-1.5 text-xs text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-50"
-              >
-                {savedKey === 'AI_SYSTEM_PROMPT' ? (
-                  <Check size={12} className="text-available" />
-                ) : (
-                  <Save size={12} />
-                )}
-                {savingKey === 'AI_SYSTEM_PROMPT' ? 'Guardando...' : 'Guardar'}
-              </button>
-            </>
-          )}
-
-          {group.title === 'Horario de atención' && (
-            <>
-              <button
-                onClick={toggleBusinessHours}
-                className={`mb-3 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['BUSINESS_HOURS_ENABLED'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['BUSINESS_HOURS_ENABLED'] === 'true'
-                  ? 'Aviso fuera de horario: Activado'
-                  : 'Aviso fuera de horario: Desactivado'}
-              </button>
-              <p className="mb-3 text-[11px] text-muted">
-                Cuando está activado, un cliente que escribe fuera del rango de abajo recibe el mensaje
-                automático una sola vez cada 6 horas (no se repite si sigue escribiendo).
-              </p>
-            </>
-          )}
-
-          {group.title === 'Llamadas perdidas — respuesta automática' && (
-            <>
-              <p className="mb-3 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
-                Solo lo puede prender/apagar un admin (esta pantalla ya es admin-only). Al detectar una
-                llamada perdida, si está activado, se manda el mensaje preseteado y el chat se asigna
-                directo a un operador disponible. Cooldown de 30 min por número — no se repite si la
-                misma persona llama varias veces seguidas.
-              </p>
-              <button
-                onClick={toggleMissedCallsCounter}
-                className={`mb-1 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['MISSED_CALLS_COUNTER_ENABLED'] !== 'false'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                Contador de llamadas perdidas: {values['MISSED_CALLS_COUNTER_ENABLED'] !== 'false' ? 'Activado' : 'Desactivado'}
-              </button>
-              <p className="mb-4 text-[11px] text-muted">
-                Apagado, se oculta el número en el menú lateral y los operadores dejan de consultar y
-                escuchar cambios de llamadas perdidas. Las llamadas se siguen registrando y la pantalla
-                "Llamadas perdidas" sigue disponible. Cada operador lo ve al recargar la página.
-              </p>
-              <button
-                onClick={() => toggleMissedCallAutoReply('WHATSAPP')}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['MISSED_CALL_AUTO_REPLY_WHATSAPP_ENABLED'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['MISSED_CALL_AUTO_REPLY_WHATSAPP_ENABLED'] === 'true'
-                  ? 'Auto-reply de llamada perdida (WhatsApp): Activado'
-                  : 'Auto-reply de llamada perdida (WhatsApp): Desactivado'}
-              </button>
-              <button
-                onClick={() => toggleMissedCallAutoReply('RINGCENTRAL')}
-                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['MISSED_CALL_AUTO_REPLY_RINGCENTRAL_ENABLED'] === 'true'
-                    ? 'border-available/40 text-available hover:bg-available/10'
-                    : 'border-alert/40 text-alert hover:bg-alert/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['MISSED_CALL_AUTO_REPLY_RINGCENTRAL_ENABLED'] === 'true'
-                  ? 'Auto-reply de llamada perdida (RingCentral): Activado'
-                  : 'Auto-reply de llamada perdida (RingCentral): Desactivado'}
-              </button>
-            </>
-          )}
-
-          {group.title === 'TaxiCaller' && (
-            <>
-              <button
-                onClick={toggleTaxiCallerMessages}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['TAXICALLER_AUTO_MESSAGE_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['TAXICALLER_AUTO_MESSAGE_ENABLED'] === 'false'
-                  ? 'SMS automático de "Esperando al pasajero": Desactivado'
-                  : 'SMS automático de "Esperando al pasajero": Activado'}
-              </button>
-              <button
-                onClick={toggleTaxiCallerCancelMessages}
-                className={`mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['TAXICALLER_CANCEL_MESSAGE_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['TAXICALLER_CANCEL_MESSAGE_ENABLED'] === 'false'
-                  ? 'SMS automático de "Cancelado por la empresa": Desactivado'
-                  : 'SMS automático de "Cancelado por la empresa": Activado'}
-              </button>
-              <button
-                onClick={toggleTaxiCallerFinishedMessages}
-                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['TAXICALLER_FINISHED_MESSAGE_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['TAXICALLER_FINISHED_MESSAGE_ENABLED'] === 'false'
-                  ? 'SMS automático de "Servicio terminado": Desactivado'
-                  : 'SMS automático de "Servicio terminado": Activado'}
-              </button>
-              <button
-                onClick={toggleTaxiCallerAssignedTracking}
-                className={`mb-4 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs transition-colors ${
-                  values['TAXICALLER_ASSIGNED_TRACKING_ENABLED'] === 'false'
-                    ? 'border-alert/40 text-alert hover:bg-alert/10'
-                    : 'border-available/40 text-available hover:bg-available/10'
-                }`}
-              >
-                <Power size={13} />
-                {values['TAXICALLER_ASSIGNED_TRACKING_ENABLED'] === 'false'
-                  ? 'Seguimiento de "Servicio en camino" (ETA, sin SMS): Desactivado'
-                  : 'Seguimiento de "Servicio en camino" (ETA, sin SMS): Activado'}
-              </button>
-
-              <p className="mb-2 mt-2 rounded-sm border border-panel-light bg-asphalt px-3 py-2 text-[11px] text-muted">
-                Elegí por dónde salen los 3 avisos de arriba (esperando pasajero / cancelado / terminado).
-                Esto no toca las respuestas de la IA, que siguen contestando por donde escribió el cliente.
-              </p>
-              <div role="radiogroup" aria-label="Mensajes automáticos" className="mb-4 flex flex-col gap-2">
-                {AUTOMATED_MODE_OPTIONS.map((opt) => {
-                  const selected = currentAutomatedMode() === opt.value
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setAutomatedMode(opt.value)}
-                      className={`flex items-start gap-2 rounded-sm border px-3 py-2 text-left text-xs transition-colors ${
-                        selected
-                          ? opt.value === 'none'
-                            ? 'border-alert/60 bg-alert/10 text-alert'
-                            : 'border-available/60 bg-available/10 text-available'
-                          : 'border-panel-light text-muted hover:border-mustard hover:text-mustard'
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
-                          selected ? 'border-current' : 'border-panel-light'
-                        }`}
-                      >
-                        {selected && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
-                      </span>
-                      <span className="flex flex-col">
-                        <span className="font-medium">{opt.label}</span>
-                        <span className="text-[11px] opacity-80">{opt.hint}</span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          )}
-
-          <div className="flex flex-col gap-2">
-            {group.keys.map(({ key, label, secret }) => (
-              <div key={key} className="flex items-end gap-2">
-                <div className="flex-1">
-                  <label className="mb-1 block text-xs text-muted">{label}</label>
-                  <input
-                    type={secret ? 'password' : 'text'}
-                    value={values[key] ?? ''}
-                    onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                    className="w-full rounded-sm border border-panel-light bg-asphalt px-2 py-1.5 font-mono text-xs text-cream outline-none focus:border-mustard"
-                  />
-                </div>
-                <button
-                  onClick={() => saveValue(key)}
-                  disabled={savingKey === key}
-                  className="flex items-center gap-1 rounded-sm border border-panel-light px-2 py-1.5 text-xs text-muted transition-colors hover:border-mustard hover:text-mustard disabled:opacity-50"
-                >
-                  {savedKey === key ? (
-                    <Check size={12} className="text-available" />
-                  ) : (
-                    <Save size={12} />
-                  )}
-                  {savingKey === key ? 'Guardando...' : 'Guardar'}
-                </button>
-              </div>
-            ))}
           </div>
-        </div>
-      ))}
+        </Group>
+
+        <Group title="Horario de atención">
+          {renderToggles('horario')}
+          {renderFields('horario')}
+        </Group>
+
+        <Group title="Llamadas perdidas">{renderToggles('llamadas')}</Group>
+
+        <Group title="Traducción">{renderFields('traduccion')}</Group>
       </fieldset>
     </div>
   )

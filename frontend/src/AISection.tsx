@@ -55,9 +55,10 @@ const CAPABILITIES: ToggleDef[] = [
 const RULE_FIELDS: Field[] = [
   { key: 'NEURAL_DELAY_MINUTES', label: 'Esperar antes de responder (minutos sin respuesta humana)', placeholder: '0 = enseguida' },
   { key: 'NEURAL_MAX_AUTO_REPLIES', label: 'Máximo de respuestas seguidas de la IA', placeholder: '5' },
+  { key: 'NEURAL_REPLY_TIMEOUT_SECONDS', label: 'Si la IA no contesta, pasar la conversación a un operador después de (segundos)', placeholder: '60 = 1 minuto · 0 = nunca' },
 ]
 
-const LIMIT_FIELD: Field[] = [{ key: 'NEURAL_RATE_LIMIT_PER_MIN', label: 'Pedidos por minuto que puede hacer la IA', placeholder: '30' }]
+const LIMIT_FIELD: Field[] = [{ key: 'NEURAL_RATE_LIMIT_PER_MIN', label: 'Pedidos por minuto que puede hacer la IA', placeholder: '120' }]
 
 // Configuración del motor anterior (Claude). Solo se usa si Neuralpreneur está apagada
 // (botón "Responder con IA" del superadmin). Las claves siguen siendo las mismas.
@@ -127,6 +128,9 @@ const LOG_STATUS: Record<string, { label: string; color: string }> = {
   skipped: { label: 'No se mandó', color: 'text-muted' },
   rejected: { label: 'Rechazado', color: 'text-warning' },
   failed: { label: 'Falló', color: 'text-alert' },
+  no_reply: { label: 'No contestó', color: 'text-alert' },
+  answered: { label: 'Contestó', color: 'text-available' },
+  closed: { label: 'Cerrado', color: 'text-muted' },
 }
 
 function DispatchLog() {

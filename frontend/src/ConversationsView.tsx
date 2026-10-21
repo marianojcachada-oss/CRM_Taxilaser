@@ -363,7 +363,7 @@ export default function ConversationsView({
   // IA externa (Neuralpreneur): estado de la conversación abierta. null = la
   // función todavía no está desplegada o no respondió -> se usa el botón de antes.
   const { can } = usePermissions()
-  const [neural, setNeural] = useState<{ mode: string; paused: boolean; humanReplied: boolean; escalated: boolean; assigned: boolean } | null>(null)
+  const [neural, setNeural] = useState<{ mode: string; paused: boolean; humanReplied: boolean; escalated: boolean; assigned: boolean; error?: { message: string; at: string | null } | null } | null>(null)
   const [translations, setTranslations] = useState<Record<string, string>>({})
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const [translatingDraft, setTranslatingDraft] = useState(false)
@@ -1957,6 +1957,24 @@ export default function ConversationsView({
 
             {aiError && (
               <p className="border-t border-panel-light bg-panel px-4 pt-2 text-xs text-alert">IA: {aiError}</p>
+            )}
+
+            {/* La IA no pudo contestar y la conversación volvió a los operadores:
+                el motivo queda a la vista hasta que alguien la retome. */}
+            {neural?.error && (
+              <div
+                role="alert"
+                className="border-t border-alert/40 bg-alert/10 px-4 py-2 text-xs text-alert"
+              >
+                <p className="font-semibold">⚠️ Valeria no pudo contestar esta conversación — pasó a operadores</p>
+                <p className="mt-0.5">
+                  {neural.error.message}
+                  {neural.error.at && (
+                    <span className="text-muted"> · {new Date(neural.error.at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-muted">Pasale este caso a quien administra la IA. Se borra al apretar «Devolver a la IA» o cuando un operador la retoma.</p>
+              </div>
             )}
 
             {/* Etapa 1 de la IA configurable — testing controlado, solo

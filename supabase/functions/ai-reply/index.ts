@@ -30,6 +30,7 @@ import {
   blockedByTestMode,
   enabledChannels,
   getHumanState,
+  handoffToOperator,
   intSetting,
   jsonResponse,
   loadNeuralSettings,
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
   }
 
   // --- Límite por minuto ---------------------------------------------
-  const limit = intSetting(s.NEURAL_RATE_LIMIT_PER_MIN, 30);
+  const limit = intSetting(s.NEURAL_RATE_LIMIT_PER_MIN, 120);
   if (limit > 0) {
     const { count } = await supabase
       .from("ai_dispatch_log")
@@ -205,6 +206,7 @@ Deno.serve(async (req) => {
     const message = err instanceof Error ? err.message : String(err);
     await supabase.from("app_errors").insert({ context: "ai-reply", message: `No se pudo mandar la respuesta de la IA por ${channel}: ${message}` });
     await finish("failed", "send_failed", 502, { channel, error: message });
+    await handoffToOperator(conversationId, `No se pudo enviar la respuesta por ${channel}: ${message}`);
     return fail(502, "send_failed", message);
   }
 

@@ -15,13 +15,17 @@
 //  - Un operador desde el chat (JWT)            -> { conversationId, action: "assign_ai" | "release_ai" }
 //    (reasignar la conversación a "Valeria (IA)" desde el menú "Asignada a")
 //  - El superadmin desde la pantalla (JWT)      -> { test: true }  (evento "ping")
+//  - pg_cron cada minuto, con x-internal-secret -> { watchdog: true }
+//    (si Neuralpreneur recibió el evento y no contestó a tiempo, la conversación vuelve a los operadores)
 //
 // Verifica en la función, no en el gateway (verify_jwt = false en config.toml).
 
 import {
   blockedByTestMode,
+  clearAiError,
   enabledChannels,
   getHumanState,
+  handoffToOperator,
   hmacHex,
   intSetting,
   jsonResponse,
@@ -83,6 +87,8 @@ Deno.serve(async (req) => {
       const human = await getHumanState(String(body.conversationId));
       const { data: c } = await supabase.from("conversations").select("ai_escalated_at").eq("id", body.conversationId).maybeSingle();
       const { data: cv } = await supabase.from("conversations").select("ai_assigned").eq("id", body.conversationId).maybeSingle();
+      // Aviso rojo del chat: por qué la IA no pudo contestar (si las columnas todavía no existen, no hay aviso).
+      const { data: er } = await supabase.from("conversations").select("ai_error, ai_error_at").eq("id", body.conversationId).maybeSingle();
       return respond({
         ok: true,
         mode: neuralMode(settings),
@@ -90,6 +96,7 @@ Deno.serve(async (req) => {
         humanReplied: human.humanReplied,
         escalated: !!(c as any)?.ai_escalated_at && human.paused,
         assigned: !!(cv as any)?.ai_assigned,
+        error: (er as any)?.ai_error ? { message: (er as any).ai_error, at: (er as any).ai_error_at ?? null } : null,
       });
     }
 
@@ -121,6 +128,7 @@ Deno.serve(async (req) => {
         .update({ ai_assigned: true, ai_paused: false, ai_resume_at: new Date().toISOString(), ai_escalated_at: null })
         .eq("id", conversationId);
       if (upErr) return respond({ ok: false, error: upErr.message }, 500);
+      await clearAiError(conversationId);
 
       // Si el último mensaje de la conversación es del cliente (está esperando respuesta), se le manda ya a la IA.
       const { data: latest } = await supabase
@@ -146,6 +154,7 @@ Deno.serve(async (req) => {
           : { ai_paused: false, ai_resume_at: new Date().toISOString(), ai_escalated_at: null };
       const { error } = await supabase.from("conversations").update(patch).eq("id", body.conversationId);
       if (error) return respond({ ok: false, error: error.message }, 500);
+      if (body.action === "resume") await clearAiError(String(body.conversationId));
       return respond({ ok: true, paused: body.action === "pause" });
     }
 
@@ -183,6 +192,45 @@ Deno.serve(async (req) => {
       // Limpieza: el registro solo guarda 30 días.
       await supabase.from("ai_dispatch_log").delete().lt("created_at", new Date(Date.now() - 30 * 86400_000).toISOString());
       return respond({ ok: true, processed: results.length });
+    }
+
+    // --- Red de seguridad: Neuralpreneur recibió el evento y no contestó --
+    if (body.watchdog) {
+      if (caller.kind !== "internal") return respond({ ok: false, error: "Solo interno" }, 403);
+      if (neuralMode(settings) === "off") return respond({ ok: true, skipped: "mode_off" });
+      const timeout = intSetting(settings.NEURAL_REPLY_TIMEOUT_SECONDS, 60);
+      if (timeout <= 0) return respond({ ok: true, skipped: "disabled" });
+      const cutoff = new Date(Date.now() - timeout * 1000).toISOString();
+      const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+      const { data: waiting } = await supabase
+        .from("ai_dispatch_log")
+        .select("id, conversation_id, created_at")
+        .eq("direction", "out")
+        .eq("status", "sent")
+        .lt("created_at", cutoff)
+        .gt("created_at", since)
+        .limit(50);
+      let handed = 0;
+      for (const row of (waiting ?? []) as { id: string; conversation_id: string | null; created_at: string }[]) {
+        if (!row.conversation_id) continue; // evento de prueba (ping)
+        const mark = (status: string) =>
+          supabase.from("ai_dispatch_log").update(status === "no_reply" ? { status, reason: `sin respuesta en ${timeout} s` } : { status }).eq("id", row.id);
+        const { data: conv } = await supabase.from("conversations").select("ai_paused").eq("id", row.conversation_id).maybeSingle();
+        if ((conv as any)?.ai_paused) { await mark("closed"); continue; } // escalada o pausada: ya la tiene un humano
+        const { data: after } = await supabase
+          .from("messages")
+          .select("automation_type")
+          .eq("conversation_id", row.conversation_id)
+          .eq("sender_type", "operator")
+          .gt("created_at", row.created_at)
+          .limit(20);
+        const answered = ((after ?? []) as { automation_type: string | null }[]).some((m) => m.automation_type == null || m.automation_type === "ai_response");
+        if (answered) { await mark("answered"); continue; }
+        await mark("no_reply");
+        await handoffToOperator(row.conversation_id, `Neuralpreneur recibió el aviso pero no contestó en ${timeout} segundos.`);
+        handed++;
+      }
+      return respond({ ok: true, checked: (waiting ?? []).length, handed });
     }
 
     // --- Pedido de un operador ---------------------------------------
@@ -275,6 +323,7 @@ async function evaluateAndDispatch(
       .from("conversations")
       .update({ ai_paused: false, ai_resume_at: new Date().toISOString(), ai_escalated_at: null })
       .eq("id", conversationId);
+    await clearAiError(conversationId);
   }
   const human = await getHumanState(conversationId);
 
@@ -321,10 +370,9 @@ async function evaluateAndDispatch(
     .eq("dedupe_key", dedupe);
 
   if (!result.ok) {
-    await supabase.from("app_errors").insert({
-      context: "ai-dispatch",
-      message: `Neuralpreneur no recibió el webhook (conversación ${conversationId}): ${result.error ?? result.status}`,
-    });
+    // No llegó el aviso a Neuralpreneur: la conversación pasa a los operadores
+    // con el motivo a la vista (y queda en el registro de errores).
+    await handoffToOperator(conversationId, `Neuralpreneur no recibió el aviso: ${result.error ?? "HTTP " + result.status}`);
     return { status: "failed", reason: result.error ?? `http_${result.status}` };
   }
   return { status: "sent" };
@@ -432,7 +480,7 @@ async function buildPayload(
     reply: {
       url: `${SUPABASE_URL}/functions/v1/ai-reply`,
       auth: "Authorization: Bearer <API key que te dimos>",
-      rate_limit_per_minute: intSetting(s.NEURAL_RATE_LIMIT_PER_MIN, 30),
+      rate_limit_per_minute: intSetting(s.NEURAL_RATE_LIMIT_PER_MIN, 120),
     },
   };
 }

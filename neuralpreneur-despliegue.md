@@ -8,6 +8,7 @@ Todo viene apagado: modo **Apagada** y modo prueba **encendido**. Subirlo no cam
    - **Importante:** esta versión agrega la columna `conversations.ai_assigned` y actualiza el trigger (función "Asignar a Valeria"). Si ya habías corrido una versión anterior, volvé a correrlo; no rompe nada.
    - Si avisa que `pg_net` no se pudo habilitar: Database → Extensions → activar `pg_net` y volver a correr.
    - Después correr también `supabase\neuralpreneur_textos.sql`: carga las instrucciones de Valeria y la reserva prendida, solo en los campos vacíos.
+   - Y correr `supabase\neuralpreneur_watchdog.sql` (requiere `pg_cron`): programa cada minuto la revisión de "la IA no contestó". Sin este paso, el pase automático a operador por falta de respuesta no funciona (los otros errores sí).
 2. **Edge Functions:** copiar a `supabase\functions\`:
    - `ai-dispatch\` y `ai-reply\` (carpetas nuevas)
    - `_shared\neural.ts` (nuevo)

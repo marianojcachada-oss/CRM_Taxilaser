@@ -101,7 +101,7 @@ Modos (se elige en el panel):
   "reply": {
     "url": "https://<proyecto>.supabase.co/functions/v1/ai-reply",
     "auth": "Authorization: Bearer <API key que te dimos>",
-    "rate_limit_per_minute": 30
+    "rate_limit_per_minute": 120
   }
 }
 ```
@@ -180,7 +180,7 @@ Error (`4xx`/`5xx`):
 | 404 | `conversation_not_found` | No existe esa conversación | Revisar el id |
 | 409 | `human_active` | Un operador ya respondió | **Callarse.** No reintentar |
 | 409 | `ai_paused` | Conversación pausada o escalada | **Callarse.** No reintentar |
-| 409 | `max_auto_replies` | Tope de respuestas seguidas de la IA | Escalar a un humano |
+| 409 | `max_auto_replies` | Tope de respuestas seguidas de la IA sin mensaje nuevo del cliente | Escalar a un humano |
 | 409 | `mode_off` | La IA está apagada en Qué tal? | No reintentar |
 | 422 | `channel_disabled` | Canal no habilitado para la IA | No reintentar |
 | 429 | `rate_limited` | Superó el límite por minuto (`Retry-After` en segundos) | Esperar y reintentar |
@@ -188,7 +188,7 @@ Error (`4xx`/`5xx`):
 
 ### Límite de pedidos
 
-**30 pedidos por minuto** por defecto (configurable en el panel). Al superarlo respondemos `429` con `Retry-After`.
+**120 pedidos por minuto** por defecto (configurable en el panel). Al superarlo respondemos `429` con `Retry-After`.
 
 ### Detalles del canal que conviene conocer
 
@@ -265,7 +265,8 @@ Cada evento trae el bloque `human`:
 - Después de que un operador responde, la IA queda en silencio en esa conversación hasta que un operador aprieta **"Devolver a la IA"** o le **pide una respuesta** (eso también la reactiva).
 - Un operador puede **pausar** la IA o **pedirle** una respuesta puntual desde el chat.
 - **Asignar a Valeria:** un operador puede elegir "Valeria (IA)" en el menú "Asignada a" del chat. Desde ese momento la IA responde cada mensaje nuevo del cliente (y el que ya estaba pendiente) sin importar el horario ni la espera configurada, hasta que un operador la retome. Si el operador **le pasa la conversación a una persona** ("Asignada a" otro operador) o aprieta **"Quitar a Valeria"**, la IA deja de atenderla. Si un operador escribe en la conversación, la IA vuelve a quedar en silencio (el humano siempre manda).
-- **Tope anti-bucle:** la IA no puede mandar más de N respuestas seguidas (5 por defecto) sin que intervenga un humano o el cliente cambie la situación; al llegar al tope hay que escalar.
+- **Si la IA no contesta (red de seguridad de Qué tal?):** cada evento que Neuralpreneur recibe tiene que terminar en una llamada a `ai-reply`, con `reply` o con `escalate`. Si pasan **60 segundos** (configurable) sin ninguna de las dos y sin que un operador haya escrito, Qué tal? devuelve la conversación a la cola de operadores y deja un aviso rojo con el motivo en el chat. Lo mismo ocurre si el evento no pudo entregarse (Neuralpreneur respondió error o no respondió) o si el envío de una respuesta falla. Después de eso la IA queda en silencio en esa conversación hasta que un operador la devuelve a la IA. Si Neuralpreneur decide no responder un mensaje, debe llamar a `escalate` para no activar este aviso.
+- **Tope anti-bucle:** la IA no puede mandar más de N respuestas seguidas (5 por defecto) sin que el cliente escriba de nuevo. Cada mensaje nuevo del cliente reinicia la cuenta, y también la reinicia un humano que responde. Se puede ajustar en el panel (0 = sin límite). Al llegar al tope hay que escalar.
 
 ---
 
@@ -325,7 +326,7 @@ Configurable: `policy.schedule`
 
 Además se puede definir una **espera**: la IA solo contesta si pasaron N minutos desde el mensaje del cliente sin que un operador responda (0 = enseguida). Si un operador responde durante la espera, la IA no contesta.
 
-Otros filtros del panel: canales donde puede responder (WhatsApp, SMS, Facebook, Instagram) y el tope de respuestas seguidas.
+Otros filtros del panel: canales donde puede responder (WhatsApp, SMS, Facebook, Instagram) y el tope de respuestas seguidas (se reinicia con cada mensaje del cliente).
 
 ---
 

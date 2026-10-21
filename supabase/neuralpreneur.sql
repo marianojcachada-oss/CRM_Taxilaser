@@ -18,6 +18,8 @@ alter table conversations add column if not exists ai_paused boolean not null de
 alter table conversations add column if not exists ai_resume_at timestamptz;
 alter table conversations add column if not exists ai_escalated_at timestamptz;
 alter table conversations add column if not exists ai_assigned boolean not null default false;  -- asignada a Valeria (IA) desde la bandeja
+alter table conversations add column if not exists ai_error text;                          -- por qué la IA no pudo contestar (aviso rojo en el chat)
+alter table conversations add column if not exists ai_error_at timestamptz;
 
 -- 2) Registro --------------------------------------------------------------
 -- Los ids van como text a propósito: no depende del tipo de id de cada tabla.

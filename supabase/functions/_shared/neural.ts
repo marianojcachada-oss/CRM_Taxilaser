@@ -30,6 +30,7 @@ export const NEURAL_KEYS = [
   "NEURAL_SCHEDULE",
   "NEURAL_CHANNELS",
   "NEURAL_MAX_AUTO_REPLIES",
+  "NEURAL_REPLY_TIMEOUT_SECONDS",
   "NEURAL_LANGUAGE",
   "NEURAL_CAN_QUOTE",
   "NEURAL_CAN_BOOK",
@@ -113,8 +114,19 @@ export async function getHumanState(conversationId: string): Promise<HumanState>
   if (resumeAt) q = q.gt("created_at", resumeAt);
   const { data: lastHuman } = await q.maybeSingle();
 
-  // Respuestas de la IA desde el último humano / reactivación (corta bucles).
-  const since = (lastHuman as any)?.created_at ?? resumeAt;
+  // Respuestas de la IA seguidas, sin que el cliente escriba de nuevo (corta bucles).
+  // Se cuentan desde lo más reciente entre: el último humano, la reactivación y el
+  // último mensaje del cliente — cada mensaje nuevo del cliente reinicia la cuenta.
+  const { data: lastContact } = await supabase
+    .from("messages")
+    .select("created_at")
+    .eq("conversation_id", conversationId)
+    .eq("sender_type", "contact")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const marks = [(lastHuman as any)?.created_at, resumeAt, (lastContact as any)?.created_at].filter(Boolean) as string[];
+  const since = marks.length ? marks.reduce((a, b) => (a > b ? a : b)) : null;
   let aiQ = supabase
     .from("messages")
     .select("id", { count: "exact", head: true })
@@ -186,4 +198,37 @@ export function jsonResponse(body: unknown, status = 200, extra: Record<string, 
     status,
     headers: { "Content-Type": "application/json", ...extra },
   });
+}
+
+// Pasa la conversación a los operadores cuando la IA no pudo contestar y deja
+// el motivo visible en el chat (aviso rojo) y en el registro de errores.
+// Nunca lanza: si fallara, el mensaje del cliente sigue donde estaba.
+export async function handoffToOperator(conversationId: string, message: string) {
+  const now = new Date().toISOString();
+  const base = { ai_assigned: false, ai_paused: true, ai_escalated_at: now, status: "esperando_operador", unread: true };
+  try {
+    const { error } = await supabase
+      .from("conversations")
+      .update({ ...base, ai_error: message.slice(0, 500), ai_error_at: now })
+      .eq("id", conversationId);
+    if (error) {
+      // Columnas del aviso todavía no creadas (falta correr neuralpreneur.sql): igual pasa a operador.
+      await supabase.from("conversations").update(base).eq("id", conversationId);
+    }
+    await supabase.from("app_errors").insert({
+      context: "ai-dispatch",
+      message: `Valeria no pudo contestar (conversación ${conversationId}): ${message}`,
+    });
+  } catch (_e) {
+    /* nada */
+  }
+}
+
+// Borra el aviso rojo (cuando un operador la retoma o se la vuelve a asignar a la IA).
+export async function clearAiError(conversationId: string) {
+  try {
+    await supabase.from("conversations").update({ ai_error: null, ai_error_at: null }).eq("id", conversationId);
+  } catch (_e) {
+    /* columnas todavía no creadas */
+  }
 }

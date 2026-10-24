@@ -17,6 +17,7 @@ import { getFunctionErrorMessage } from './functionsError'
 import { usePermissions } from './permissions'
 import { phoneForCopy } from './phone'
 import { atlantaDateISO, formatMessageTime } from './atlantaTime'
+import { hasUnrecognizedLinks } from './messageLinks'
 
 // El selector de emojis pesa bastante: se baja la primera vez que se abre.
 const EmojiPicker = lazyWithReload(() => import('emoji-picker-react'))
@@ -469,6 +470,15 @@ export default function ConversationsView({
   }, [conversations, resolvingSelection])
 
   const selected = conversations.find((c) => c.id === selectedId)
+  const unrecognizedLinkIds = useMemo(
+    () =>
+      new Set(
+        thread
+          .filter((message) => message.text && hasUnrecognizedLinks(message.text))
+          .map((message) => message.id),
+      ),
+    [thread],
+  )
 
   const whatsappWindowClosed =
     sendChannel === 'whatsapp' &&
@@ -1731,7 +1741,7 @@ export default function ConversationsView({
                             : m.from === 'operator'
                               ? 'rounded-2xl border border-mustard/40 bg-[color-mix(in_srgb,var(--color-mustard)_18%,var(--color-asphalt))] text-cream'
                               : 'rounded-2xl bg-panel-light text-cream'
-                        } ${m.status === 'sending' ? 'opacity-70' : ''} ${m.status === 'failed' ? 'border border-alert' : ''}`}
+                        } ${m.status === 'sending' ? 'opacity-70' : ''} ${m.status === 'failed' ? 'border border-alert' : ''} ${unrecognizedLinkIds.has(m.id) ? 'ui-unrecognized-link' : ''}`}
                       >
                     {m.from === 'operator' && !m.senderOperatorId && m.status !== 'sending' && (
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
@@ -1866,6 +1876,11 @@ export default function ConversationsView({
                       )}
                     </div>
                   </div>
+                  {unrecognizedLinkIds.has(m.id) && (
+                    <span className="mt-1 inline-flex max-w-full items-center rounded-full border border-alert/40 bg-alert/10 px-2 py-0.5 text-[10px] font-semibold text-alert">
+                      ⚠ Link no reconocido
+                    </span>
+                  )}
                       </div>
                   {/* Antes esto solo se mostraba en los mensajes del operador — pero
                       como SMS y WhatsApp comparten una misma conversación, un cliente

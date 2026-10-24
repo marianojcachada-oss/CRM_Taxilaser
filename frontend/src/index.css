@@ -829,6 +829,11 @@ html[data-layout='espacio'] .ui-bubble[data-from='operator']:not(.border-dashed)
   border-color: var(--bubble-ink);
 }
 
+.ui-bubble.ui-unrecognized-link {
+  border: 1px solid var(--color-alert) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-alert) 35%, transparent);
+}
+
 /* ---- Caja de respuesta: texto arriba, herramientas con nombre abajo ---- */
 html[data-layout='espacio'] .ui-composer {
   flex-wrap: wrap;

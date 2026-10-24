@@ -348,6 +348,7 @@ export default function ConversationsView({
   const [draft, setDraft] = useState('')
   // Mensaje que se está citando para la próxima respuesta (solo WhatsApp).
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [quoteFocusRequest, setQuoteFocusRequest] = useState<{ conversationId: string; nonce: number } | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showReassignMenu, setShowReassignMenu] = useState(false)
@@ -399,6 +400,20 @@ export default function ConversationsView({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }, [draft])
+
+  useLayoutEffect(() => {
+    if (quoteFocusRequest?.conversationId !== selectedId) return
+    draftInputRef.current?.focus()
+  }, [quoteFocusRequest, selectedId])
+
+  function quoteMessage(message: Message) {
+    if (!selectedId) return
+    setReplyingTo(message)
+    setQuoteFocusRequest((previous) => ({
+      conversationId: selectedId,
+      nonce: (previous?.nonce ?? 0) + 1,
+    }))
+  }
 
   useEffect(() => {
     supabase
@@ -1844,7 +1859,7 @@ export default function ConversationsView({
                       {sendChannel === 'whatsapp' && m.status !== 'sending' && m.status !== 'failed' && !m.id.startsWith('temp-') && (
                         <button
                           type="button"
-                          onClick={() => setReplyingTo(m)}
+                          onClick={() => quoteMessage(m)}
                           className="opacity-60 transition-opacity hover:opacity-100"
                           title="Responder citando este mensaje"
                         >
